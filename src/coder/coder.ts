@@ -39,6 +39,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
     instructions: options.instructions,
     phase: options.phase,
     step: options.step,
+    completedSubPhases: options.completedSubPhases,
   })
 
   const env = { ...process.env }

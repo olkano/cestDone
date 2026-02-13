@@ -10,6 +10,7 @@ import { updatePhaseStatus, writePhaseCompletion } from '../shared/spec-writer.j
 import { runPhase, type DirectorDeps } from '../director/director.js'
 import { askApproval, askInput, ensureTTY } from './prompt.js'
 import { executeCoder } from '../coder/coder.js'
+import { ensureGitRepo } from '../shared/git.js'
 
 export async function handleRun(
   specPath: string,
@@ -21,6 +22,7 @@ export async function handleRun(
   const resolved = resolveConfig(config)
   const targetDir = path.resolve(options?.target ?? resolved.targetRepoPath)
   resolved.targetRepoPath = targetDir
+  ensureGitRepo(targetDir)
   const resolvedSpecPath = path.resolve(specPath)
   const content = fs.readFileSync(resolvedSpecPath, 'utf-8')
   const spec = parseSpec(content, targetDir)
@@ -69,6 +71,7 @@ export async function handleResume(
   const resolved = resolveConfig(config)
   const targetDir = path.resolve(options?.target ?? resolved.targetRepoPath)
   resolved.targetRepoPath = targetDir
+  ensureGitRepo(targetDir)
   const resolvedSpecPath = path.resolve(specPath)
   const content = fs.readFileSync(resolvedSpecPath, 'utf-8')
   const spec = parseSpec(content, targetDir)

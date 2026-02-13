@@ -11,6 +11,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 
 vi.mock('../src/cli/prompt.js')
 vi.mock('../src/shared/config.js')
+vi.mock('../src/shared/git.js')
 
 import { ensureTTY, askApproval, askInput } from '../src/cli/prompt.js'
 import { loadConfig, resolveConfig } from '../src/shared/config.js'
@@ -92,11 +93,12 @@ beforeEach(() => {
   })
 
   // Both Director and Coder use Agent SDK query() now.
-  // Order: Director(analyze), Director(plan), Coder(execute), Director(complete)
+  // Order: Director(analyze), Director(plan), Coder(execute), Director(review), Director(complete)
   const responses = [
     makeDirectorResult('approve', 'Analysis complete. No questions.'),
     makeDirectorResult('approve', 'Plan:\n1. Create files\n2. Write tests'),
     makeCoderResult(),
+    makeDirectorResult('done', 'All verified.'),
     makeDirectorResult('done', 'Phase done. Created scaffold.'),
   ]
 
@@ -133,8 +135,8 @@ describe('integration', () => {
     // Done summary should be written
     expect(result).toContain('Phase done. Created scaffold.')
 
-    // Agent SDK query() called 4 times: Director(analyze), Director(plan), Coder(execute), Director(complete)
-    expect(mockQuery).toHaveBeenCalledTimes(4)
+    // Agent SDK query() called 5 times: Director(analyze), Director(plan), Coder(execute), Director(review), Director(complete)
+    expect(mockQuery).toHaveBeenCalledTimes(5)
 
     // Approval was requested
     expect(askApproval).toHaveBeenCalledTimes(1)
@@ -148,7 +150,7 @@ describe('integration', () => {
     await handleRun(specPath)
 
     // The 3rd query() call is the Coder (execute step)
-    expect(mockQuery).toHaveBeenCalledTimes(4)
+    expect(mockQuery).toHaveBeenCalledTimes(5)
     const coderParams = mockQuery.mock.calls[2][0]
     expect(coderParams.options.tools).toEqual(
       ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']

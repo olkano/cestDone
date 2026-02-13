@@ -6,7 +6,7 @@ export const DIRECTOR_RESPONSE_SCHEMA = {
   properties: {
     action: {
       type: 'string',
-      enum: ['analyze', 'ask_human', 'approve', 'fix', 'done', 'escalate'],
+      enum: ['analyze', 'ask_human', 'approve', 'fix', 'continue', 'done', 'escalate'],
     },
     message: { type: 'string' },
     questions: { type: 'array', items: { type: 'string' } },
@@ -122,29 +122,63 @@ export function buildPlanPrompt(phase: Phase, updatedSpec: string): string {
     'Produce a detailed implementation plan as a numbered list of tasks.',
     "Consider existing code — don't plan work that's already done.",
     'Include: file paths, function signatures, TDD sequence (which tests first), and a TODO checklist.',
+    '',
+    '## Sub-phase Chunking',
+    'If the plan is too large for a single Coder session (~15-25 turns), break it into sub-phases.',
+    'Each sub-phase should be a discrete, testable feature that:',
+    '- Can be implemented in 15-25 Coder turns',
+    '- Ends with all tests passing and a clean state',
+    '- Builds on previous sub-phases without breaking them',
+    'Label sub-phases clearly: **Sub-phase A**, **Sub-phase B**, etc.',
+    'If the plan fits in one session, a single sub-phase is fine.',
+    '',
     'Do NOT write code yet.',
   ].join('\n')
 }
 
-export function buildReviewPrompt(plan: string, coderReport: string): string {
-  return [
+export function buildReviewPrompt(plan: string, coderReport: string, completedSubPhases: string[] = []): string {
+  const parts: string[] = [
     '## Implementation Plan',
     plan,
     '',
     '## Coder Report',
     coderReport,
+  ]
+
+  if (completedSubPhases.length > 0) {
+    parts.push('', '## Previously Completed Sub-phases')
+    completedSubPhases.forEach((summary, i) => {
+      parts.push(`### Sub-phase ${i + 1}`, summary)
+    })
+  }
+
+  parts.push(
     '',
     '## Task',
     'Verify the implementation:',
     '1. Read the files the Coder changed',
     '2. Run `npm test` (or equivalent) via Bash',
     '3. Run `tsc --noEmit` if TypeScript',
-    "4. Check that the plan's requirements are met",
+    "4. Check that the plan's requirements are met so far",
     '',
     "Report: what works, what's broken, what's missing.",
-    'If issues found, return action "fix" with specific instructions for the Coder.',
-    'If everything passes, return action "done".',
-  ].join('\n')
+    '',
+    '## Git Commits',
+    'If tests pass and the work is correct, commit the changes before responding:',
+    '```',
+    'git add -A',
+    'git commit -m "cestdone: <concise description of what was built>"',
+    '```',
+    'Do NOT commit if tests fail, types have errors, or the implementation is incomplete.',
+    '',
+    '## Response Actions',
+    '- **fix**: Issues found. Do NOT commit. Return specific fix instructions for the Coder.',
+    '- **continue**: Current sub-phase is correct, committed, AND more sub-phases remain.',
+    '  Include the next sub-phase instructions in your message.',
+    '- **done**: All sub-phases are complete, verified, and committed. Everything passes.',
+  )
+
+  return parts.join('\n')
 }
 
 export function buildCompletePrompt(phase: Phase): string {

@@ -45,7 +45,7 @@ export enum WorkflowStep {
   Complete = 8,
 }
 
-export type DirectorActionType = 'analyze' | 'ask_human' | 'approve' | 'fix' | 'done' | 'escalate'
+export type DirectorActionType = 'analyze' | 'ask_human' | 'approve' | 'fix' | 'continue' | 'done' | 'escalate'
 
 export interface DirectorResponse {
   action: DirectorActionType
@@ -84,4 +84,5 @@ export interface CoderOptions {
   maxBudgetUsd?: number
   apiKey: string
   logLevel: string
+  completedSubPhases?: string[]
 }

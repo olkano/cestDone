@@ -78,7 +78,7 @@ describe('DIRECTOR_RESPONSE_SCHEMA', () => {
   // G3: Schema defines action enum with all action types
   it('defines action enum with all Director action types', () => {
     const props = DIRECTOR_RESPONSE_SCHEMA.properties as Record<string, { enum?: string[] }>
-    expect(props.action.enum).toEqual(['analyze', 'ask_human', 'approve', 'fix', 'done', 'escalate'])
+    expect(props.action.enum).toEqual(['analyze', 'ask_human', 'approve', 'fix', 'continue', 'done', 'escalate'])
   })
 
   it('requires action and message fields', () => {
@@ -143,6 +143,14 @@ describe('buildPlanPrompt', () => {
     expect(prompt).toContain('TDD')
     expect(prompt).toContain('Do NOT write code')
   })
+
+  it('includes sub-phase chunking instructions', () => {
+    const prompt = buildPlanPrompt(CURRENT_PHASE, 'Updated spec')
+
+    expect(prompt).toContain('Sub-phase')
+    expect(prompt).toContain('15-25')
+    expect(prompt).toContain('testable feature')
+  })
 })
 
 describe('buildReviewPrompt', () => {
@@ -153,6 +161,41 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('success')
     expect(prompt).toContain('npm test')
     expect(prompt).toContain('tsc --noEmit')
+  })
+
+  it('includes response action instructions for continue/done/fix', () => {
+    const prompt = buildReviewPrompt('Plan', '{"status":"success"}')
+
+    expect(prompt).toContain('continue')
+    expect(prompt).toContain('done')
+    expect(prompt).toContain('fix')
+  })
+
+  it('includes completed sub-phases when provided', () => {
+    const prompt = buildReviewPrompt('Plan', '{"status":"success"}', [
+      'Created models and migrations',
+      'Added API routes',
+    ])
+
+    expect(prompt).toContain('Previously Completed Sub-phases')
+    expect(prompt).toContain('Sub-phase 1')
+    expect(prompt).toContain('Created models and migrations')
+    expect(prompt).toContain('Sub-phase 2')
+    expect(prompt).toContain('Added API routes')
+  })
+
+  it('omits sub-phases section when none completed', () => {
+    const prompt = buildReviewPrompt('Plan', '{"status":"success"}', [])
+
+    expect(prompt).not.toContain('Previously Completed Sub-phases')
+  })
+
+  it('includes git commit instructions for verified work', () => {
+    const prompt = buildReviewPrompt('Plan', '{"status":"success"}')
+
+    expect(prompt).toContain('git add -A')
+    expect(prompt).toContain('git commit')
+    expect(prompt).toContain('Do NOT commit if tests fail')
   })
 })
 

@@ -79,22 +79,23 @@ Human writes spec.md
                               │ approved
                               ▼
  ┌─ 6. EXECUTE ──────────────────────────────────────────────┐
- │  Coder implements the plan (full tools: edit, bash, etc.)  │
+ │  Coder implements current sub-phase (~15-25 turns)         │
+ │  Full tools: edit, bash, etc.                              │
  │  Returns: status, summary, files changed, test results     │
  └────────────────────────────┬───────────────────────────────┘
                               │
-                 ┌─── success? ───┐
-                 │ no             │ yes
-                 ▼                │
- ┌─ 7. REVIEW ──────────┐       │
- │  Director reads files,│       │
- │  runs tests via Bash, │       │
- │  sends fix instruct-  │       │
- │  ions → back to 6     │       │
- │  (max 3, then human)  │       │
- └───────────────────────┘       │
-                                 │
-                                 ▼
+                              ▼
+ ┌─ 7. REVIEW (always runs) ───────────────────────────────────┐
+ │  Director reads files, runs tests via Bash, verifies work   │
+ │                                                              │
+ │  → "done"     All verified → git commit → Step 8             │
+ │  → "continue" Sub-phase OK → git commit → back to 6         │
+ │               (with next sub-phase instructions)             │
+ │  → "fix"      Issues found → NO commit → back to 6          │
+ │               with fix instructions (max 3, then human)      │
+ └──────────────────────────┬──────────────────────────────────┘
+                             │ done
+                             ▼
  ┌─ 8. COMPLETE ─────────────────────────────────────────────┐
  │  Director writes Done summary to spec.md                   │
  │  Phase status: done                                        │
@@ -144,28 +145,54 @@ Director drafts updated spec text. Coder writes it to spec.md.
 Spec now includes: "JWT_SECRET from env, 24h expiry."
 
 ── Step 4: Plan ─────────────────────────────────────────────
-Director reads codebase, produces plan:
+Director reads codebase, produces plan with sub-phases:
 
   === Director's Plan ===
-  1. Create src/middleware/auth.ts — JWT verify middleware
-  2. Create src/routes/auth.ts — POST /api/auth/login
-  3. Add tests: tests/auth.test.ts (TDD: write tests first)
-  4. Update src/app.ts to mount /api/auth routes
+  Sub-phase A: Auth middleware + login
+    1. Create src/middleware/auth.ts — JWT verify middleware
+    2. Create src/routes/auth.ts — POST /api/auth/login
+    3. TDD: tests/auth.test.ts for login
+
+  Sub-phase B: Registration
+    4. Add POST /api/auth/register to src/routes/auth.ts
+    5. TDD: tests/auth.test.ts for register
+    6. Update src/app.ts to mount /api/auth routes
   ======================
 
 ── Step 5: Approve ──────────────────────────────────────────
-  Approve? (y/n): n
-  Feedback: Also add a /register endpoint
+  Approve? (y/n): y
 
-Director revises plan, adds registration. Human approves.
+── Step 6: Execute (Sub-phase A) ────────────────────────────
+Coder implements auth middleware + login with TDD.
 
-── Step 6: Execute ──────────────────────────────────────────
-Coder implements with full tools (edit, bash, etc.)
+  Coder: Created JWT middleware and login endpoint. 5 tests pass.
+         (cost: $0.30)
 
-  Coder: Created auth module with login+register. 8 tests pass.
-         (cost: $0.45)
+── Step 7: Review ───────────────────────────────────────────
+Director reads files, runs npm test, verifies Sub-phase A.
 
-── Step 7: Review (skipped — Coder reported success) ────────
+  Director runs: git add -A && git commit -m "cestdone: auth middleware + login"
+
+  Director → { action: "continue",
+               message: "Sub-phase A verified. Now implement
+               Sub-phase B: registration endpoint..." }
+
+  Sub-phase 1 complete. Continuing...
+
+── Step 6: Execute (Sub-phase B) ────────────────────────────
+Coder implements registration, building on existing auth code.
+Receives context: "Previously completed: JWT middleware + login"
+
+  Coder: Added register endpoint. 8 tests pass. (cost: $0.25)
+
+── Step 7: Review ───────────────────────────────────────────
+Director verifies all work, runs full test suite.
+
+  Director runs: git add -A && git commit -m "cestdone: registration endpoint"
+
+  Director → { action: "done", message: "All verified." }
+
+  Total Coder cost: $0.55
 
 ── Step 8: Complete ─────────────────────────────────────────
 Director writes Done summary to spec.md. Phase status → done.
@@ -175,10 +202,21 @@ Director writes Done summary to spec.md. Phase status → done.
   env-based secret), bcrypt passwords, 8 passing tests.
 ```
 
-If the Coder had failed at Step 6 (e.g., tests failing), the Director would:
-1. Read the changed files and run `npm test` via Bash (Review step)
-2. Send fix instructions back to the Coder
-3. Retry up to 3 times, then ask the human for guidance
+**Error handling:** If the Coder fails at Step 6, the Director:
+1. Reviews the code and runs tests via Bash
+2. Returns `fix` with specific instructions → Coder retries
+3. After 3 failures, escalates to human for guidance
+4. Retry count resets when moving to a new sub-phase
+
+## Git Integration
+
+**Initialization:** On first run, cestdone ensures the target repo has git initialized with a `.gitignore` (excludes `node_modules/`, `dist/`, `.env`, etc.). Existing repos and `.gitignore` files are left untouched.
+
+**Commits by the Director:** The Director is responsible for committing verified work during the Review step. Each commit is a clean checkpoint:
+- Tests pass + types check → `git add -A && git commit` → respond `continue` or `done`
+- Tests fail or issues found → **no commit** → respond `fix`
+
+This means every commit represents verified, working code. If a sub-phase fails after a commit, the previous commit serves as a safe rollback point.
 
 ## Tool Restrictions
 
@@ -203,10 +241,12 @@ Both agents return typed JSON via `outputFormat`:
 
 **Director** returns `DirectorResponse`:
 ```json
-{ "action": "approve | ask_human | fix | done | ...",
-  "message": "plan text or instructions",
+{ "action": "approve | ask_human | fix | continue | done | escalate",
+  "message": "plan text, instructions, or next sub-phase",
   "questions": ["only with ask_human"] }
 ```
+
+Actions: `approve` (plan/analysis OK), `ask_human` (needs input), `fix` (Coder retry), `continue` (sub-phase done, next instructions in message), `done` (all complete), `escalate` (stuck).
 
 **Coder** returns `CoderReport`:
 ```json
@@ -293,6 +333,7 @@ src/
 └── shared/
     ├── types.ts          # All TypeScript types
     ├── config.ts         # .cestdonerc.json loading
+    ├── git.ts            # Git repo init + .gitignore
     ├── spec-parser.ts    # Markdown spec parsing
     ├── spec-writer.ts    # Atomic spec file updates
     └── logger.ts         # Pino file logging
@@ -302,7 +343,7 @@ src/
 
 - **Runtime:** Node.js + TypeScript (ESM)
 - **Agent SDK:** `@anthropic-ai/claude-agent-sdk` (both Director and Coder)
-- **Tests:** Vitest (124 tests across 14 files)
+- **Tests:** Vitest (142 tests across 15 files)
 - **Logging:** Pino with file rotation
 - **CLI:** Commander
 
@@ -313,9 +354,13 @@ src/
 - Structured JSON output for both agents
 - Per-step tool restrictions enforced via `tools` parameter
 - Spec file parsing, status tracking, and atomic updates
-- Execute→Review retry loop with escalation (max 3 retries)
+- Execute→Review loop with sub-phase iteration (continue/done/fix)
+- Sub-phase chunking: Director breaks large plans into ~15-25 turn chunks
+- Retry with escalation (max 3 retries per sub-phase, then human)
 - Plan approval with rejection feedback loop (max 3 rejections)
 - Cost tracking and accumulation across retries
+- Git initialization with `.gitignore` on first run
+- Director-owned commits on verified sub-phases (no commit on failure)
 - CLI with `run` and `resume` commands
 - File-based logging with rotation
 

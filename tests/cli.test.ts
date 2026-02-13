@@ -9,6 +9,7 @@ vi.mock('../src/shared/spec-writer.js')
 vi.mock('../src/director/director.js')
 vi.mock('../src/cli/prompt.js')
 vi.mock('../src/coder/coder.js')
+vi.mock('../src/shared/git.js')
 
 import fs from 'node:fs'
 import { loadConfig, resolveConfig } from '../src/shared/config.js'

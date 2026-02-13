@@ -149,20 +149,22 @@ export async function runPhase(
     }
   }
 
-  // Steps 6-7: Execute → Review loop
+  // Steps 6-7: Execute → Review loop (with sub-phase iteration)
   let coderRetries = 0
   let totalCoderCost = 0
   let instructions = currentPlan
+  const completedSubPhases: string[] = []
 
   while (true) {
     // Step 6: Execute
-    logger.info({ attempt: coderRetries + 1 }, 'Step 6: Executing via Coder')
+    logger.info({ attempt: coderRetries + 1, subPhase: completedSubPhases.length + 1 }, 'Step 6: Executing via Coder')
     const coderResult = await deps.coderExecute(buildCoderOptions({
       step: WorkflowStep.Execute,
       phase,
       config,
       parsedSpec,
       instructions,
+      completedSubPhases: [...completedSubPhases],
     }))
     totalCoderCost += coderResult.cost
 
@@ -170,13 +172,37 @@ export async function runPhase(
     deps.display(`\nCoder: ${summary} (cost: $${coderResult.cost.toFixed(2)})`)
     logger.info({ status: coderResult.status, cost: coderResult.cost, totalCost: totalCoderCost }, 'Coder result')
 
-    // Step 7: Review
-    if (coderResult.status === 'success') {
+    // Step 7: Review — always runs, Director verifies and decides next action
+    logger.info('Step 7: Director reviewing Coder output')
+    const reviewResult = await executeDirector({
+      prompt: buildReviewPrompt(
+        currentPlan,
+        JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
+        completedSubPhases,
+      ),
+      step: WorkflowStep.Review,
+      metadata: parsedSpec.metadata,
+      completedPhases,
+      config,
+      logger,
+    })
+
+    if (reviewResult.action === 'done') {
       deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
-      logger.info({ totalCost: totalCoderCost }, 'Coder succeeded')
+      logger.info({ totalCost: totalCoderCost, subPhasesCompleted: completedSubPhases.length + 1 }, 'All sub-phases complete')
       break
     }
 
+    if (reviewResult.action === 'continue') {
+      completedSubPhases.push(summary)
+      coderRetries = 0
+      instructions = reviewResult.message
+      logger.info({ subPhasesCompleted: completedSubPhases.length }, 'Sub-phase complete, moving to next')
+      deps.display(`\nSub-phase ${completedSubPhases.length} complete. Continuing...`)
+      continue
+    }
+
+    // action === 'fix' (or any other) — retry with fix instructions
     coderRetries++
     if (coderRetries >= MAX_CODER_RETRIES) {
       logger.warn({ coderRetries }, 'Escalating after repeated Coder failures')
@@ -187,17 +213,6 @@ export async function runPhase(
       coderRetries = 0
       instructions = `Human guidance: ${guidance}\nPrevious error: ${coderResult.message}\nPlease fix the issues and try again.`
     } else {
-      const reviewResult = await executeDirector({
-        prompt: buildReviewPrompt(
-          currentPlan,
-          JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
-        ),
-        step: WorkflowStep.Review,
-        metadata: parsedSpec.metadata,
-        completedPhases,
-        config,
-        logger,
-      })
       instructions = reviewResult.message
     }
   }
@@ -221,6 +236,7 @@ function buildCoderOptions(params: {
   config: ResolvedConfig
   parsedSpec: ParsedSpec
   instructions: string
+  completedSubPhases?: string[]
 }): CoderOptions {
   return {
     step: params.step,
@@ -233,6 +249,7 @@ function buildCoderOptions(params: {
     maxBudgetUsd: params.config.maxBudgetUsd,
     apiKey: params.config.apiKey,
     logLevel: params.config.logLevel,
+    completedSubPhases: params.completedSubPhases,
   }
 }
 

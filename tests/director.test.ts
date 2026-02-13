@@ -98,12 +98,16 @@ function createHappyPathDeps(): DirectorDeps {
   }
 }
 
+// Happy path flow: analyze(0) → plan(1) → coder(execute) → review(2) → complete(3)
+// Director calls: 4 (analyze, plan, review, complete)
+
 describe('runPhase', () => {
   // J1: Step 1 — sends Analyze prompt via Agent SDK, sets phase to in-progress
   it('calls Director via Agent SDK and sets phase to in-progress', async () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis complete. No questions.' },
       { action: 'approve', message: 'Plan:\n1. Create files\n2. Write tests' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Phase done. Created scaffold.' },
     )
     const deps = createHappyPathDeps()
@@ -125,6 +129,7 @@ describe('runPhase', () => {
       { action: 'approve', message: 'Understood.' },
       { action: 'approve', message: 'Update spec with answers' },
       { action: 'approve', message: 'Plan: ...' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -145,6 +150,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -160,6 +166,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis complete' },
       { action: 'approve', message: 'Plan:\n1. Create files\n2. Write tests' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -176,6 +183,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -191,6 +199,7 @@ describe('runPhase', () => {
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan v1' },
       { action: 'approve', message: 'Plan v2 with test detail' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -201,8 +210,8 @@ describe('runPhase', () => {
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
     expect(deps.askApproval).toHaveBeenCalledTimes(2)
-    // Director called 4 times: analyze, plan, re-plan, complete
-    expect(mockQuery).toHaveBeenCalledTimes(4)
+    // Director called 5 times: analyze, plan, re-plan, review, complete
+    expect(mockQuery).toHaveBeenCalledTimes(5)
     // Re-plan prompt contains feedback
     const rePlanPrompt = mockQuery.mock.calls[2][0].prompt
     expect(rePlanPrompt).toContain('Need more detail on tests')
@@ -213,6 +222,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan:\n1. Create files\n2. Write tests' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -230,6 +240,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -241,11 +252,12 @@ describe('runPhase', () => {
     expect(typeof opts.model).toBe('string')
   })
 
-  // R3: Success → proceeds to Step 8
-  it('proceeds to Step 8 on Coder success (R3)', async () => {
+  // R3: Success → review verifies → proceeds to Step 8
+  it('proceeds to Step 8 after review confirms Coder success (R3)', async () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan: do things' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Phase done. Created scaffold.' },
     )
     const deps = createHappyPathDeps()
@@ -255,8 +267,8 @@ describe('runPhase', () => {
     expect(deps.writePhaseCompletion).toHaveBeenCalledWith(
       'spec.md', 0, 'Phase done. Created scaffold.'
     )
-    // Director called 3 times: analyze, plan, complete — no review
-    expect(mockQuery).toHaveBeenCalledTimes(3)
+    // Director called 4 times: analyze, plan, review, complete
+    expect(mockQuery).toHaveBeenCalledTimes(4)
   })
 
   // R4: Error → Director formulates fix → retry Coder
@@ -265,6 +277,7 @@ describe('runPhase', () => {
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan: do things' },
       { action: 'fix', message: 'Fix the failing test by updating the assertion' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -286,6 +299,8 @@ describe('runPhase', () => {
       { action: 'approve', message: 'Plan: do things' },
       { action: 'fix', message: 'Fix attempt 1' },
       { action: 'fix', message: 'Fix attempt 2' },
+      { action: 'fix', message: 'Fix attempt 3' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -309,6 +324,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -328,6 +344,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -350,6 +367,7 @@ describe('runPhase', () => {
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan: do things' },
       { action: 'fix', message: 'Fix it' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -371,6 +389,7 @@ describe('runPhase', () => {
       { action: 'approve', message: 'Understood.' },
       { action: 'approve', message: 'Update the spec to mention PostgreSQL' },
       { action: 'approve', message: 'Plan: set up DB' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -391,6 +410,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Phase done. Created scaffold.' },
     )
     const deps = createHappyPathDeps()
@@ -410,6 +430,7 @@ describe('runPhase', () => {
       { action: 'approve', message: 'Plan v2' },
       { action: 'approve', message: 'Plan v3' },
       { action: 'approve', message: 'Plan v4' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -433,13 +454,15 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan: do things' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
-    expect(mockQuery).toHaveBeenCalledTimes(3)
+    // 4 calls: analyze, plan, review, complete
+    expect(mockQuery).toHaveBeenCalledTimes(4)
     // Each call is independent — prompt is a string, not accumulated messages
     for (const call of mockQuery.mock.calls) {
       expect(typeof call[0].prompt).toBe('string')
@@ -451,6 +474,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'OK' },
       { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -473,6 +497,7 @@ describe('runPhase', () => {
     setupDirectorResponses(
       { action: 'approve', message: 'OK' },
       { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -490,6 +515,7 @@ describe('runPhase', () => {
       { action: 'approve', message: 'Analysis OK' },
       { action: 'approve', message: 'Plan: do things' },
       { action: 'fix', message: 'Fix it' },
+      { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
@@ -499,8 +525,120 @@ describe('runPhase', () => {
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
-    // 4 Director calls: analyze, plan, review, complete
+    // 5 Director calls: analyze, plan, review(fix), review(done), complete
+    expect(mockQuery).toHaveBeenCalledTimes(5)
+    const reviewOpts = mockQuery.mock.calls[2][0].options
+    expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
+  })
+
+  // J13: Sub-phase iteration — Director returns 'continue' to advance sub-phases
+  it('iterates through sub-phases when Director returns continue', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan:\nSub-phase A: Create models\nSub-phase B: Add routes' },
+      { action: 'continue', message: 'Sub-phase A complete. Now implement Sub-phase B: Add routes' },
+      { action: 'done', message: 'All sub-phases verified.' },
+      { action: 'done', message: 'Both sub-phases complete.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    // Coder called twice: once per sub-phase
+    expect(deps.coderExecute).toHaveBeenCalledTimes(2)
+    // Second Coder call gets the next sub-phase instructions from Director's 'continue'
+    const secondOpts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as CoderOptions
+    expect(secondOpts.instructions).toContain('Sub-phase B')
+    // Display shows sub-phase progress
+    expect(deps.display).toHaveBeenCalledWith(
+      expect.stringContaining('Sub-phase 1 complete')
+    )
+  })
+
+  // J14: Sub-phase context is passed to Coder
+  it('passes completedSubPhases to Coder on subsequent sub-phases', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan with sub-phases' },
+      { action: 'continue', message: 'Next sub-phase instructions' },
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    // First Coder call has no completed sub-phases
+    const firstOpts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    expect(firstOpts.completedSubPhases).toEqual([])
+
+    // Second Coder call has the first sub-phase summary
+    const secondOpts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as CoderOptions
+    expect(secondOpts.completedSubPhases).toHaveLength(1)
+    expect(secondOpts.completedSubPhases![0]).toBe('Implementation complete')
+  })
+
+  // J15: Sub-phase retries are scoped per sub-phase
+  it('resets retry count when moving to next sub-phase', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan with sub-phases' },
+      { action: 'fix', message: 'Fix sub-phase A' },
+      { action: 'continue', message: 'Sub-phase B instructions' },
+      { action: 'fix', message: 'Fix sub-phase B' },
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
+    deps.coderExecute = vi.fn()
+      .mockResolvedValueOnce(makeCoderError({ message: 'Sub-phase A fail' }))
+      .mockResolvedValueOnce(makeCoderSuccess({ message: 'Sub-phase A done' }))
+      .mockResolvedValueOnce(makeCoderError({ message: 'Sub-phase B fail' }))
+      .mockResolvedValueOnce(makeCoderSuccess({ message: 'Sub-phase B done' }))
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    // 4 Coder calls: A fail, A success, B fail, B success
+    expect(deps.coderExecute).toHaveBeenCalledTimes(4)
+    // No human escalation needed (retries reset between sub-phases)
+    const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
+    const escalationCall = askInputCalls.find((c: string[]) => c[0].includes('failed'))
+    expect(escalationCall).toBeUndefined()
+  })
+
+  // J16: Review prompt includes completedSubPhases context
+  it('passes completedSubPhases to review prompt', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan with sub-phases' },
+      { action: 'continue', message: 'Next sub-phase' },
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    // Second review call (index 3) should have the sub-phase context in its prompt
+    const secondReviewPrompt = mockQuery.mock.calls[3][0].prompt
+    expect(secondReviewPrompt).toContain('Previously Completed Sub-phases')
+  })
+
+  // J17: Review always runs — even on Coder success
+  it('always runs review after Coder execution', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    // Review runs even on success: analyze(0), plan(1), review(2), complete(3)
     expect(mockQuery).toHaveBeenCalledTimes(4)
+    // The review call (index 2) uses Review step tools
     const reviewOpts = mockQuery.mock.calls[2][0].options
     expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
   })

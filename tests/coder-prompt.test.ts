@@ -90,4 +90,30 @@ describe('buildCoderPrompt', () => {
 
     expect(result).toContain('Do NOT modify any files')
   })
+
+  // O6: Includes completed sub-phases context
+  it('includes completed sub-phases when provided', () => {
+    const result = buildCoderPrompt({
+      instructions: 'Implement sub-phase B.',
+      phase: TEST_PHASE,
+      step: WorkflowStep.Execute,
+      completedSubPhases: ['Created models and migrations', 'Added API routes'],
+    })
+
+    expect(result).toContain('Previously Completed Sub-phases')
+    expect(result).toContain('1. Created models and migrations')
+    expect(result).toContain('2. Added API routes')
+    expect(result).toContain('Do NOT redo them')
+  })
+
+  it('omits sub-phases section when none completed', () => {
+    const result = buildCoderPrompt({
+      instructions: 'Implement sub-phase A.',
+      phase: TEST_PHASE,
+      step: WorkflowStep.Execute,
+      completedSubPhases: [],
+    })
+
+    expect(result).not.toContain('Previously Completed Sub-phases')
+  })
 })
