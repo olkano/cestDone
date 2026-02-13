@@ -114,6 +114,8 @@ Each phase runs in a fresh Agent SDK session to prevent context fill-up:
 
 **Context budget rule:** If a Coder session exceeds ~80% of context window, Director should wrap up, commit progress, and continue in a new session. Partial progress is noted in spec.md.
 
+**Commit rule:** The Coder never commits autonomously. See Git and commit protocol.
+
 ## Director-Coder protocol
 
 The Director sends instructions to the Coder as structured natural language:
@@ -188,6 +190,23 @@ Director updates cestdone-spec.md: sets phase status to done, replaces spec cont
 | Steps 2, 3, 5 | Clarification/spec updates | Sonnet if straightforward, Opus if complex |
 | Step 6 | Execution | Opus for full phases, Sonnet for small fixes |
 | Steps 7, 8 | Review/completion | Opus |
+
+## Git and commit protocol
+
+The Coder NEVER commits on its own initiative. All commits go through the Director.
+
+**Rules:**
+- Coder works on a working branch, never on main
+- Coder does NOT commit, push, or create branches unless explicitly told by Director
+- Director requests a commit only at Step 8 (Complete) of the workflow protocol, after reviewing the work
+- Director proposes a commit message following the format: `cestdone: Phase N — [phase name]: [brief summary]`
+- Human approves or modifies the commit message before it executes
+- If a phase is interrupted mid-work (context budget hit), Director tells Coder to save all progress to files (no commit), notes the interruption in spec.md, and resumes in a new session
+
+**Branch strategy (MVP):**
+- `main` — stable, only receives approved commits
+- `cestdone/phase-N` — working branch per phase, created by Director at Step 6
+- On approval: squash-merge into main, delete working branch
 
 ## House rules integration
 
