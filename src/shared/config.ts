@@ -9,6 +9,7 @@ const DEFAULTS: Config = {
   defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '.',
   logLevel: 'info',
+  maxTurns: 100,
 }
 
 export function loadConfig(cwd: string = process.cwd()): Config {

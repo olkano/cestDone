@@ -37,6 +37,36 @@ describe('loadConfig', () => {
     expect(result.targetRepoPath).toBe('.')
     expect(result.logLevel).toBe('info')
   })
+
+  // M1: maxTurns defaults to 100 when not in .cestdonerc.json
+  it('defaults maxTurns to 100', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.maxTurns).toBe(100)
+  })
+
+  // M2: maxBudgetUsd defaults to undefined when not set
+  it('defaults maxBudgetUsd to undefined', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.maxBudgetUsd).toBeUndefined()
+  })
+
+  // M3: .cestdonerc.json with maxTurns: 50 overrides default
+  it('reads maxTurns from .cestdonerc.json', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const config = { maxTurns: 50, maxBudgetUsd: 5.0 }
+    fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.maxTurns).toBe(50)
+    expect(result.maxBudgetUsd).toBe(5.0)
+  })
 })
 
 describe('resolveConfig', () => {

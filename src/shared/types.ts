@@ -26,6 +26,8 @@ export interface Config {
   defaultModel: string
   targetRepoPath: string
   logLevel: string
+  maxTurns: number
+  maxBudgetUsd?: number
 }
 
 export interface ResolvedConfig extends Config {
@@ -53,8 +55,33 @@ export interface DirectorAction {
 
 export type Complexity = 'low' | 'high'
 
+export interface CoderReport {
+  status: 'success' | 'error' | 'partial'
+  summary: string
+  filesChanged?: string[]
+  testResults?: string
+  questions?: string[]
+}
+
 export interface CoderResult {
-  status: 'manual' | 'success' | 'error'
+  status: 'manual' | 'success' | 'error' | 'partial'
   message: string
   filesChanged?: string[]
+  cost: number
+  numTurns: number
+  durationMs: number
+  report: CoderReport | null
+}
+
+export interface CoderOptions {
+  step: WorkflowStep
+  phase: Phase
+  model: string
+  targetRepoPath: string
+  houseRulesContent: string
+  instructions: string
+  maxTurns: number
+  maxBudgetUsd?: number
+  apiKey: string
+  logLevel: string
 }

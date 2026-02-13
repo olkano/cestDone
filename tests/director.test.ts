@@ -52,7 +52,7 @@ function createHappyPathDeps(): DirectorDeps {
     askInput: vi.fn().mockResolvedValue('done'),
     updatePhaseStatus: vi.fn(),
     writePhaseCompletion: vi.fn(),
-    coderExecute: vi.fn().mockReturnValue({ status: 'manual', message: 'manual' }),
+    coderExecute: vi.fn().mockReturnValue({ status: 'manual', message: 'manual', cost: 0, numTurns: 0, durationMs: 0, report: null }),
     display: vi.fn(),
   }
 }
@@ -216,7 +216,7 @@ describe('runPhase', () => {
       askInput: vi.fn().mockResolvedValue('done'),
       updatePhaseStatus: vi.fn(),
       writePhaseCompletion: vi.fn(),
-      coderExecute: vi.fn().mockReturnValue({ status: 'manual', message: 'manual' }),
+      coderExecute: vi.fn().mockReturnValue({ status: 'manual', message: 'manual', cost: 0, numTurns: 0, durationMs: 0, report: null }),
       display: vi.fn(),
     }
 
