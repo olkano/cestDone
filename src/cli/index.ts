@@ -21,6 +21,7 @@ export async function handleRun(
   const config = loadConfig()
   const resolved = resolveConfig(config)
   const targetDir = path.resolve(options?.target ?? resolved.targetRepoPath)
+  resolved.targetRepoPath = targetDir
   const resolvedSpecPath = path.resolve(specPath)
   const content = fs.readFileSync(resolvedSpecPath, 'utf-8')
   const spec = parseSpec(content, targetDir)
@@ -68,6 +69,7 @@ export async function handleResume(
   const config = loadConfig()
   const resolved = resolveConfig(config)
   const targetDir = path.resolve(options?.target ?? resolved.targetRepoPath)
+  resolved.targetRepoPath = targetDir
   const resolvedSpecPath = path.resolve(specPath)
   const content = fs.readFileSync(resolvedSpecPath, 'utf-8')
   const spec = parseSpec(content, targetDir)
