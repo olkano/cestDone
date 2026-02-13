@@ -17,6 +17,8 @@ _(items for upcoming phases, or improvements to current architecture)_
 - [ ] Director prompt size monitoring — log prompt token counts, alert when approaching limits
 - [ ] `cestdone-state.md` run log support (Phase 2 scope)
 - [ ] Re-run `--phase` dependency order validation — warn when re-running Phase N if Phase N+1 is already `done`
+- [ ] cestdone-plan.md lifecycle: auto-create at Step 4, auto-delete after Step 8 commit
+- [ ] Parallel session support: conflict detection, file-level locking
 
 ## 🟢 Low priority (nice to have)
 _(polish, optimization, edge cases that can wait)_

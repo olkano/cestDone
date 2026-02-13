@@ -118,6 +118,15 @@ Each phase runs in a fresh Agent SDK session to prevent context fill-up:
 
 **Commit rule:** The Coder never commits autonomously. See Git and commit protocol.
 
+**State persistence rule:** All decisions, plans, and progress must be persisted to files — never rely on conversation context alone. Before ending any Coder session, the Director ensures:
+- Active implementation plans are saved to `cestdone-plan.md` (overwritten per phase)
+- Decisions and clarifications are in `cestdone-spec.md` (the clarifications subsection)
+- Progress is reflected in phase status and TODO.md
+
+Before starting a new session, the Director's prompt includes all needed context assembled from these files. A session can be killed at any time without losing meaningful work.
+
+**Parallel sessions:** The Director may run multiple Coder sessions when tasks are independent (e.g., one session updates docs while another fixes a test). Each session receives only the context it needs. Parallel sessions must NOT edit the same files. The Director is responsible for avoiding conflicts.
+
 ## Director-Coder protocol
 
 The Director sends instructions to the Coder as structured natural language:
