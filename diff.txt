@@ -1,0 +1,117 @@
+diff --git a/src/shared/config.ts b/src/shared/config.ts
+index 2cca4ea..4974769 100644
+--- a/src/shared/config.ts
++++ b/src/shared/config.ts
+@@ -1 +1,36 @@
+ // src/shared/config.ts
++import fs from 'node:fs'
++import path from 'node:path'
++import type { Config, ResolvedConfig } from './types.js'
++
++const CONFIG_FILENAME = '.cestdonerc.json'
++
++const DEFAULTS: Config = {
++  defaultModel: 'claude-opus-4-20250514',
++  targetRepoPath: '.',
++  logLevel: 'info',
++}
++
++export function loadConfig(cwd: string = process.cwd()): Config {
++  const configPath = path.join(cwd, CONFIG_FILENAME)
++  try {
++    const raw = fs.readFileSync(configPath, 'utf-8')
++    const parsed = JSON.parse(raw) as Partial<Config>
++    return { ...DEFAULTS, ...parsed }
++  } catch (err: unknown) {
++    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
++      return { ...DEFAULTS }
++    }
++    throw err
++  }
++}
++
++export function resolveConfig(config: Config): ResolvedConfig {
++  const apiKey = process.env.ANTHROPIC_API_KEY
++  if (!apiKey) {
++    throw new Error(
++      'ANTHROPIC_API_KEY environment variable is required. Set it before running cestdone.'
++    )
++  }
++  return { ...config, apiKey }
++}
+diff --git a/src/shared/logger.ts b/src/shared/logger.ts
+index 1bae20d..9e6b7bf 100644
+--- a/src/shared/logger.ts
++++ b/src/shared/logger.ts
+@@ -1 +1,6 @@
+ // src/shared/logger.ts
++import pino from 'pino'
++
++export function createLogger(level: string = 'info'): pino.Logger {
++  return pino({ level })
++}
+diff --git a/src/shared/types.ts b/src/shared/types.ts
+index 60edb5d..2a300f8 100644
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -1 +1,60 @@
+ // src/shared/types.ts
++
++export type PhaseStatus = 'pending' | 'in-progress' | 'done'
++
++export interface Phase {
++  number: number
++  name: string
++  status: PhaseStatus
++  spec: string
++  done: string
++}
++
++export interface SpecMetadata {
++  context: string
++  houseRulesRef: string
++  houseRulesContent?: string
++}
++
++export interface ParsedSpec {
++  title: string
++  metadata: SpecMetadata
++  phases: Phase[]
++}
++
++export interface Config {
++  defaultModel: string
++  targetRepoPath: string
++  logLevel: string
++}
++
++export interface ResolvedConfig extends Config {
++  apiKey: string
++}
++
++export enum WorkflowStep {
++  Analyze = 1,
++  Clarify = 2,
++  UpdateSpec = 3,
++  Plan = 4,
++  ApprovePlan = 5,
++  Execute = 6,
++  Review = 7,
++  Complete = 8,
++}
++
++export type DirectorActionType = 'approve' | 'ask_human' | 'fix' | 'complete'
++
++export interface DirectorAction {
++  action: DirectorActionType
++  message: string
++  questions?: string[]
++}
++
++export type Complexity = 'low' | 'high'
++
++export interface CoderResult {
++  status: 'manual' | 'success' | 'error'
++  message: string
++  filesChanged?: string[]
++}

@@ -166,9 +166,10 @@ READY TO PROCEED: waiting for plan approval
 Director reviews, answers questions, approves or modifies the plan, then tells Coder to proceed.
 
 **Reporting rules:**
-- When the Director asks to "show the diff," Coder runs `git diff` (or `git diff --cached` if staged) and includes the output. Never substitute prose for actual diff output.
+- After any file modifications, Coder runs `git --no-pager diff` (or `git diff --cached` if staged) and includes the raw output in the report. The Director needs to see actual changes, not prose summaries.
+- Coder also reports: test results (raw output from test runner), `tsc --noEmit` output, and a list of files changed.
 - When the Director asks to commit, Coder runs: `git add -A`, then `git diff --cached --stat` (for Director review), then commits with the provided message. Coder does NOT push unless explicitly told.
-- After any file modifications, Coder reports: files changed (list), lines added/removed (from diff stat), and any warnings from linters or tests.
+- If the diff is very large (>500 lines), Coder provides `git diff --stat` first and asks the Director which files to show in full.
 
 ## Director workflow protocol
 
