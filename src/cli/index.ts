@@ -10,7 +10,7 @@ import { parseSpec } from '../shared/spec-parser.js'
 import { updatePhaseStatus, writePhaseCompletion } from '../shared/spec-writer.js'
 import { runPhase, type DirectorDeps, type CreateMessageFn } from '../director/director.js'
 import { askApproval, askInput, ensureTTY } from './prompt.js'
-import { execute as coderExecute } from '../coder/coder.js'
+import { executeCoder } from '../coder/coder.js'
 
 export async function handleRun(
   specPath: string,
@@ -90,7 +90,7 @@ function buildDeps(apiKey: string): DirectorDeps {
     askInput,
     updatePhaseStatus: (fp, pn, st) => updatePhaseStatus(fp, pn, st),
     writePhaseCompletion: (fp, pn, ds) => writePhaseCompletion(fp, pn, ds),
-    coderExecute,
+    coderExecute: executeCoder,
     display: (text: string) => console.log(text),
   }
 }

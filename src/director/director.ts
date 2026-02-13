@@ -1,5 +1,5 @@
 // src/director/director.ts
-import type { ParsedSpec, Phase, PhaseStatus, ResolvedConfig, DirectorAction, CoderResult } from '../shared/types.js'
+import type { ParsedSpec, Phase, PhaseStatus, ResolvedConfig, DirectorAction, CoderResult, CoderOptions } from '../shared/types.js'
 import { WorkflowStep } from '../shared/types.js'
 import { buildSystemPrompt, buildStepMessage, getDirectorTools, type DirectorTool } from './prompt-builder.js'
 import { selectModel } from './model-selector.js'
@@ -33,13 +33,14 @@ export interface DirectorDeps {
   askInput: (prompt: string) => Promise<string>
   updatePhaseStatus: (filePath: string, phaseNumber: number, status: PhaseStatus) => void
   writePhaseCompletion: (filePath: string, phaseNumber: number, doneSummary: string) => void
-  coderExecute: () => CoderResult
+  coderExecute: (options: CoderOptions) => Promise<CoderResult>
   display: (text: string) => void
 }
 
 type Message = { role: 'user' | 'assistant'; content: unknown }
 
 const MAX_REJECTIONS = 3
+const MAX_CODER_RETRIES = 3
 
 export async function runPhase(
   parsedSpec: ParsedSpec,
@@ -65,7 +66,9 @@ export async function runPhase(
   )
 
   // Step 2: Clarify
+  let hadClarifications = false
   if (analyzeAction.action === 'ask_human' && analyzeAction.questions?.length) {
+    hadClarifications = true
     logger.info({ questions: analyzeAction.questions }, 'Escalating to human')
     const answers: string[] = []
     for (const q of analyzeAction.questions) {
@@ -81,8 +84,24 @@ export async function runPhase(
     )
   }
 
-  // Step 3: Clarifications captured in conversation context (Phase 0: no Coder to edit files)
-  logger.info('Step 3: Clarifications captured in conversation context')
+  // Step 3: Update spec via Coder (if there were clarifications)
+  if (hadClarifications) {
+    logger.info('Step 3: Updating spec with clarifications via Coder')
+    const updateAction = await sendStep(
+      messages, system, tools, deps,
+      buildStepMessage(WorkflowStep.UpdateSpec, phase),
+      WorkflowStep.UpdateSpec, logger
+    )
+    await deps.coderExecute(buildCoderOptions({
+      step: WorkflowStep.UpdateSpec,
+      phase,
+      config,
+      parsedSpec,
+      instructions: updateAction.message,
+    }))
+  } else {
+    logger.info('Step 3: No clarifications — skipping spec update')
+  }
 
   // Step 4: Plan
   logger.info('Step 4: Requesting implementation plan')
@@ -125,13 +144,56 @@ export async function runPhase(
     }
   }
 
-  // Steps 6-7: Manual execution (Phase 0 stub)
-  logger.info('Steps 6-7: Coder integration not yet available')
-  deps.coderExecute()
-  await deps.askInput(
-    'Coder integration not yet available — manual execution required.\n' +
-    'Implement the plan, then press Enter to continue: '
-  )
+  // Steps 6-7: Execute → Review loop
+  let coderRetries = 0
+  let totalCoderCost = 0
+  let instructions = currentPlan
+
+  while (true) {
+    // Step 6: Execute
+    logger.info({ attempt: coderRetries + 1 }, 'Step 6: Executing via Coder')
+    const coderResult = await deps.coderExecute(buildCoderOptions({
+      step: WorkflowStep.Execute,
+      phase,
+      config,
+      parsedSpec,
+      instructions,
+    }))
+    totalCoderCost += coderResult.cost
+
+    // Display Coder summary
+    const summary = coderResult.report?.summary ?? coderResult.message
+    deps.display(`\nCoder: ${summary} (cost: $${coderResult.cost.toFixed(2)})`)
+    logger.info({ status: coderResult.status, cost: coderResult.cost, totalCost: totalCoderCost }, 'Coder result')
+
+    // Step 7: Review
+    if (coderResult.status === 'success') {
+      deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
+      logger.info({ totalCost: totalCoderCost }, 'Coder succeeded')
+      break
+    }
+
+    coderRetries++
+    if (coderRetries >= MAX_CODER_RETRIES) {
+      logger.warn({ coderRetries }, 'Escalating after repeated Coder failures')
+      const guidance = await deps.askInput(
+        `Coder has failed ${coderRetries} times. Latest error: "${coderResult.message}"\n` +
+        'Please provide guidance on how to proceed: '
+      )
+      coderRetries = 0
+      instructions = `Human guidance: ${guidance}\nPrevious error: ${coderResult.message}\nPlease fix the issues and try again.`
+    } else {
+      // Ask Director to review and formulate fix instructions
+      const reviewAction = await sendStep(
+        messages, system, tools, deps,
+        `Coder returned status: ${coderResult.status}.\nError: ${coderResult.message}\n` +
+        `Test results: ${coderResult.report?.testResults ?? 'N/A'}\n` +
+        'Please provide fix instructions for the next attempt.',
+        WorkflowStep.Review, logger
+      )
+      instructions = reviewAction.message
+    }
+  }
 
   // Step 8: Complete
   logger.info('Step 8: Completing phase')
@@ -141,6 +203,27 @@ export async function runPhase(
     WorkflowStep.Complete, logger
   )
   deps.writePhaseCompletion(specFilePath, phase.number, completeAction.message)
+}
+
+function buildCoderOptions(params: {
+  step: WorkflowStep
+  phase: Phase
+  config: ResolvedConfig
+  parsedSpec: ParsedSpec
+  instructions: string
+}): CoderOptions {
+  return {
+    step: params.step,
+    phase: params.phase,
+    model: selectModel(params.step, 'high'),
+    targetRepoPath: params.config.targetRepoPath,
+    houseRulesContent: params.parsedSpec.metadata.houseRulesContent ?? '',
+    instructions: params.instructions,
+    maxTurns: params.config.maxTurns,
+    maxBudgetUsd: params.config.maxBudgetUsd,
+    apiKey: params.config.apiKey,
+    logLevel: params.config.logLevel,
+  }
 }
 
 async function sendStep(

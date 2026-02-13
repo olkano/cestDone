@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { runPhase } from '../src/director/director.js'
 import type { DirectorDeps, ApiResponse } from '../src/director/director.js'
-import type { ParsedSpec, ResolvedConfig, Phase } from '../src/shared/types.js'
+import { WorkflowStep } from '../src/shared/types.js'
+import type { ParsedSpec, ResolvedConfig, Phase, CoderResult, CoderOptions } from '../src/shared/types.js'
 
 let callId = 0
 
@@ -31,15 +32,40 @@ const TEST_PHASE: Phase = {
 
 const TEST_SPEC: ParsedSpec = {
   title: 'Test Project',
-  metadata: { context: 'A test project.', houseRulesRef: 'See house-rules.md.' },
+  metadata: { context: 'A test project.', houseRulesRef: 'See house-rules.md.', houseRulesContent: 'Use TDD.' },
   phases: [TEST_PHASE],
 }
 
 const TEST_CONFIG: ResolvedConfig = {
   apiKey: 'sk-test',
   defaultModel: 'claude-opus-4-20250514',
-  targetRepoPath: '.',
+  targetRepoPath: '/tmp/repo',
   logLevel: 'silent',
+  maxTurns: 100,
+}
+
+function makeCoderSuccess(overrides: Partial<CoderResult> = {}): CoderResult {
+  return {
+    status: 'success',
+    message: 'Implementation complete',
+    cost: 0.25,
+    numTurns: 10,
+    durationMs: 5000,
+    report: { status: 'success', summary: 'Implementation complete' },
+    ...overrides,
+  }
+}
+
+function makeCoderError(overrides: Partial<CoderResult> = {}): CoderResult {
+  return {
+    status: 'error',
+    message: 'Tests failing',
+    cost: 0.10,
+    numTurns: 5,
+    durationMs: 3000,
+    report: { status: 'error', summary: 'Tests failing' },
+    ...overrides,
+  }
 }
 
 function createHappyPathDeps(): DirectorDeps {
@@ -52,7 +78,7 @@ function createHappyPathDeps(): DirectorDeps {
     askInput: vi.fn().mockResolvedValue('done'),
     updatePhaseStatus: vi.fn(),
     writePhaseCompletion: vi.fn(),
-    coderExecute: vi.fn().mockReturnValue({ status: 'manual', message: 'manual', cost: 0, numTurns: 0, durationMs: 0, report: null }),
+    coderExecute: vi.fn().mockResolvedValue(makeCoderSuccess()),
     display: vi.fn(),
   }
 }
@@ -76,6 +102,7 @@ describe('runPhase', () => {
     deps.createMessage = vi.fn()
       .mockResolvedValueOnce(makeToolResponse('ask_human', 'Need info', ['What DB?', 'Auth method?']))
       .mockResolvedValueOnce(makeToolResponse('approve', 'Understood.'))
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Update spec with answers'))
       .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: ...'))
       .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
     deps.askInput = vi.fn()
@@ -96,9 +123,6 @@ describe('runPhase', () => {
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
-    // Step 4 call (second createMessage): user message at index 2
-    // messages array is shared by reference, so use fixed index not length-1
-    // [0]=user(analyze), [1]=assistant(step1), [2]=user(plan)
     const planCallMsgs = (deps.createMessage as ReturnType<typeof vi.fn>).mock.calls[1][0].messages
     const planMsg = planCallMsgs[2]
     const textContent = typeof planMsg.content === 'string'
@@ -144,22 +168,160 @@ describe('runPhase', () => {
 
     expect(deps.askApproval).toHaveBeenCalledTimes(2)
     expect(deps.createMessage).toHaveBeenCalledTimes(4)
-    // Verify feedback was sent
     const retryCallArgs = (deps.createMessage as ReturnType<typeof vi.fn>).mock.calls[2][0]
     const allContent = JSON.stringify(retryCallArgs.messages)
     expect(allContent).toContain('Need more detail on tests')
   })
 
-  // J6: Steps 6-7 — calls coder stub, waits for manual confirmation
-  it('calls coder stub and waits for manual confirmation', async () => {
+  // R1: Step 6 calls coderExecute with instructions from approved plan
+  it('calls coderExecute with plan instructions at Step 6 (R1)', async () => {
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
     expect(deps.coderExecute).toHaveBeenCalledTimes(1)
+    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    expect(opts.instructions).toContain('Create files')
+    expect(opts.step).toBe(WorkflowStep.Execute)
+  })
+
+  // R2: Step 6 passes correct model from selectModel()
+  it('passes model from selectModel() to coderExecute (R2)', async () => {
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    expect(opts.model).toBeTruthy()
+    expect(typeof opts.model).toBe('string')
+  })
+
+  // R3: Success → proceeds to Step 8
+  it('proceeds to Step 8 on Coder success (R3)', async () => {
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    expect(deps.writePhaseCompletion).toHaveBeenCalledWith(
+      'spec.md', 0, 'Phase done. Created scaffold.'
+    )
+    // createMessage called exactly 3 times (analyze, plan, complete — no review)
+    expect(deps.createMessage).toHaveBeenCalledTimes(3)
+  })
+
+  // R4: Error → Director formulates fix → retry Coder
+  it('retries Coder with fix instructions on error (R4)', async () => {
+    const deps = createHappyPathDeps()
+    deps.coderExecute = vi.fn()
+      .mockResolvedValueOnce(makeCoderError())
+      .mockResolvedValueOnce(makeCoderSuccess())
+    // createMessage: analyze, plan, review(fix), complete
+    deps.createMessage = vi.fn()
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis OK'))
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: do things'))
+      .mockResolvedValueOnce(makeToolResponse('fix', 'Fix the failing test by updating the assertion'))
+      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    expect(deps.coderExecute).toHaveBeenCalledTimes(2)
+    const secondOpts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as CoderOptions
+    expect(secondOpts.instructions).toContain('Fix the failing test')
+  })
+
+  // R5: 3 failures → escalate to human
+  it('escalates to human after 3 Coder failures (R5)', async () => {
+    const deps = createHappyPathDeps()
+    deps.coderExecute = vi.fn()
+      .mockResolvedValueOnce(makeCoderError({ message: 'Fail 1' }))
+      .mockResolvedValueOnce(makeCoderError({ message: 'Fail 2' }))
+      .mockResolvedValueOnce(makeCoderError({ message: 'Fail 3' }))
+      .mockResolvedValueOnce(makeCoderSuccess())
+    deps.askInput = vi.fn().mockResolvedValue('Try a different approach')
+    // createMessage: analyze, plan, review1(fix), review2(fix), complete
+    deps.createMessage = vi.fn()
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis OK'))
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: do things'))
+      .mockResolvedValueOnce(makeToolResponse('fix', 'Fix attempt 1'))
+      .mockResolvedValueOnce(makeToolResponse('fix', 'Fix attempt 2'))
+      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    expect(deps.coderExecute).toHaveBeenCalledTimes(4)
     const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
-    const manualCall = askInputCalls.find((c: string[]) => c[0].includes('manual execution'))
-    expect(manualCall).toBeTruthy()
+    const escalationCall = askInputCalls.find((c: string[]) => c[0].includes('3'))
+    expect(escalationCall).toBeTruthy()
+  })
+
+  // R6: Displays Coder summary
+  it('displays Coder summary to human (R6)', async () => {
+    const deps = createHappyPathDeps()
+    deps.coderExecute = vi.fn().mockResolvedValue(
+      makeCoderSuccess({ report: { status: 'success', summary: 'Built login form with tests' } })
+    )
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    expect(deps.display).toHaveBeenCalledWith(
+      expect.stringContaining('Built login form with tests')
+    )
+  })
+
+  // R7: CoderOptions has all required fields
+  it('passes complete CoderOptions to coderExecute (R7)', async () => {
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    expect(opts.step).toBe(WorkflowStep.Execute)
+    expect(opts.phase).toEqual(TEST_PHASE)
+    expect(opts.targetRepoPath).toBe('/tmp/repo')
+    expect(opts.houseRulesContent).toBe('Use TDD.')
+    expect(opts.maxTurns).toBe(100)
+    expect(opts.apiKey).toBe('sk-test')
+    expect(opts.logLevel).toBe('silent')
+  })
+
+  // R8: Cost accumulation across retries
+  it('displays accumulated Coder cost (R8)', async () => {
+    const deps = createHappyPathDeps()
+    deps.coderExecute = vi.fn()
+      .mockResolvedValueOnce(makeCoderError({ cost: 0.50 }))
+      .mockResolvedValueOnce(makeCoderSuccess({ cost: 0.75 }))
+    deps.createMessage = vi.fn()
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis OK'))
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: do things'))
+      .mockResolvedValueOnce(makeToolResponse('fix', 'Fix it'))
+      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    expect(deps.coderExecute).toHaveBeenCalledTimes(2)
+    const allDisplayText = (deps.display as ReturnType<typeof vi.fn>).mock.calls.map((c: string[]) => c[0]).join('\n')
+    expect(allDisplayText).toContain('1.25')
+  })
+
+  // R9: Step 3 calls Coder with spec-editing permissions after clarifications
+  it('calls Coder for spec update after clarifications (R9)', async () => {
+    const deps = createHappyPathDeps()
+    deps.createMessage = vi.fn()
+      .mockResolvedValueOnce(makeToolResponse('ask_human', 'Need info', ['What DB?']))
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Understood.'))
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Update the spec to mention PostgreSQL'))
+      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: set up DB'))
+      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
+    deps.askInput = vi.fn()
+      .mockResolvedValueOnce('PostgreSQL')
+      .mockResolvedValue('done')
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    const coderCalls = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls
+    expect(coderCalls.length).toBeGreaterThanOrEqual(2)
+    const specUpdateCall = coderCalls.find((c: CoderOptions[]) => c[0].step === WorkflowStep.UpdateSpec)
+    expect(specUpdateCall).toBeTruthy()
   })
 
   // J7: Step 8 — writes phase completion with done summary
@@ -216,7 +378,7 @@ describe('runPhase', () => {
       askInput: vi.fn().mockResolvedValue('done'),
       updatePhaseStatus: vi.fn(),
       writePhaseCompletion: vi.fn(),
-      coderExecute: vi.fn().mockReturnValue({ status: 'manual', message: 'manual', cost: 0, numTurns: 0, durationMs: 0, report: null }),
+      coderExecute: vi.fn().mockResolvedValue(makeCoderSuccess()),
       display: vi.fn(),
     }
 

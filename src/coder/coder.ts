@@ -126,8 +126,3 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
 
   return result
 }
-
-/** @deprecated Phase 0 stub — used by CLI wiring until item 9 replaces it */
-export function execute(): CoderResult {
-  return { status: 'manual', message: 'Coder integration not yet available — manual execution required', cost: 0, numTurns: 0, durationMs: 0, report: null }
-}
