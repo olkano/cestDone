@@ -259,74 +259,21 @@ See `house-rules.md` in repo root (copy from ITM Platform house-rules, adapted f
 
 ## Phase 0: Project scaffold + Director loop
 
-### Status: pending
+### Status: done
 
 ### Spec
-
-Set up the project structure and implement the core Director loop — the part that reads a spec, plans phases, and communicates with a human operator (no Agent SDK yet, the human relays to Claude Code manually).
-
-**Deliverables:**
-- Project init: `package.json`, `tsconfig.json`, `vitest.config.ts`, `.gitignore`
-- Source structure: `src/cli/`, `src/director/`, `src/coder/`, `src/shared/`
-- CLI entry point with `run` and `resume` commands (use `commander`)
-- Spec parser: reads a spec MD file, extracts phases with status/spec/done sections
-- Director module: takes a parsed spec, calls Claude API to create a phase plan
-- Human interaction: CLI stdin prompts for approval/rejection/input
-- Config: `.cestdonerc.json` for API key, default model, target repo path
-- Tests: spec parser unit tests, director prompt construction tests
-
-**What this phase does NOT include:**
-- Agent SDK integration (Phase 1)
-- Git operations (Phase 2)
-- Screenshots/vision (Phase 3)
-- Notifications (Phase 4)
-
-**Acceptance criteria:**
-- `npx cestdone run --spec ./example-spec.md` reads the spec, sends to Claude API, prints the Director's plan, prompts human for approval
-- Spec parser correctly handles all status values and multi-phase files
-- All tests pass: `npm run test`
-- `npx tsc` clean
-- Windows stdin works correctly (Node `readline` with explicit Windows testing)
-
-**Clarifications:**
-
-_Parser:_
-- Enforce `## Phase N:` (H2) and `### Status/Spec/Done` (H3) exactly — no tolerance for malformed input. Error clearly and exit.
-- Phase numbering: integers starting from 0, sequential. Gaps are valid (e.g., Phase 0, Phase 2). Non-numeric = parse error.
-- Parser extracts `## Context` and `## House rules` as structured metadata, passed to Director alongside phase data.
-- Multiple-spec files: parser looks for the LAST `# H1 heading` as start of the actual spec. Everything above is documentation.
-- House rules path resolved relative to `--target`. If file doesn't exist, warn and continue (not required).
-
-_Spec lifecycle:_
-- When a phase completes, BOTH `### Spec` and `### Done` headings stay. Spec content is cleared to `_See Done summary below._` and Done is populated. Status is the source of truth.
-
-_Director:_
-- Prompt construction: Director receives (a) Context + House rules sections, (b) Done summaries of completed phases (concise), (c) Full spec of current phase. NOT the full file — focused prompt assembly to manage context window.
-- Multi-turn conversation within a phase (each step appends to message history). New phase = new conversation.
-- Implement `selectModel(step, complexity)` now. Even if Phase 0 only calls API for planning, the plumbing must exist.
-- Use `tool_use` with structured response schema for Director intent. Natural language for plan content, but structured envelope: `action: "approve" | "ask_human" | "fix" | "complete"`.
-
-_Phase 0 workflow scope:_
-- Implements Steps 1–5 (up to plan approval) and Step 8 (status update).
-- Steps 6–7 (execute/review) print "Coder integration not yet available — manual execution required" and wait for human to confirm completion.
-- After approval: update spec status to `done` and stop.
-
-_CLI:_
-- `run` starts from the first `pending` phase. If a phase is `in-progress`, prompt: "Phase N is in-progress. Reset to pending or continue?"
-- `resume` continues from the first non-`done` phase without prompting.
-- On rejection: prompt for feedback text, Director re-plans. Three rejections in a row → escalate to human with "I'm stuck, here's what I've tried."
-- Non-TTY: error with clear message in Phase 0.
-
-_Config:_
-- `ANTHROPIC_API_KEY` from env var ONLY. Never store API keys in config files.
-- `.cestdonerc.json` holds: default model, target repo path, log level. CWD only, no hierarchical lookup.
-- Config default model is fallback only. Director's per-step selection wins.
-
-_Testing:_
-- Mock the Anthropic SDK. Test prompt construction and response parsing, not the API itself.
+_See Done summary below._
 
 ### Done
-_(to be filled by Director when phase completes)_
+- Project scaffold complete: `package.json`, `tsconfig.json`, `vitest.config.ts`, source structure (`src/cli/`, `src/director/`, `src/coder/`, `src/shared/`)
+- Director loop implements Steps 1–5 + Step 8: Analyze → Clarify → (context-only spec update) → Plan → Approve (with 3-rejection escalation) → Complete
+- Steps 6–7 print "Coder integration not yet available — manual execution required" and wait for human confirmation
+- CLI entry point with `run` (first pending phase, prompts on in-progress) and `resume` (first non-done phase, no prompt) commands via Commander
+- 66 tests across 11 test files, all passing. Covers: spec parser, config, prompt builder, model selector, Director orchestration, spec writer, coder stub, CLI wiring, logger, and integration smoke tests
+- File-based logging via pino + pino-roll (2 MB rotation, 3 files, debug-level traces of every API call and human interaction)
+- Env config: `CESTDONE_CLAUDE_API_KEY ?? ANTHROPIC_API_KEY`, loaded via `--env-file=.env`
+- Live acceptance test confirmed: CLI reads spec, calls Claude API, prints Director plan, prompts for approval, updates spec status — full wiring verified on Windows
+- Known UX items deferred to medium priority: limit Director questions to 3 max, allow skip/empty-Enter in Step 2
 
 ## Phase 1: Agent SDK integration (Coder)
 

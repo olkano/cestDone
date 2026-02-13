@@ -11,6 +11,8 @@ _(items that must be resolved before or during current phase)_
 ## 🟡 Medium priority (next phases)
 _(items for upcoming phases, or improvements to current architecture)_
 
+- [ ] Limit Director questions to 3 max in Analyze prompt — prevent question flooding (found in live test)
+- [ ] Allow 'skip' / empty Enter to skip remaining Director questions in Step 2
 - [ ] `--yes` flag for CI/non-interactive environments (skip approval prompts, auto-approve)
 - [ ] `--phase` on `done` phases — reset status to `pending` with confirmation prompt, warn about dependency order but allow
 - [ ] Context window token tracking — implement the 80% budget rule with actual token counting, not just heuristics
