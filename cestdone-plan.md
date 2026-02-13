@@ -1,8 +1,9 @@
-# Phase 0 Implementation Plan
+# Phase 1 Implementation Plan
 
 **Status:** approved
 **Created:** 2026-02-13
-**Phase:** 0 — Project scaffold + Director loop
+**Phase:** 1 — Agent SDK integration (Coder)
+**SDK version:** `@anthropic-ai/claude-agent-sdk@0.2.41`
 
 This file is the Coder's contract. If this chat dies and we resume in a new session, the Coder reads this file and picks up where it left off.
 
@@ -10,213 +11,345 @@ This file is the Coder's contract. If this chat dies and we resume in a new sess
 
 ## 1. File Structure
 
-**Config files (4 files)**
+### New files (5 source + 4 test)
 
 | File | Purpose |
 |---|---|
-| `package.json` | Project manifest, bin entry for `npx cestdone`, scripts |
-| `tsconfig.json` | TypeScript strict config, ESM output |
-| `vitest.config.ts` | Vitest config with src alias |
-| `.gitignore` | node_modules, dist, .env, *.tsbuildinfo |
+| `src/coder/permissions.ts` | `getAllowedTools(step)` — maps WorkflowStep to Agent SDK `allowedTools` string arrays |
+| `src/coder/result-parser.ts` | Extracts structured `CoderResult` from `SDKResultMessage`, with JSON parse + fallback |
+| `src/coder/coder-prompt.ts` | Builds the Coder prompt string from Director instructions + phase context |
+| `tests/permissions.test.ts` | Tests for tool permission mapping per step |
+| `tests/result-parser.test.ts` | Tests for structured output extraction, JSON fallback, error subtypes |
+| `tests/coder.test.ts` | **Overwrite existing stub test** — new tests for `executeCoder()` with mocked `query()` |
+| `tests/coder-prompt.test.ts` | Tests for prompt assembly (house-rules injection, phase context) |
 
-**Source files (11 files)**
+### Modified files (5)
 
-| File | Purpose |
+| File | What changes |
 |---|---|
-| `src/shared/types.ts` | All shared types: `Phase`, `ParsedSpec`, `Config`, `DirectorAction`, step enums |
-| `src/shared/logger.ts` | Pino logger singleton, respects config log level |
-| `src/shared/config.ts` | Loads `.cestdonerc.json` from CWD + `ANTHROPIC_API_KEY` from env |
-| `src/shared/spec-parser.ts` | Parses spec MD → `ParsedSpec` with phases, context, house-rules metadata |
-| `src/shared/spec-writer.ts` | Atomic writes to spec MD: status transitions, Done summaries |
-| `src/director/model-selector.ts` | `selectModel(step, complexity)` → model ID string |
-| `src/director/prompt-builder.ts` | Assembles Claude API messages from parsed spec + conversation history |
-| `src/director/director.ts` | Workflow orchestration: Steps 1-5 + 8, multi-turn message history, API calls |
-| `src/coder/coder.ts` | Stub interface: logs "manual execution required", returns a no-op result |
-| `src/cli/prompt.ts` | Readline-based human prompts: approve/reject/input, TTY check, Windows-safe |
-| `src/cli/index.ts` | Commander setup: `run` and `resume` commands, wires everything together |
+| `src/coder/coder.ts` | Full rewrite: wraps Agent SDK `query()`, streams events to logger, returns parsed `CoderResult` |
+| `src/director/director.ts` | Steps 6-7 call real `executeCoder()` instead of stub; Step 7 review loop with fix instructions |
+| `src/shared/types.ts` | Add `CoderReport` (structured output schema type), expand `CoderResult`, add `CoderOptions` |
+| `src/shared/config.ts` | Add `maxTurns`, `maxBudgetUsd` to `Config` type + defaults |
+| `src/cli/index.ts` | Pass `targetRepoPath` and config to Coder dependency; update `DirectorDeps.coderExecute` signature |
+| `package.json` | Add `@anthropic-ai/claude-agent-sdk` production dependency |
+| `tests/director.test.ts` | Update mocks for new `coderExecute` async signature |
+| `tests/config.test.ts` | Add tests for new config fields |
+| `tests/integration.test.ts` | Update to mock Agent SDK `query()` instead of just the stub |
 
-**Test files (7 files + 3 fixtures)**
-
-| File | Purpose |
-|---|---|
-| `tests/spec-parser.test.ts` | Parser: valid/multi-phase/malformed specs, metadata extraction, H1 detection |
-| `tests/spec-writer.test.ts` | Status updates, Done summary writing, atomic write behavior |
-| `tests/config.test.ts` | Config loading, defaults, env var handling, missing file |
-| `tests/model-selector.test.ts` | Model selection per step/complexity |
-| `tests/prompt-builder.test.ts` | Prompt assembly, context inclusion, tool_use schema |
-| `tests/director.test.ts` | Workflow steps with mocked Anthropic SDK, rejection counting, escalation |
-| `tests/prompt.test.ts` | Approval flow, rejection with feedback, non-TTY error |
-| `tests/fixtures/valid-spec.md` | Well-formed single-phase spec |
-| `tests/fixtures/multi-phase-spec.md` | Multiple phases in various states (pending/in-progress/done) |
-| `tests/fixtures/malformed-spec.md` | Bad phase numbering, missing sections |
-
-**Total: 25 files**
+**Total: 5 new source files, 5 modified source files, 4 new test files, 3 modified test files**
 
 ---
 
-## 2. Dependency List
+## 2. Dependency Changes
 
 ```
-dependencies:
-  @anthropic-ai/sdk    ^0.39.0   — Claude API client (core requirement)
-  commander            ^13.0.0   — CLI framework (spec mandates it)
-  pino                 ^9.6.0    — Structured logging (house-rules mandate)
-
-devDependencies:
-  typescript           ^5.7.0    — Language
-  vitest               ^3.0.0    — Test framework (house-rules mandate)
-  @types/node          ^22.0.0   — Node type definitions
-  pino-pretty          ^13.0.0   — Dev-only readable log output
++ @anthropic-ai/claude-agent-sdk  ^0.2.41   (production)
 ```
 
-**Justifications for non-obvious:**
-- **pino-pretty** — dev-only log formatter. Without it, pino outputs JSON which is unreadable during development. Zero production cost.
-- That's it. No markdown parser (regex is sufficient for strict format), no extra file utils (Node `fs` + rename for atomic writes), no readline wrapper (Node built-in).
+No other dependency changes. The existing `@anthropic-ai/sdk` stays for the Director's Messages API calls.
+
+Install: `npm install @anthropic-ai/claude-agent-sdk@^0.2.41`
 
 ---
 
-## 3. TDD Sequence
+## 3. Architecture Decisions (from Director analysis)
 
-### Module A: `shared/types.ts`
+These are pre-approved — do NOT re-decide:
 
-No tests. Pure type definitions: `Phase`, `PhaseStatus`, `ParsedSpec`, `SpecMetadata`, `Config`, `DirectorAction` (the `tool_use` envelope), `WorkflowStep` enum.
+| Decision | Value |
+|---|---|
+| SDK version | V1 stable (`query()` async generator) |
+| Permission mode | `bypassPermissions` + `allowDangerouslySkipPermissions: true` |
+| System prompt | `{ type: 'preset', preset: 'claude_code', append: houseRules + stepInstructions }` |
+| Session model | New `query()` per Director→Coder call (no session resume within a phase) |
+| `cwd` | Resolved `targetRepoPath` from config |
+| `maxTurns` | 100 default, configurable in `.cestdonerc.json` |
+| `model` | Set by Director's `selectModel()` per step |
+| Streaming | ALL `SDKMessage` events logged to pino at debug level |
+| Terminal output | Director summaries only, NOT Coder stream |
+| Cost tracking | `total_cost_usd` from `SDKResultMessage`, logged per step + accumulated per phase |
+| Structured output | `outputFormat` with JSON schema for Coder's final report |
 
-### Module B: `shared/config.ts`
+### Step-level tool permissions
 
-| # | Red (test) | Green (code) | Refactor |
-|---|---|---|---|
-| B1 | Loads `.cestdonerc.json` from CWD, returns typed config | Read file, JSON.parse, return with defaults | — |
-| B2 | Returns defaults when no `.cestdonerc.json` exists | Catch ENOENT, return default config | — |
-| B3 | Reads `ANTHROPIC_API_KEY` from `process.env` | Add env lookup, throw if missing | — |
-| B4 | Throws clear error when API key missing | Assert error message | Already done in B3 |
+| Steps | Mode | `allowedTools` |
+|---|---|---|
+| 1, 4 (analyze/plan) | Read-only | `['Read', 'Glob', 'Grep']` |
+| 3 (spec update) | Spec editing | `['Read', 'Write', 'Edit', 'Glob', 'Grep']` |
+| 6 (execute) | Full auto-edit | `['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']` |
 
-### Module C: `shared/logger.ts`
+### Structured output schema (Coder report)
 
-No dedicated tests. Thin wrapper: `pino({ level: config.logLevel })`. Tested implicitly.
-
-### Module D: `shared/spec-parser.ts`
-
-| # | Red | Green | Refactor |
-|---|---|---|---|
-| D1 | Parses single phase: extracts name, status, spec content, done content | Regex-based H2/H3 parsing | — |
-| D2 | Parses multi-phase spec with pending/in-progress/done statuses | Loop over phase blocks | — |
-| D3 | Extracts `## Context` and `## House rules` as metadata | Add metadata extraction before phase parsing | — |
-| D4 | Handles "last H1 heading" — ignores docs above the actual spec | Find last `# ` heading, parse only below it | — |
-| D5 | Throws on malformed input: missing `### Status`, bad phase number, non-numeric | Add validation with descriptive error messages | Extract validation into helper |
-| D6 | Handles gaps in phase numbering (Phase 0, Phase 2 — no Phase 1) | Don't enforce sequential, just integer check | — |
-| D7 | Resolves house-rules path relative to target dir; warns if missing | Path resolution + fs.existsSync check | — |
-
-### Module E: `shared/spec-writer.ts`
-
-| # | Red | Green | Refactor |
-|---|---|---|---|
-| E1 | Updates phase status (`pending` → `in-progress`) in spec file | String replacement in file content | — |
-| E2 | Writes Done summary: clears Spec content to placeholder, populates Done | Replace content between headings | — |
-| E3 | Write is atomic: uses temp file + rename | `writeFileSync` to `.tmp`, `renameSync` | — |
-| E4 | Preserves rest of file untouched when updating one phase | Assertion on unchanged sections | Already covered |
-
-### Module F: `director/model-selector.ts`
-
-| # | Red | Green | Refactor |
-|---|---|---|---|
-| F1 | Steps 1, 4 → Opus always | Switch on step | — |
-| F2 | Steps 2, 3, 5 → Sonnet if `complexity=low`, Opus if `high` | Add complexity param | — |
-| F3 | Step 6 → Opus for `full`, Sonnet for `fix` | Extend switch | — |
-| F4 | Steps 7, 8 → Opus always | Extend switch | Collapse into clean lookup |
-
-### Module G: `director/prompt-builder.ts`
-
-| # | Red | Green | Refactor |
-|---|---|---|---|
-| G1 | Builds Step 1 (Analyze) prompt: includes context, house-rules, current phase spec | Assemble system + user messages | — |
-| G2 | Includes Done summaries of completed phases (not full spec) | Filter phases, extract summaries | — |
-| G3 | Defines `tool_use` tool schema for action envelope: `{action, message, questions?}` | Return tools array with JSON schema | — |
-| G4 | Builds Step 4 (Plan) prompt differently from Step 1 | Step-specific prompt templates | Extract shared assembly logic |
-| G5 | Builds Step 8 (Complete) prompt with phase summary request | Add complete template | — |
-
-### Module H: `cli/prompt.ts`
-
-| # | Red | Green | Refactor |
-|---|---|---|---|
-| H1 | `askApproval()` returns `'approve'` or `'reject'` based on input | Readline interface, parse y/n | — |
-| H2 | On rejection, prompts for feedback text and returns it | Chain readline question | — |
-| H3 | Throws clear error on non-TTY (`!process.stdin.isTTY`) | Check before creating readline | — |
-| H4 | `askInput(question)` — generic text prompt for Director escalations | Reuse readline pattern | Extract shared readline helper |
-
-### Module I: `coder/coder.ts`
-
-| # | Red | Green | Refactor |
-|---|---|---|---|
-| I1 | `execute()` logs "manual execution required" and returns stub result | Logger call, return `{ status: 'manual', message: '...' }` | — |
-
-### Module J: `director/director.ts`
-
-| # | Red | Green | Refactor |
-|---|---|---|---|
-| J1 | Step 1: sends Analyze prompt via mocked SDK, returns Coder's questions | Call API with prompt-builder output, parse response | — |
-| J2 | Step 2: Director answers questions it can, escalates rest to human | Parse questions, call `askInput` for unknowns | — |
-| J3 | Step 3: Calls spec-writer to update spec with clarifications | Invoke spec-writer | — |
-| J4 | Step 4: Sends Plan prompt, receives implementation plan | API call with Step 4 prompt | — |
-| J5 | Step 5: Presents plan to human, handles approve/reject | Call `askApproval`, branch on result | — |
-| J6 | Steps 6-7: Prints "manual execution required", waits for human confirmation | Call coder stub, call `askInput("confirm when done")` | — |
-| J7 | Step 8: Updates spec status to `done`, writes Done summary | Call spec-writer | — |
-| J8 | Rejection counter: 3 rejections → escalates with "I'm stuck" summary | Increment counter, format escalation message | — |
-| J9 | Multi-turn: message history accumulates across steps within a phase | Assert messages array grows | Already in J1-J7 |
-
-### Module K: `cli/index.ts`
-
-| # | Red | Green | Refactor |
-|---|---|---|---|
-| K1 | `run` command: parses args, finds first `pending` phase, starts Director | Commander setup, wire modules | — |
-| K2 | `run` with in-progress phase: prompts "reset or continue?" | Detect in-progress, call prompt | — |
-| K3 | `resume` command: finds first non-`done` phase, starts without prompting | Filter phases, start Director | — |
+```json
+{
+  "type": "object",
+  "properties": {
+    "status": { "type": "string", "enum": ["success", "error", "partial"] },
+    "summary": { "type": "string" },
+    "filesChanged": { "type": "array", "items": { "type": "string" } },
+    "testResults": { "type": "string" },
+    "questions": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["status", "summary"]
+}
+```
 
 ---
 
-## 4. TODO Checklist (Implementation Order)
+## 4. TDD Sequence
+
+### Module L: `src/shared/types.ts` — Type updates
+
+No tests. Add:
+- `CoderReport` — the structured output shape (status, summary, filesChanged, testResults, questions)
+- Expand `CoderResult` — add `cost`, `numTurns`, `durationMs`, `report` (parsed `CoderReport | null`)
+- `CoderOptions` — `{ step, phase, model, targetRepoPath, houseRulesContent, maxTurns, maxBudgetUsd, instructions }`
+
+### Module M: `src/shared/config.ts` — Config additions
+
+| # | Red (test) | Green (code) |
+|---|---|---|
+| M1 | `maxTurns` defaults to 100 when not in `.cestdonerc.json` | Add to `DEFAULTS` |
+| M2 | `maxBudgetUsd` defaults to `undefined` when not set | Add optional field |
+| M3 | `.cestdonerc.json` with `maxTurns: 50` overrides default | Already works via spread, just add test |
+
+### Module N: `src/coder/permissions.ts` — Tool permissions
+
+| # | Red (test) | Green (code) |
+|---|---|---|
+| N1 | Steps 1, 4 return `['Read', 'Glob', 'Grep']` | Switch on step |
+| N2 | Step 3 returns `['Read', 'Write', 'Edit', 'Glob', 'Grep']` | Add case |
+| N3 | Step 6 returns `['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']` | Add case |
+| N4 | Other steps (2, 5, 7, 8) throw — Director-only, no Coder call | Default throws |
+
+### Module O: `src/coder/coder-prompt.ts` — Prompt builder
+
+| # | Red (test) | Green (code) |
+|---|---|---|
+| O1 | Includes Director's instructions in prompt | Template with instructions field |
+| O2 | Includes house-rules content when provided | Conditional append |
+| O3 | Includes phase context (number, name, spec) | Add phase section |
+| O4 | Includes reporting instructions (diff to cestdone-diff.txt, test results) | Append report format section |
+| O5 | Read-only steps include "Do NOT modify any files" constraint | Conditional constraint based on step |
+
+### Module P: `src/coder/result-parser.ts` — Result extraction
+
+| # | Red (test) | Green (code) |
+|---|---|---|
+| P1 | Parses `structured_output` from successful `SDKResultMessage` into `CoderReport` | Check `subtype === 'success'`, read `structured_output` |
+| P2 | Falls back to extracting from `result` text when `structured_output` is missing | Try `JSON.parse(result)`, catch → raw text |
+| P3 | Returns error result for `error_max_turns` subtype | Map subtype to `CoderResult` with error status |
+| P4 | Returns error result for `error_during_execution` | Map subtype |
+| P5 | Returns error result for `error_max_budget_usd` | Map subtype |
+| P6 | Extracts `total_cost_usd`, `num_turns`, `duration_ms` into `CoderResult` fields | Map from `SDKResultMessage` |
+| P7 | Raw text fallback produces `CoderReport` with `status: 'partial'` and `summary` from text | Wrap raw text into report shape |
+
+### Module Q: `src/coder/coder.ts` — Core Agent SDK wrapper
+
+| # | Red (test) | Green (code) |
+|---|---|---|
+| Q1 | Calls `query()` with correct `prompt`, `cwd`, `model`, `maxTurns` | Build options, call query |
+| Q2 | Sets `permissionMode: 'bypassPermissions'` and `allowDangerouslySkipPermissions: true` | Add to options |
+| Q3 | Sets `allowedTools` from `getAllowedTools(step)` | Call permissions module |
+| Q4 | Sets `systemPrompt` with `preset: 'claude_code'` and appended house-rules | Build systemPrompt object |
+| Q5 | Sets `outputFormat` with the `CoderReport` JSON schema | Add outputFormat to options |
+| Q6 | Sets `maxBudgetUsd` from config when defined | Conditional option |
+| Q7 | Iterates async generator, logs `SDKSystemMessage` at debug | for-await loop with type switch |
+| Q8 | Logs `SDKAssistantMessage` content blocks at debug (text + tool calls) | Log text blocks and tool name/input summaries |
+| Q9 | Logs `SDKResultMessage` at info (cost, turns, duration, subtype) | Log result fields |
+| Q10 | Returns parsed `CoderResult` from result-parser | Call `parseResult()` on final message |
+| Q11 | Handles generator yielding no result message (edge case) — returns error | Null check after loop |
+| Q12 | `query()` throws exception (network error, SDK crash) — catches and returns `CoderResult` with `status: 'error'`, `report.summary` containing the error message, `cost: 0`. Does NOT propagate | try/catch around entire query loop |
+
+### Module R: `src/director/director.ts` — Steps 6-7 rewrite
+
+| # | Red (test) | Green (code) |
+|---|---|---|
+| R1 | Step 6 calls `coderExecute` with instructions from Director's approved plan | Pass plan text + phase + step + config to coder |
+| R2 | Step 6 passes correct `model` from `selectModel()` | Use model selector |
+| R3 | Step 7 reviews `CoderResult` — if `status === 'success'`, proceeds to Step 8 | Check result status |
+| R4 | Step 7 on `status === 'error'` or `'partial'` — sends fix instructions back to Coder (Step 6 retry) | Loop: Step 6→7 until success or max retries |
+| R5 | Step 7 max review iterations (3) — escalates to human if Coder keeps failing | Counter + askInput for guidance |
+| R6 | Step 7 displays Coder summary to human (not full stream, just the summary from result) | Call `deps.display()` with report summary |
+| R7 | `coderExecute` in `DirectorDeps` signature changes to async with `CoderOptions` param | Update interface |
+| R8 | Cost accumulation: logs total cost after each Coder call | Sum `coderResult.cost` across calls |
+| R9 | Step 3 (spec update) calls Coder with spec-editing permissions instead of context-only note | New Coder call for spec update |
+
+### Module S: Integration updates
+
+| # | Red (test) | Green (code) |
+|---|---|---|
+| S1 | `cli/index.ts` — `buildDeps()` creates async `coderExecute` that calls `executeCoder()` | Wire new coder module |
+| S2 | `cli/index.ts` — passes `targetRepoPath` and config through to Coder | Thread config |
+| S3 | Integration test — mocks `query()` from Agent SDK, verifies full Director→Coder→Director flow | Mock at SDK import level |
+| S4 | Integration test — verifies Coder receives correct `allowedTools` for each step | Assert mock calls |
+
+---
+
+## 5. TODO Checklist (Implementation Order)
 
 This is the contract. Executed in this exact order:
 
 ```
- 1. [x] Project scaffold: package.json, tsconfig.json, vitest.config.ts, .gitignore
- 2. [x] Install dependencies (npm install)
- 3. [x] Create src/ directory structure (empty files with POSIX path comments)
- 4. [x] shared/types.ts — all type definitions
- 5. [x] shared/config.ts — TDD: B1 red→green, B2 red→green, B3 red→green, B4 red→green
- 6. [x] shared/logger.ts — pino setup (no dedicated tests)
- 7. [x] shared/spec-parser.ts — TDD: D1 red→green, D2 red→green, ... D7 red→green + fixtures
- 8. [x] shared/spec-writer.ts — TDD: E1 red→green, E2 red→green, E3 red→green, E4 red→green
- 9. [x] director/model-selector.ts — TDD: F1 red→green, F2 red→green, F3 red→green, F4 red→green
-10. [x] director/prompt-builder.ts — TDD: G1 red→green, G2 red→green, ... G5 red→green
-11. [x] cli/prompt.ts — TDD: H1 red→green, H2 red→green, H3 red→green, H4 red→green
-12. [x] coder/coder.ts — TDD: I1 red→green
-13. [x] director/director.ts — TDD: J1 red→green, J2 red→green, ... J9 red→green
-14. [x] cli/index.ts — TDD: K1 red→green, K2 red→green, K3 red→green
-15. [x] Integration smoke test: npx cestdone run --spec ./tests/fixtures/valid-spec.md
-16. [x] npx tsc — zero errors
-17. [x] npm run test — all pass
-18. [x] Review for dead code, unused imports, clean up
+ 1. [ ] Install dependency: npm install @anthropic-ai/claude-agent-sdk@^0.2.41
+ 2. [ ] shared/types.ts — add CoderReport, CoderOptions, expand CoderResult (Module L)
+ 3. [ ] shared/config.ts — TDD: M1 red→green, M2 red→green, M3 red→green
+ 4. [ ] coder/permissions.ts — TDD: N1 red→green, N2 red→green, N3 red→green, N4 red→green
+ 5. [ ] coder/coder-prompt.ts — TDD: O1 red→green, O2 red→green, ... O5 red→green
+ 6. [ ] coder/result-parser.ts — TDD: P1 red→green, P2 red→green, ... P7 red→green
+ 7. [ ] coder/coder.ts — TDD: Q1 red→green, Q2 red→green, ... Q12 red→green
+ 8. [ ] director/director.ts — TDD: R1 red→green, R2 red→green, ... R9 red→green
+ 9. [ ] cli/index.ts — update buildDeps() wiring (S1, S2)
+10. [ ] Update existing tests: director.test.ts, integration.test.ts (S3, S4)
+11. [ ] npx tsc — zero errors
+12. [ ] npm run test — all pass
+13. [ ] Review for dead code, unused imports, clean up
 ```
 
-Steps 1-3 are scaffold (one commit checkpoint). Steps 4-12 are bottom-up unit-tested modules. Steps 13-14 are the orchestration layer. Steps 15-18 are the acceptance gate.
+Steps 1-2 are foundation (types + dependency). Steps 3-6 are bottom-up unit-tested leaf modules. Step 7 is the core SDK wrapper. Step 8 is the Director orchestration update. Steps 9-10 are wiring + integration. Steps 11-13 are the acceptance gate.
 
 ---
 
-## 5. Estimated Scope
+## 6. Key Implementation Details
+
+### 6a. `executeCoder()` signature
+
+```typescript
+export async function executeCoder(options: CoderOptions): Promise<CoderResult>
+```
+
+Where `CoderOptions`:
+```typescript
+interface CoderOptions {
+  step: WorkflowStep
+  phase: Phase
+  model: string
+  targetRepoPath: string
+  houseRulesContent: string
+  instructions: string
+  maxTurns: number
+  maxBudgetUsd?: number
+  apiKey: string
+  logLevel: string
+}
+```
+
+### 6b. `query()` call shape
+
+```typescript
+import { query } from '@anthropic-ai/claude-agent-sdk'
+
+const q = query({
+  prompt: buildCoderPrompt(options),
+  options: {
+    model: options.model,
+    cwd: path.resolve(options.targetRepoPath),
+    maxTurns: options.maxTurns,
+    maxBudgetUsd: options.maxBudgetUsd,
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+    allowedTools: getAllowedTools(options.step),
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      append: options.houseRulesContent + '\n\n' + stepInstructions,
+    },
+    outputFormat: {
+      type: 'json_schema',
+      schema: CODER_REPORT_SCHEMA,
+    },
+  },
+})
+```
+
+### 6c. Director Steps 6-7 rewrite pattern
+
+```
+Step 6 (Execute):
+  formulate instructions from approved plan
+  call executeCoder({ step: Execute, instructions, ... })
+  capture CoderResult
+
+Step 7 (Review):
+  reviewCount = 0
+  while coderResult.status !== 'success' AND reviewCount < MAX_REVIEWS:
+    display coderResult summary to human
+    formulate fix instructions from Director via API call
+    call executeCoder({ step: Execute, instructions: fixInstructions, ... })
+    reviewCount++
+  if still failing after MAX_REVIEWS:
+    escalate to human
+```
+
+### 6d. `DirectorDeps` interface change
+
+```typescript
+// Before (Phase 0):
+coderExecute: () => CoderResult
+
+// After (Phase 1):
+coderExecute: (options: CoderOptions) => Promise<CoderResult>
+```
+
+This is the only breaking change to the Director interface. All existing tests mock this — they need updating.
+
+### 6e. Logging strategy
+
+| Event | Level | What's logged |
+|---|---|---|
+| `SDKSystemMessage` (init) | debug | session_id, model, tools, cwd |
+| `SDKAssistantMessage` | debug | text content (truncated to 500 chars), tool name + input keys |
+| `SDKResultMessage` | info | subtype, cost, turns, duration, result summary (first 200 chars) |
+| Coder call start | info | step, model, phase, allowedTools |
+| Coder call end | info | status, cost, turns |
+| Cost accumulation | info | total phase cost so far |
+
+### 6f. Test mocking strategy
+
+The Coder tests mock `query()` at the module level:
+
+```typescript
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn()
+}))
+```
+
+The mock returns an async generator that yields a sequence of `SDKMessage` objects, ending with an `SDKResultMessage`. This allows testing:
+- That correct options are passed to `query()`
+- That events are logged correctly
+- That the result is parsed correctly
+- Error subtypes are handled
+
+The Director tests mock `coderExecute` directly (it's a dep injection), so they don't need to know about the SDK at all.
+
+---
+
+## 7. Estimated Scope
 
 | Category | Files | Lines (approx) |
 |---|---|---|
-| Config files | 4 | ~80 |
-| Type definitions | 1 | ~80 |
-| Shared modules (config, logger, parser, writer) | 4 | ~400 |
-| Director modules (selector, prompt-builder, director) | 3 | ~350 |
-| Coder stub | 1 | ~25 |
-| CLI modules (prompt, index) | 2 | ~180 |
-| Tests | 7 | ~650 |
-| Fixtures | 3 | ~100 |
-| **Total** | **25** | **~1,865** |
+| Type additions (types.ts) | 1 (modified) | +40 |
+| Config additions (config.ts) | 1 (modified) | +10 |
+| Permissions module | 1 (new) | ~30 |
+| Coder prompt builder | 1 (new) | ~60 |
+| Result parser | 1 (new) | ~70 |
+| Coder SDK wrapper | 1 (rewrite) | ~100 |
+| Director update | 1 (modified) | +60 (net, replacing ~15 stub lines) |
+| CLI wiring update | 1 (modified) | +15 |
+| New tests (permissions, result-parser, coder, coder-prompt) | 4 (new) | ~400 |
+| Modified tests (director, config, integration) | 3 (modified) | +100 |
+| **Total** | **15 files** | **~885 lines** |
 
-**Overengineering flags:**
-- **None identified.** Everything maps directly to a spec requirement or TODO.md item. The model-selector feels premature (Phase 0 only calls one model), but the spec explicitly says "the plumbing must exist." The atomic spec writer is called out in TODO.md as high-priority. The coder stub is intentionally minimal.
-- **Risk item:** The Director module (J1-J9) is the most complex single file (~200 lines). If it grows beyond ~250, I'll split the step handlers into a separate file. But I won't pre-split — Uncle Bob says extract when you need to.
-- **Deliberately excluded:** No `src/index.ts` barrel export file. No abstract base classes. No dependency injection container. No event system. Those are Phase 1+ concerns if needed at all.
+### Risk items
+
+- **Agent SDK as subprocess:** The SDK spawns a subprocess internally. Tests must mock at the `query()` import level to avoid actual subprocess creation. If mocking proves brittle, we may need a thin adapter interface.
+- **Structured output reliability:** If the Coder fails to produce valid JSON matching the schema, the SDK returns `error_max_structured_output_retries`. The result-parser handles this gracefully (P3-P5), but the Director's Step 7 loop also needs to handle it as a retry-able failure.
+- **Cost tracking accuracy:** `total_cost_usd` from `SDKResultMessage` should be reliable. If it's `0` or missing for bypass-permission runs, we log a warning and continue.
+
+### Deliberately excluded
+
+- **Session resume within a phase** — each Coder call is a fresh `query()`. Resume is a Phase 2 concern.
+- **Parallel Coder sessions** — spec mentions this as a Director capability but it's not in Phase 1 acceptance criteria.
+- **AbortController / cancellation** — not wired in Phase 1. The Coder runs to completion or hits maxTurns/maxBudget.
+- **Step 3 Coder call** — listed in R9 as a stretch goal. If it complicates the Director flow significantly, we keep the Phase 0 approach (context-only) and defer to Phase 2. Decision at implementation time.
