@@ -27,5 +27,5 @@ _(polish, optimization, edge cases that can wait)_
 
 - [ ] Config file hierarchical lookup (currently CWD only — may revisit if multi-repo setups need it)
 - [ ] Graceful handling when house-rules.md is missing — currently warns, consider testing edge cases (empty file, broken path)
-- [ ] Director "I'm stuck" escalation UX — after 3 rejections, format a clear summary of attempts for human review
+- [x] Director "I'm stuck" escalation UX — after 3 rejections, format a clear summary of attempts for human review (implemented for both plan rejections and Coder failures)
 - [ ] Spec parser recovery mode — currently strict-fail by design, may want a `--lint` command to validate spec files without running

@@ -64,7 +64,7 @@ export interface CoderReport {
 }
 
 export interface CoderResult {
-  status: 'manual' | 'success' | 'error' | 'partial'
+  status: 'success' | 'error' | 'partial'
   message: string
   filesChanged?: string[]
   cost: number

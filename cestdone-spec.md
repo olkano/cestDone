@@ -277,29 +277,21 @@ _See Done summary below._
 
 ## Phase 1: Agent SDK integration (Coder)
 
-### Status: pending
+### Status: done
 
 ### Spec
-
-Connect the Director to a real Coder via the Claude Agent SDK. The Director sends instructions, the Coder executes them in the target repo, and reports back results.
-
-**Deliverables:**
-- Coder module: wraps Agent SDK `query()` calls with proper tool permissions
-- Director→Coder flow: Director formulates instructions, Coder executes, results stream back
-- Session management: new Agent SDK session per phase, context tracking
-- House-rules injection: Coder receives house-rules.md content at session start
-- Result parsing: extract structured info from Coder's output (files changed, test results, questions)
-- Human approval gate: after Coder reports, Director summarizes and asks human to approve
-- Spec.md updater: Director writes `### Done` summaries and updates phase status
-
-**Acceptance criteria:**
-- Full loop works: Director reads spec → instructs Coder → Coder works on target repo → Director reviews → human approves → spec.md updated
-- Coder respects house-rules (TDD, logging, tests pass)
-- Session isolation: each phase starts fresh
-- All tests pass
+_See Done summary below._
 
 ### Done
-_(to be filled)_
+- Coder module wraps Agent SDK V1 `query()` async generator with per-step tool permissions, structured JSON output, and house-rules injection via `systemPrompt.append`
+- Director Steps 6-7 rewritten: execute→review loop with fix instructions from Director API, max 3 retries with human escalation, cost accumulation and display
+- Step 3 now calls Coder with spec-editing permissions after clarifications (instead of context-only note)
+- Result parser extracts `structured_output` from SDK result messages, with JSON text fallback and raw text partial status
+- Permission model: `bypassPermissions` + `allowDangerouslySkipPermissions`, with `allowedTools` varying per workflow step (read-only for analyze/plan, spec-edit for step 3, full edit+bash for execute)
+- CLI wiring updated: `buildDeps()` connects `executeCoder` directly, config threads `maxTurns`/`maxBudgetUsd` through to Coder
+- Integration test mocks both `@anthropic-ai/sdk` (Director) and `@anthropic-ai/claude-agent-sdk` (Coder), verifies full Director→Coder→Director flow and correct `allowedTools`
+- 115 tests across 14 test files, all passing. Key new test files: `coder.test.ts` (15 tests), `permissions.test.ts` (8), `coder-prompt.test.ts` (7), `result-parser.test.ts` (8). Director tests expanded from 10 to 18
+- Key files: `src/coder/coder.ts`, `src/coder/permissions.ts`, `src/coder/coder-prompt.ts`, `src/coder/result-parser.ts`, `src/director/director.ts`, `src/cli/index.ts`
 
 ## Phase 2: Git integration + session resilience
 
