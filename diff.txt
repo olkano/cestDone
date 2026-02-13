@@ -1,117 +1,279 @@
-diff --git a/src/shared/config.ts b/src/shared/config.ts
-index 2cca4ea..4974769 100644
---- a/src/shared/config.ts
-+++ b/src/shared/config.ts
-@@ -1 +1,36 @@
- // src/shared/config.ts
+diff --git a/diff.txt b/diff.txt
+index 572c3df..e69de29 100644
+--- a/diff.txt
++++ b/diff.txt
+@@ -1,117 +0,0 @@
+-diff --git a/src/shared/config.ts b/src/shared/config.ts
+-index 2cca4ea..4974769 100644
+---- a/src/shared/config.ts
+-+++ b/src/shared/config.ts
+-@@ -1 +1,36 @@
+- // src/shared/config.ts
+-+import fs from 'node:fs'
+-+import path from 'node:path'
+-+import type { Config, ResolvedConfig } from './types.js'
+-+
+-+const CONFIG_FILENAME = '.cestdonerc.json'
+-+
+-+const DEFAULTS: Config = {
+-+  defaultModel: 'claude-opus-4-20250514',
+-+  targetRepoPath: '.',
+-+  logLevel: 'info',
+-+}
+-+
+-+export function loadConfig(cwd: string = process.cwd()): Config {
+-+  const configPath = path.join(cwd, CONFIG_FILENAME)
+-+  try {
+-+    const raw = fs.readFileSync(configPath, 'utf-8')
+-+    const parsed = JSON.parse(raw) as Partial<Config>
+-+    return { ...DEFAULTS, ...parsed }
+-+  } catch (err: unknown) {
+-+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+-+      return { ...DEFAULTS }
+-+    }
+-+    throw err
+-+  }
+-+}
+-+
+-+export function resolveConfig(config: Config): ResolvedConfig {
+-+  const apiKey = process.env.ANTHROPIC_API_KEY
+-+  if (!apiKey) {
+-+    throw new Error(
+-+      'ANTHROPIC_API_KEY environment variable is required. Set it before running cestdone.'
+-+    )
+-+  }
+-+  return { ...config, apiKey }
+-+}
+-diff --git a/src/shared/logger.ts b/src/shared/logger.ts
+-index 1bae20d..9e6b7bf 100644
+---- a/src/shared/logger.ts
+-+++ b/src/shared/logger.ts
+-@@ -1 +1,6 @@
+- // src/shared/logger.ts
+-+import pino from 'pino'
+-+
+-+export function createLogger(level: string = 'info'): pino.Logger {
+-+  return pino({ level })
+-+}
+-diff --git a/src/shared/types.ts b/src/shared/types.ts
+-index 60edb5d..2a300f8 100644
+---- a/src/shared/types.ts
+-+++ b/src/shared/types.ts
+-@@ -1 +1,60 @@
+- // src/shared/types.ts
+-+
+-+export type PhaseStatus = 'pending' | 'in-progress' | 'done'
+-+
+-+export interface Phase {
+-+  number: number
+-+  name: string
+-+  status: PhaseStatus
+-+  spec: string
+-+  done: string
+-+}
+-+
+-+export interface SpecMetadata {
+-+  context: string
+-+  houseRulesRef: string
+-+  houseRulesContent?: string
+-+}
+-+
+-+export interface ParsedSpec {
+-+  title: string
+-+  metadata: SpecMetadata
+-+  phases: Phase[]
+-+}
+-+
+-+export interface Config {
+-+  defaultModel: string
+-+  targetRepoPath: string
+-+  logLevel: string
+-+}
+-+
+-+export interface ResolvedConfig extends Config {
+-+  apiKey: string
+-+}
+-+
+-+export enum WorkflowStep {
+-+  Analyze = 1,
+-+  Clarify = 2,
+-+  UpdateSpec = 3,
+-+  Plan = 4,
+-+  ApprovePlan = 5,
+-+  Execute = 6,
+-+  Review = 7,
+-+  Complete = 8,
+-+}
+-+
+-+export type DirectorActionType = 'approve' | 'ask_human' | 'fix' | 'complete'
+-+
+-+export interface DirectorAction {
+-+  action: DirectorActionType
+-+  message: string
+-+  questions?: string[]
+-+}
+-+
+-+export type Complexity = 'low' | 'high'
+-+
+-+export interface CoderResult {
+-+  status: 'manual' | 'success' | 'error'
+-+  message: string
+-+  filesChanged?: string[]
+-+}
+diff --git a/src/shared/spec-parser.ts b/src/shared/spec-parser.ts
+index d08a982..488dcb9 100644
+--- a/src/shared/spec-parser.ts
++++ b/src/shared/spec-parser.ts
+@@ -1 +1,152 @@
+ // src/shared/spec-parser.ts
 +import fs from 'node:fs'
 +import path from 'node:path'
-+import type { Config, ResolvedConfig } from './types.js'
++import type { ParsedSpec, Phase, PhaseStatus, SpecMetadata } from './types.js'
++import { createLogger } from './logger.js'
 +
-+const CONFIG_FILENAME = '.cestdonerc.json'
++const logger = createLogger()
 +
-+const DEFAULTS: Config = {
-+  defaultModel: 'claude-opus-4-20250514',
-+  targetRepoPath: '.',
-+  logLevel: 'info',
++const VALID_STATUSES: PhaseStatus[] = ['pending', 'in-progress', 'done']
++
++interface Section {
++  heading: string
++  content: string[]
 +}
 +
-+export function loadConfig(cwd: string = process.cwd()): Config {
-+  const configPath = path.join(cwd, CONFIG_FILENAME)
-+  try {
-+    const raw = fs.readFileSync(configPath, 'utf-8')
-+    const parsed = JSON.parse(raw) as Partial<Config>
-+    return { ...DEFAULTS, ...parsed }
-+  } catch (err: unknown) {
-+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-+      return { ...DEFAULTS }
++export function parseSpec(content: string, targetDir?: string): ParsedSpec {
++  const lines = content.split(/\r?\n/)
++
++  const specStartIndex = findLastH1(lines)
++  if (specStartIndex === -1) {
++    throw new Error('No H1 heading found in spec file')
++  }
++
++  const title = lines[specStartIndex].replace(/^# /, '').trim()
++  const specLines = lines.slice(specStartIndex + 1)
++  const sections = splitByH2(specLines)
++  const metadata = extractMetadata(sections, targetDir)
++  const phases = extractPhases(sections)
++
++  return { title, metadata, phases }
++}
++
++function findLastH1(lines: string[]): number {
++  for (let i = lines.length - 1; i >= 0; i--) {
++    if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
++      return i
 +    }
-+    throw err
 +  }
++  return -1
 +}
 +
-+export function resolveConfig(config: Config): ResolvedConfig {
-+  const apiKey = process.env.ANTHROPIC_API_KEY
-+  if (!apiKey) {
-+    throw new Error(
-+      'ANTHROPIC_API_KEY environment variable is required. Set it before running cestdone.'
-+    )
++function splitByH2(lines: string[]): Section[] {
++  const sections: Section[] = []
++  let current: Section | null = null
++
++  for (const line of lines) {
++    if (line.startsWith('## ') && !line.startsWith('### ')) {
++      if (current) sections.push(current)
++      current = { heading: line.replace(/^## /, '').trim(), content: [] }
++    } else if (current) {
++      current.content.push(line)
++    }
 +  }
-+  return { ...config, apiKey }
-+}
-diff --git a/src/shared/logger.ts b/src/shared/logger.ts
-index 1bae20d..9e6b7bf 100644
---- a/src/shared/logger.ts
-+++ b/src/shared/logger.ts
-@@ -1 +1,6 @@
- // src/shared/logger.ts
-+import pino from 'pino'
++  if (current) sections.push(current)
 +
-+export function createLogger(level: string = 'info'): pino.Logger {
-+  return pino({ level })
-+}
-diff --git a/src/shared/types.ts b/src/shared/types.ts
-index 60edb5d..2a300f8 100644
---- a/src/shared/types.ts
-+++ b/src/shared/types.ts
-@@ -1 +1,60 @@
- // src/shared/types.ts
-+
-+export type PhaseStatus = 'pending' | 'in-progress' | 'done'
-+
-+export interface Phase {
-+  number: number
-+  name: string
-+  status: PhaseStatus
-+  spec: string
-+  done: string
++  return sections
 +}
 +
-+export interface SpecMetadata {
-+  context: string
-+  houseRulesRef: string
-+  houseRulesContent?: string
++function splitByH3(lines: string[]): Section[] {
++  const sections: Section[] = []
++  let current: Section | null = null
++
++  for (const line of lines) {
++    if (line.startsWith('### ')) {
++      if (current) sections.push(current)
++      current = { heading: line.replace(/^### /, '').trim(), content: [] }
++    } else if (current) {
++      current.content.push(line)
++    }
++  }
++  if (current) sections.push(current)
++
++  return sections
 +}
 +
-+export interface ParsedSpec {
-+  title: string
-+  metadata: SpecMetadata
-+  phases: Phase[]
++function extractMetadata(sections: Section[], targetDir?: string): SpecMetadata {
++  const contextSection = sections.find(s => s.heading === 'Context')
++  const houseRulesSection = sections.find(s => s.heading === 'House rules')
++
++  const context = contextSection ? contextSection.content.join('\n').trim() : ''
++  const houseRulesRef = houseRulesSection ? houseRulesSection.content.join('\n').trim() : ''
++
++  let houseRulesContent: string | undefined
++  if (targetDir && houseRulesRef) {
++    const pathMatch = houseRulesRef.match(/`([^`]+\.md)`/)
++    if (pathMatch) {
++      const rulesPath = path.resolve(targetDir, pathMatch[1])
++      if (fs.existsSync(rulesPath)) {
++        houseRulesContent = fs.readFileSync(rulesPath, 'utf-8')
++      } else {
++        logger.warn({ path: rulesPath }, 'House rules file not found, continuing without it')
++      }
++    }
++  }
++
++  return { context, houseRulesRef, houseRulesContent }
 +}
 +
-+export interface Config {
-+  defaultModel: string
-+  targetRepoPath: string
-+  logLevel: string
-+}
++function extractPhases(sections: Section[]): Phase[] {
++  const phases: Phase[] = []
 +
-+export interface ResolvedConfig extends Config {
-+  apiKey: string
-+}
++  for (const section of sections) {
++    const phaseMatch = section.heading.match(/^Phase (\S+): (.+)$/)
++    if (!phaseMatch) continue
 +
-+export enum WorkflowStep {
-+  Analyze = 1,
-+  Clarify = 2,
-+  UpdateSpec = 3,
-+  Plan = 4,
-+  ApprovePlan = 5,
-+  Execute = 6,
-+  Review = 7,
-+  Complete = 8,
-+}
++    const phaseNumStr = phaseMatch[1]
++    const phaseNum = parseInt(phaseNumStr, 10)
++    if (isNaN(phaseNum) || String(phaseNum) !== phaseNumStr) {
++      throw new Error(
++        `Invalid phase number "${phaseNumStr}" in "## Phase ${phaseNumStr}: ${phaseMatch[2]}". Phase numbers must be integers.`
++      )
++    }
 +
-+export type DirectorActionType = 'approve' | 'ask_human' | 'fix' | 'complete'
++    const name = phaseMatch[2]
++    const subsections = splitByH3(section.content)
 +
-+export interface DirectorAction {
-+  action: DirectorActionType
-+  message: string
-+  questions?: string[]
-+}
++    const statusSub = subsections.find(s => s.heading.startsWith('Status:'))
++    if (!statusSub) {
++      throw new Error(`Missing "### Status:" in Phase ${phaseNum}: ${name}`)
++    }
++    const status = statusSub.heading.replace('Status:', '').trim() as PhaseStatus
++    if (!VALID_STATUSES.includes(status)) {
++      throw new Error(
++        `Invalid status "${status}" in Phase ${phaseNum}. Must be one of: ${VALID_STATUSES.join(', ')}`
++      )
++    }
 +
-+export type Complexity = 'low' | 'high'
++    const specSub = subsections.find(s => s.heading === 'Spec')
++    if (!specSub) {
++      throw new Error(`Missing "### Spec" in Phase ${phaseNum}: ${name}`)
++    }
 +
-+export interface CoderResult {
-+  status: 'manual' | 'success' | 'error'
-+  message: string
-+  filesChanged?: string[]
++    const doneSub = subsections.find(s => s.heading === 'Done')
++    if (!doneSub) {
++      throw new Error(`Missing "### Done" in Phase ${phaseNum}: ${name}`)
++    }
++
++    phases.push({
++      number: phaseNum,
++      name,
++      status,
++      spec: specSub.content.join('\n').trim(),
++      done: doneSub.content.join('\n').trim(),
++    })
++  }
++
++  if (phases.length === 0) {
++    throw new Error('No phases found in spec file')
++  }
++
++  return phases
 +}
