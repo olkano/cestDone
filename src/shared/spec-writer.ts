@@ -1,6 +1,5 @@
 // src/shared/spec-writer.ts
 import fs from 'node:fs'
-import path from 'node:path'
 import type { PhaseStatus } from './types.js'
 
 export function updatePhaseStatus(filePath: string, phaseNumber: number, newStatus: PhaseStatus): void {

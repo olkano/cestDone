@@ -178,24 +178,24 @@ No dedicated tests. Thin wrapper: `pino({ level: config.logLevel })`. Tested imp
 This is the contract. Executed in this exact order:
 
 ```
- 1. [ ] Project scaffold: package.json, tsconfig.json, vitest.config.ts, .gitignore
- 2. [ ] Install dependencies (npm install)
- 3. [ ] Create src/ directory structure (empty files with POSIX path comments)
- 4. [ ] shared/types.ts — all type definitions
- 5. [ ] shared/config.ts — TDD: B1 red→green, B2 red→green, B3 red→green, B4 red→green
- 6. [ ] shared/logger.ts — pino setup (no dedicated tests)
- 7. [ ] shared/spec-parser.ts — TDD: D1 red→green, D2 red→green, ... D7 red→green + fixtures
- 8. [ ] shared/spec-writer.ts — TDD: E1 red→green, E2 red→green, E3 red→green, E4 red→green
- 9. [ ] director/model-selector.ts — TDD: F1 red→green, F2 red→green, F3 red→green, F4 red→green
-10. [ ] director/prompt-builder.ts — TDD: G1 red→green, G2 red→green, ... G5 red→green
-11. [ ] cli/prompt.ts — TDD: H1 red→green, H2 red→green, H3 red→green, H4 red→green
-12. [ ] coder/coder.ts — TDD: I1 red→green
-13. [ ] director/director.ts — TDD: J1 red→green, J2 red→green, ... J9 red→green
-14. [ ] cli/index.ts — TDD: K1 red→green, K2 red→green, K3 red→green
-15. [ ] Integration smoke test: npx cestdone run --spec ./tests/fixtures/valid-spec.md
-16. [ ] npx tsc — zero errors
-17. [ ] npm run test — all pass
-18. [ ] Review for dead code, unused imports, clean up
+ 1. [x] Project scaffold: package.json, tsconfig.json, vitest.config.ts, .gitignore
+ 2. [x] Install dependencies (npm install)
+ 3. [x] Create src/ directory structure (empty files with POSIX path comments)
+ 4. [x] shared/types.ts — all type definitions
+ 5. [x] shared/config.ts — TDD: B1 red→green, B2 red→green, B3 red→green, B4 red→green
+ 6. [x] shared/logger.ts — pino setup (no dedicated tests)
+ 7. [x] shared/spec-parser.ts — TDD: D1 red→green, D2 red→green, ... D7 red→green + fixtures
+ 8. [x] shared/spec-writer.ts — TDD: E1 red→green, E2 red→green, E3 red→green, E4 red→green
+ 9. [x] director/model-selector.ts — TDD: F1 red→green, F2 red→green, F3 red→green, F4 red→green
+10. [x] director/prompt-builder.ts — TDD: G1 red→green, G2 red→green, ... G5 red→green
+11. [x] cli/prompt.ts — TDD: H1 red→green, H2 red→green, H3 red→green, H4 red→green
+12. [x] coder/coder.ts — TDD: I1 red→green
+13. [x] director/director.ts — TDD: J1 red→green, J2 red→green, ... J9 red→green
+14. [x] cli/index.ts — TDD: K1 red→green, K2 red→green, K3 red→green
+15. [x] Integration smoke test: npx cestdone run --spec ./tests/fixtures/valid-spec.md
+16. [x] npx tsc — zero errors
+17. [x] npm run test — all pass
+18. [x] Review for dead code, unused imports, clean up
 ```
 
 Steps 1-3 are scaffold (one commit checkpoint). Steps 4-12 are bottom-up unit-tested modules. Steps 13-14 are the orchestration layer. Steps 15-18 are the acceptance gate.

@@ -3,10 +3,10 @@
 ## 🔴 High priority (blocks current work)
 _(items that must be resolved before or during current phase)_
 
-- [ ] Atomic write for spec updates — write to temp file, then rename. Prevents corruption on crash mid-write
-- [ ] Structured Director output schema — define `tool_use` response schema with action envelope (`approve | ask_human | fix | complete`). Needed before Director module implementation
-- [ ] Windows stdin compatibility — use Node `readline` module, test explicitly on Windows. Required for Phase 0 acceptance criteria
-- [ ] Non-TTY detection — error with clear message when no TTY available (Phase 0 hard requirement)
+- [x] Atomic write for spec updates — write to temp file, then rename. Prevents corruption on crash mid-write
+- [x] Structured Director output schema — define `tool_use` response schema with action envelope (`approve | ask_human | fix | complete`). Needed before Director module implementation
+- [x] Windows stdin compatibility — use Node `readline` module, test explicitly on Windows. Required for Phase 0 acceptance criteria
+- [x] Non-TTY detection — error with clear message when no TTY available (Phase 0 hard requirement)
 
 ## 🟡 Medium priority (next phases)
 _(items for upcoming phases, or improvements to current architecture)_

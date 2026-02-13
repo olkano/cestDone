@@ -9,6 +9,8 @@
   },
   "scripts": {
     "build": "tsc",
+    "start": "node --env-file=.env dist/cli/index.js",
+    "dev": "tsx --env-file=.env src/cli/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"

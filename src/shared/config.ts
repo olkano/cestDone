@@ -26,10 +26,10 @@ export function loadConfig(cwd: string = process.cwd()): Config {
 }
 
 export function resolveConfig(config: Config): ResolvedConfig {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = process.env.CESTDONE_CLAUDE_API_KEY ?? process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     throw new Error(
-      'ANTHROPIC_API_KEY environment variable is required. Set it before running cestdone.'
+      'CESTDONE_CLAUDE_API_KEY or ANTHROPIC_API_KEY environment variable is required. Set one before running cestdone.'
     )
   }
   return { ...config, apiKey }
