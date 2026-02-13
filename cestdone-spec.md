@@ -156,6 +156,11 @@ READY TO PROCEED: waiting for plan approval
 
 Director reviews, answers questions, approves or modifies the plan, then tells Coder to proceed.
 
+**Reporting rules:**
+- When the Director asks to "show the diff," Coder runs `git diff` (or `git diff --cached` if staged) and includes the output. Never substitute prose for actual diff output.
+- When the Director asks to commit, Coder runs: `git add -A`, then `git diff --cached --stat` (for Director review), then commits with the provided message. Coder does NOT push unless explicitly told.
+- After any file modifications, Coder reports: files changed (list), lines added/removed (from diff stat), and any warnings from linters or tests.
+
 ## Director workflow protocol
 
 The Director follows this sequence for every phase:
@@ -204,6 +209,11 @@ The Coder NEVER commits on its own initiative. All commits go through the Direct
 - Director proposes a commit message following the format: `cestdone: Phase N — [phase name]: [brief summary]`
 - Human approves or modifies the commit message before it executes
 - If a phase is interrupted mid-work (context budget hit), Director tells Coder to save all progress to files (no commit), notes the interruption in spec.md, and resumes in a new session
+
+**Commit timing:**
+- Step 8 commits are mandatory (phase completion)
+- Steps 2-3 (spec clarification updates) should also be committed if the changes are substantial, to avoid losing decisions. Director decides. Commit message: `cestdone: Phase N — spec update: [brief description]`
+- Never let more than ~30 minutes of meaningful work go uncommitted
 
 **Branch strategy (MVP):**
 - `main` — stable, only receives approved commits
