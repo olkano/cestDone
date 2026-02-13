@@ -166,7 +166,7 @@ READY TO PROCEED: waiting for plan approval
 Director reviews, answers questions, approves or modifies the plan, then tells Coder to proceed.
 
 **Reporting rules:**
-- After modifications, Coder writes the diff to `cestdone-diff.txt` in the repo root: `git --no-pager diff > cestdone-diff.txt`. The Director reads this file to review changes. This file is ephemeral — it's overwritten on every report cycle and is in `.gitignore`.
+- After modifications, Coder writes the diff to `cestdone-diff.txt` in the repo root: `git --no-pager diff > cestdone-diff.txt`. Always use relative path — the file lives in the repo root. The Director reads this file to review changes. This file is ephemeral — it's overwritten on every report cycle and is in `.gitignore`.
 - For very large diffs (>500 lines), Coder writes `git diff --stat` to `cestdone-diff.txt` first and asks the Director which files to show in full.
 - Coder also reports: test results (raw output from test runner), `tsc --noEmit` output, and a list of files changed.
 - When the Director asks to commit, Coder runs: `git add -A`, then `git diff --cached --stat` (for Director review), then commits with the provided message. Coder does NOT push unless explicitly told.
