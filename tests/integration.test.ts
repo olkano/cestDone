@@ -4,28 +4,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-let callId = 0
-
-function makeToolResponse(action: string, message: string) {
-  callId++
-  return {
-    content: [{
-      type: 'tool_use',
-      id: `toolu_integ_${callId}`,
-      name: 'director_action',
-      input: { action, message },
-    }],
-    stop_reason: 'tool_use',
-  }
-}
-
-const mockCreate = vi.fn()
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: vi.fn(() => ({
-    messages: { create: mockCreate }
-  }))
-}))
-
 const mockQuery = vi.fn()
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: (...args: unknown[]) => mockQuery(...args),
@@ -56,50 +34,41 @@ Set up the project structure.
 _(to be filled)_
 `
 
-function makeCoderResultMessage(overrides: Record<string, unknown> = {}) {
+function makeDirectorResult(action: string, message: string) {
   return {
     type: 'result' as const,
     subtype: 'success' as const,
-    uuid: 'uuid-integ',
-    session_id: 'sess-integ',
-    duration_ms: 5000,
-    duration_api_ms: 4500,
-    is_error: false,
-    num_turns: 10,
-    result: '',
+    total_cost_usd: 0.05,
+    num_turns: 3,
+    duration_ms: 2000,
+    structured_output: { action, message },
+  }
+}
+
+function makeCoderResult(overrides: Record<string, unknown> = {}) {
+  return {
+    type: 'result' as const,
+    subtype: 'success' as const,
     total_cost_usd: 0.25,
-    usage: { inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
-    modelUsage: {},
-    permission_denials: [],
+    num_turns: 10,
+    duration_ms: 5000,
     structured_output: { status: 'success', summary: 'Implementation complete' },
     ...overrides,
   }
 }
 
-async function* generateCoderMessages(result: Record<string, unknown> = {}) {
-  yield {
-    type: 'system' as const,
-    subtype: 'init' as const,
-    uuid: 'uuid-sys-integ',
-    session_id: 'sess-integ',
-    apiKeySource: 'env' as const,
-    cwd: '/tmp/repo',
-    tools: ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'],
-    mcp_servers: [],
-    model: 'claude-opus-4-20250514',
-    permissionMode: 'bypassPermissions',
-    slash_commands: [],
-    output_style: 'concise',
-    claude_code_version: '1.0.0',
-  }
-  yield makeCoderResultMessage(result)
+async function* generateMessages(result: Record<string, unknown>) {
+  yield { type: 'system', session_id: 'sess-1' }
+  yield result
 }
+
+let queryCallIndex = 0
 
 let tmpDir: string
 let savedApiKey: string | undefined
 
 beforeEach(() => {
-  callId = 0
+  queryCallIndex = 0
   vi.clearAllMocks()
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-integ-'))
   savedApiKey = process.env.ANTHROPIC_API_KEY
@@ -122,12 +91,19 @@ beforeEach(() => {
     apiKey: 'sk-test-integration',
   })
 
-  mockCreate
-    .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis complete. No questions.'))
-    .mockResolvedValueOnce(makeToolResponse('approve', 'Plan:\n1. Create files\n2. Write tests'))
-    .mockResolvedValueOnce(makeToolResponse('complete', 'Phase done. Created scaffold.'))
+  // Both Director and Coder use Agent SDK query() now.
+  // Order: Director(analyze), Director(plan), Coder(execute), Director(complete)
+  const responses = [
+    makeDirectorResult('approve', 'Analysis complete. No questions.'),
+    makeDirectorResult('approve', 'Plan:\n1. Create files\n2. Write tests'),
+    makeCoderResult(),
+    makeDirectorResult('done', 'Phase done. Created scaffold.'),
+  ]
 
-  mockQuery.mockReturnValue(generateCoderMessages())
+  mockQuery.mockImplementation(() => {
+    const idx = queryCallIndex++
+    return generateMessages(responses[idx])
+  })
 })
 
 afterEach(() => {
@@ -140,7 +116,7 @@ afterEach(() => {
 })
 
 describe('integration', () => {
-  // S3: Full Director→Coder→Director flow
+  // S3: Full Director→Coder→Director flow (all via Agent SDK)
   it('runs full workflow: analyze → plan → approve → execute(coder) → complete', async () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, SPEC_CONTENT, 'utf-8')
@@ -157,26 +133,24 @@ describe('integration', () => {
     // Done summary should be written
     expect(result).toContain('Phase done. Created scaffold.')
 
-    // Director API was called 3 times (analyze, plan, complete)
-    expect(mockCreate).toHaveBeenCalledTimes(3)
-
-    // Coder was called once (execute step)
-    expect(mockQuery).toHaveBeenCalledTimes(1)
+    // Agent SDK query() called 4 times: Director(analyze), Director(plan), Coder(execute), Director(complete)
+    expect(mockQuery).toHaveBeenCalledTimes(4)
 
     // Approval was requested
     expect(askApproval).toHaveBeenCalledTimes(1)
   })
 
-  // S4: Coder receives correct allowedTools for Execute step
-  it('passes correct allowedTools to Coder for Execute step', async () => {
+  // S4: Coder receives correct tools for Execute step
+  it('passes correct tools to Coder for Execute step', async () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, SPEC_CONTENT, 'utf-8')
 
     await handleRun(specPath)
 
-    expect(mockQuery).toHaveBeenCalledTimes(1)
-    const queryParams = mockQuery.mock.calls[0][0]
-    expect(queryParams.options.allowedTools).toEqual(
+    // The 3rd query() call is the Coder (execute step)
+    expect(mockQuery).toHaveBeenCalledTimes(4)
+    const coderParams = mockQuery.mock.calls[2][0]
+    expect(coderParams.options.tools).toEqual(
       ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
     )
   })
@@ -217,7 +191,6 @@ Already completed.
     await handleRun(specPath)
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('No pending'))
-    expect(mockCreate).not.toHaveBeenCalled()
     expect(mockQuery).not.toHaveBeenCalled()
 
     consoleSpy.mockRestore()

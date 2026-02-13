@@ -27,7 +27,6 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.41",
-    "@anthropic-ai/sdk": "^0.39.0",
     "commander": "^13.0.0",
     "pino": "^9.6.0",
     "pino-roll": "^4.0.0"

@@ -3,11 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ParsedSpec, Phase, ResolvedConfig } from '../src/shared/types.js'
 
 vi.mock('node:fs')
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: vi.fn(() => ({
-    messages: { create: vi.fn() }
-  }))
-}))
 vi.mock('../src/shared/config.js')
 vi.mock('../src/shared/spec-parser.js')
 vi.mock('../src/shared/spec-writer.js')
@@ -42,6 +37,7 @@ const MOCK_RESOLVED: ResolvedConfig = {
   targetRepoPath: '.',
   logLevel: 'info',
   apiKey: 'sk-test',
+  maxTurns: 100,
 }
 
 function makeMockSpec(phases: Phase[]): ParsedSpec {
@@ -59,6 +55,7 @@ beforeEach(() => {
     defaultModel: 'claude-opus-4-20250514',
     targetRepoPath: '.',
     logLevel: 'info',
+    maxTurns: 100,
   })
   vi.mocked(resolveConfig).mockReturnValue(MOCK_RESOLVED)
   vi.mocked(ensureTTY).mockReturnValue(undefined)
@@ -86,7 +83,6 @@ describe('handleRun', () => {
       MOCK_RESOLVED,
       expect.stringContaining('spec.md'),
       expect.objectContaining({
-        createMessage: expect.any(Function),
         askApproval: expect.any(Function),
         askInput: expect.any(Function),
       })
@@ -129,7 +125,7 @@ describe('handleResume', () => {
       MOCK_RESOLVED,
       expect.stringContaining('spec.md'),
       expect.objectContaining({
-        createMessage: expect.any(Function),
+        askApproval: expect.any(Function),
       })
     )
     // No prompt about in-progress — resume doesn't ask

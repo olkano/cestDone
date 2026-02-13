@@ -4,11 +4,10 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Command } from 'commander'
-import Anthropic from '@anthropic-ai/sdk'
 import { loadConfig, resolveConfig } from '../shared/config.js'
 import { parseSpec } from '../shared/spec-parser.js'
 import { updatePhaseStatus, writePhaseCompletion } from '../shared/spec-writer.js'
-import { runPhase, type DirectorDeps, type CreateMessageFn } from '../director/director.js'
+import { runPhase, type DirectorDeps } from '../director/director.js'
 import { askApproval, askInput, ensureTTY } from './prompt.js'
 import { executeCoder } from '../coder/coder.js'
 
@@ -41,11 +40,11 @@ export async function handleRun(
         console.log('No pending phases found.')
         return
       }
-      const deps = buildDeps(resolved.apiKey)
+      const deps = buildDeps()
       await runPhase(updatedSpec, pending, resolved, resolvedSpecPath, deps)
       return
     }
-    const deps = buildDeps(resolved.apiKey)
+    const deps = buildDeps()
     await runPhase(spec, inProgress, resolved, resolvedSpecPath, deps)
     return
   }
@@ -56,7 +55,7 @@ export async function handleRun(
     return
   }
 
-  const deps = buildDeps(resolved.apiKey)
+  const deps = buildDeps()
   await runPhase(spec, pending, resolved, resolvedSpecPath, deps)
 }
 
@@ -80,14 +79,12 @@ export async function handleResume(
     return
   }
 
-  const deps = buildDeps(resolved.apiKey)
+  const deps = buildDeps()
   await runPhase(spec, target, resolved, resolvedSpecPath, deps)
 }
 
-function buildDeps(apiKey: string): DirectorDeps {
-  const client = new Anthropic({ apiKey })
+function buildDeps(): DirectorDeps {
   return {
-    createMessage: client.messages.create.bind(client.messages) as unknown as CreateMessageFn,
     askApproval,
     askInput,
     updatePhaseStatus: (fp, pn, st) => updatePhaseStatus(fp, pn, st),

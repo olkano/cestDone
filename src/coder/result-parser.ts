@@ -24,7 +24,7 @@ export function parseResult(msg: SDKResultLike): CoderResult {
     const errorDetail = msg.errors?.join('; ') ?? 'unknown error'
     return {
       ...base,
-      status: 'error',
+      status: 'failed',
       message: `Coder failed: ${errorLabel} — ${errorDetail}`,
       report: null,
     }
@@ -33,7 +33,7 @@ export function parseResult(msg: SDKResultLike): CoderResult {
   const report = extractReport(msg)
   return {
     ...base,
-    status: report.status === 'success' ? 'success' : 'partial',
+    status: report.status === 'success' ? 'success' : report.status === 'failed' ? 'failed' : 'partial',
     message: report.summary,
     filesChanged: report.filesChanged,
     report,

@@ -50,7 +50,7 @@ describe('parseResult', () => {
         status: 'success',
         summary: 'Implemented login endpoint',
         filesChanged: ['src/auth.ts', 'tests/auth.test.ts'],
-        testResults: '10 passed, 0 failed',
+        testsRun: { passed: 10, failed: 0, skipped: 0 },
       },
     })
 
@@ -61,7 +61,7 @@ describe('parseResult', () => {
     expect(result.report!.status).toBe('success')
     expect(result.report!.summary).toBe('Implemented login endpoint')
     expect(result.report!.filesChanged).toEqual(['src/auth.ts', 'tests/auth.test.ts'])
-    expect(result.report!.testResults).toBe('10 passed, 0 failed')
+    expect(result.report!.testsRun).toEqual({ passed: 10, failed: 0, skipped: 0 })
   })
 
   // P2: Falls back to extracting from result text when structured_output is missing
@@ -78,35 +78,35 @@ describe('parseResult', () => {
     expect(result.report!.filesChanged).toEqual(['a.ts'])
   })
 
-  // P3: Returns error result for error_max_turns subtype
-  it('returns error result for error_max_turns', () => {
+  // P3: Returns failed result for error_max_turns subtype
+  it('returns failed result for error_max_turns', () => {
     const msg = makeErrorResult('error_max_turns')
 
     const result = parseResult(msg)
 
-    expect(result.status).toBe('error')
+    expect(result.status).toBe('failed')
     expect(result.message).toContain('max_turns')
     expect(result.cost).toBe(0.10)
     expect(result.numTurns).toBe(5)
   })
 
-  // P4: Returns error result for error_during_execution
-  it('returns error result for error_during_execution', () => {
+  // P4: Returns failed result for error_during_execution
+  it('returns failed result for error_during_execution', () => {
     const msg = makeErrorResult('error_during_execution')
 
     const result = parseResult(msg)
 
-    expect(result.status).toBe('error')
+    expect(result.status).toBe('failed')
     expect(result.message).toContain('during_execution')
   })
 
-  // P5: Returns error result for error_max_budget_usd
-  it('returns error result for error_max_budget_usd', () => {
+  // P5: Returns failed result for error_max_budget_usd
+  it('returns failed result for error_max_budget_usd', () => {
     const msg = makeErrorResult('error_max_budget_usd')
 
     const result = parseResult(msg)
 
-    expect(result.status).toBe('error')
+    expect(result.status).toBe('failed')
     expect(result.message).toContain('max_budget')
   })
 

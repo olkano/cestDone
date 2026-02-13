@@ -130,8 +130,8 @@ describe('executeCoder', () => {
     expect(opts.allowDangerouslySkipPermissions).toBe(true)
   })
 
-  // Q3: Sets allowedTools from getAllowedTools(step)
-  it('sets allowedTools based on step', async () => {
+  // Q3: Sets tools from getTools(step) — actual restriction mechanism
+  it('sets tools based on step', async () => {
     mockQuery.mockReturnValue(generateMessages(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
@@ -140,7 +140,7 @@ describe('executeCoder', () => {
     await executeCoder(makeOptions({ step: WorkflowStep.Analyze }))
 
     const opts = mockQuery.mock.calls[0][0].options
-    expect(opts.allowedTools).toEqual(['Read', 'Glob', 'Grep'])
+    expect(opts.tools).toEqual(['Read', 'Glob', 'Grep'])
   })
 
   it('sets full tools for Execute step', async () => {
@@ -152,7 +152,7 @@ describe('executeCoder', () => {
     await executeCoder(makeOptions({ step: WorkflowStep.Execute }))
 
     const opts = mockQuery.mock.calls[0][0].options
-    expect(opts.allowedTools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'])
+    expect(opts.tools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'])
   })
 
   // Q4: Sets systemPrompt with preset and appended house-rules
@@ -274,7 +274,7 @@ describe('executeCoder', () => {
           status: 'success',
           summary: 'Implemented login endpoint',
           filesChanged: ['src/auth.ts'],
-          testResults: '5 passed',
+          testsRun: { passed: 5, failed: 0, skipped: 0 },
         },
       }),
     ))
@@ -285,11 +285,11 @@ describe('executeCoder', () => {
     expect(result.report).not.toBeNull()
     expect(result.report!.summary).toBe('Implemented login endpoint')
     expect(result.report!.filesChanged).toEqual(['src/auth.ts'])
-    expect(result.report!.testResults).toBe('5 passed')
+    expect(result.report!.testsRun).toEqual({ passed: 5, failed: 0, skipped: 0 })
   })
 
-  // Q11: Handles generator yielding no result message — returns error
-  it('returns error when no result message is yielded', async () => {
+  // Q11: Handles generator yielding no result message — returns failed
+  it('returns failed when no result message is yielded', async () => {
     mockQuery.mockReturnValue(generateMessages(
       makeSystemMessage(),
       makeAssistantMessage('Working on it...'),
@@ -297,14 +297,14 @@ describe('executeCoder', () => {
 
     const result = await executeCoder(makeOptions())
 
-    expect(result.status).toBe('error')
+    expect(result.status).toBe('failed')
     expect(result.message).toContain('no result')
     expect(result.cost).toBe(0)
     expect(result.report).toBeNull()
   })
 
-  // Q12: query() throws exception — catches and returns error CoderResult
-  it('catches query() exception and returns error result', async () => {
+  // Q12: query() throws exception — catches and returns failed CoderResult
+  it('catches query() exception and returns failed result', async () => {
     mockQuery.mockReturnValue({
       async next() { throw new Error('Network connection failed') },
       [Symbol.asyncIterator]() { return this },
@@ -312,13 +312,13 @@ describe('executeCoder', () => {
 
     const result = await executeCoder(makeOptions())
 
-    expect(result.status).toBe('error')
+    expect(result.status).toBe('failed')
     expect(result.message).toContain('Network connection failed')
     expect(result.cost).toBe(0)
     expect(result.numTurns).toBe(0)
     expect(result.durationMs).toBe(0)
     expect(result.report).not.toBeNull()
-    expect(result.report!.status).toBe('error')
+    expect(result.report!.status).toBe('failed')
     expect(result.report!.summary).toContain('Network connection failed')
   })
 
@@ -327,9 +327,24 @@ describe('executeCoder', () => {
 
     const result = await executeCoder(makeOptions())
 
-    expect(result.status).toBe('error')
+    expect(result.status).toBe('failed')
     expect(result.message).toContain('SDK initialization failed')
     expect(result.cost).toBe(0)
-    expect(result.report!.status).toBe('error')
+    expect(result.report!.status).toBe('failed')
+  })
+
+  // Q13: Strips CLAUDECODE env var before passing to query
+  it('strips CLAUDECODE env var from query options', async () => {
+    process.env.CLAUDECODE = '1'
+    mockQuery.mockReturnValue(generateMessages(
+      makeSystemMessage(),
+      makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
+    ))
+
+    await executeCoder(makeOptions())
+
+    const opts = mockQuery.mock.calls[0][0].options
+    expect(opts.env.CLAUDECODE).toBeUndefined()
+    delete process.env.CLAUDECODE
   })
 })

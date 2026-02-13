@@ -5,7 +5,7 @@ const READ_ONLY = ['Read', 'Glob', 'Grep']
 const SPEC_EDIT = ['Read', 'Write', 'Edit', 'Glob', 'Grep']
 const FULL_EDIT = ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
 
-export function getAllowedTools(step: WorkflowStep): string[] {
+export function getTools(step: WorkflowStep): string[] {
   switch (step) {
     case WorkflowStep.Analyze:
     case WorkflowStep.Plan:

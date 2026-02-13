@@ -1,25 +1,36 @@
 // tests/director.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { runPhase } from '../src/director/director.js'
-import type { DirectorDeps, ApiResponse } from '../src/director/director.js'
+import type { DirectorDeps } from '../src/director/director.js'
 import { WorkflowStep } from '../src/shared/types.js'
 import type { ParsedSpec, ResolvedConfig, Phase, CoderResult, CoderOptions } from '../src/shared/types.js'
 
-let callId = 0
+const mockQuery = vi.fn()
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: (...args: unknown[]) => mockQuery(...args),
+}))
 
-beforeEach(() => { callId = 0 })
+let directorCallCount = 0
 
-function makeToolResponse(action: string, message: string, questions?: string[]): ApiResponse {
-  callId++
+beforeEach(() => {
+  directorCallCount = 0
+  vi.clearAllMocks()
+})
+
+function makeDirectorResult(action: string, message: string, questions?: string[]) {
   return {
-    content: [{
-      type: 'tool_use',
-      id: `toolu_${callId}`,
-      name: 'director_action',
-      input: { action, message, ...(questions ? { questions } : {}) },
-    }],
-    stop_reason: 'tool_use',
+    type: 'result' as const,
+    subtype: 'success' as const,
+    total_cost_usd: 0.05,
+    num_turns: 3,
+    duration_ms: 2000,
+    structured_output: { action, message, ...(questions ? { questions } : {}) },
   }
+}
+
+async function* generateDirectorMessages(result: Record<string, unknown>) {
+  yield { type: 'system', session_id: 'sess-dir' }
+  yield result
 }
 
 const TEST_PHASE: Phase = {
@@ -58,22 +69,26 @@ function makeCoderSuccess(overrides: Partial<CoderResult> = {}): CoderResult {
 
 function makeCoderError(overrides: Partial<CoderResult> = {}): CoderResult {
   return {
-    status: 'error',
+    status: 'failed',
     message: 'Tests failing',
     cost: 0.10,
     numTurns: 5,
     durationMs: 3000,
-    report: { status: 'error', summary: 'Tests failing' },
+    report: { status: 'failed', summary: 'Tests failing' },
     ...overrides,
   }
 }
 
+function setupDirectorResponses(...responses: Array<{ action: string; message: string; questions?: string[] }>) {
+  mockQuery.mockImplementation(() => {
+    const idx = directorCallCount++
+    const r = responses[idx] ?? { action: 'done', message: 'fallback' }
+    return generateDirectorMessages(makeDirectorResult(r.action, r.message, r.questions))
+  })
+}
+
 function createHappyPathDeps(): DirectorDeps {
   return {
-    createMessage: vi.fn()
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis complete. No questions.'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan:\n1. Create files\n2. Write tests'))
-      .mockResolvedValueOnce(makeToolResponse('complete', 'Phase done. Created scaffold.')),
     askApproval: vi.fn().mockResolvedValue({ approved: true }),
     askInput: vi.fn().mockResolvedValue('done'),
     updatePhaseStatus: vi.fn(),
@@ -84,27 +99,35 @@ function createHappyPathDeps(): DirectorDeps {
 }
 
 describe('runPhase', () => {
-  // J1: Step 1 — sends Analyze prompt via API, sets phase to in-progress
-  it('sends analyze prompt to API and sets phase to in-progress', async () => {
+  // J1: Step 1 — sends Analyze prompt via Agent SDK, sets phase to in-progress
+  it('calls Director via Agent SDK and sets phase to in-progress', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis complete. No questions.' },
+      { action: 'approve', message: 'Plan:\n1. Create files\n2. Write tests' },
+      { action: 'done', message: 'Phase done. Created scaffold.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
     expect(deps.updatePhaseStatus).toHaveBeenCalledWith('spec.md', 0, 'in-progress')
-    const firstCall = (deps.createMessage as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    expect(firstCall.system).toContain('A test project.')
-    expect(firstCall.messages[0].content).toContain('clarifying questions')
+    // Director called via Agent SDK query()
+    expect(mockQuery).toHaveBeenCalled()
+    // First call prompt should contain analysis instructions
+    const firstPrompt = mockQuery.mock.calls[0][0].prompt
+    expect(firstPrompt).toContain('clarifying questions')
   })
 
   // J2: Step 2 — escalates questions to human via askInput
   it('escalates questions to human via askInput at Step 2', async () => {
+    setupDirectorResponses(
+      { action: 'ask_human', message: 'Need info', questions: ['What DB?', 'Auth method?'] },
+      { action: 'approve', message: 'Understood.' },
+      { action: 'approve', message: 'Update spec with answers' },
+      { action: 'approve', message: 'Plan: ...' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
-    deps.createMessage = vi.fn()
-      .mockResolvedValueOnce(makeToolResponse('ask_human', 'Need info', ['What DB?', 'Auth method?']))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Understood.'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Update spec with answers'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: ...'))
-      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
     deps.askInput = vi.fn()
       .mockResolvedValueOnce('PostgreSQL')
       .mockResolvedValueOnce('JWT')
@@ -117,23 +140,28 @@ describe('runPhase', () => {
     expect(askInputCalls[1][0]).toContain('Auth method?')
   })
 
-  // J3: Step 3 — proceeds past clarifications to Step 4
-  it('proceeds from clarifications to Plan step', async () => {
+  // J3: Director uses read-only tools for Analyze step
+  it('passes read-only tools to Director for Analyze step', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
-    const planCallMsgs = (deps.createMessage as ReturnType<typeof vi.fn>).mock.calls[1][0].messages
-    const planMsg = planCallMsgs[2]
-    const textContent = typeof planMsg.content === 'string'
-      ? planMsg.content
-      : (planMsg.content as Array<{ type: string; text?: string }>)
-          .find(b => b.type === 'text')?.text ?? ''
-    expect(textContent).toContain('implementation plan')
+    const firstOpts = mockQuery.mock.calls[0][0].options
+    expect(firstOpts.tools).toEqual(['Read', 'Glob', 'Grep'])
   })
 
   // J4: Step 4 — receives plan and displays it to human
   it('receives plan and displays it to human', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis complete' },
+      { action: 'approve', message: 'Plan:\n1. Create files\n2. Write tests' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
@@ -145,6 +173,11 @@ describe('runPhase', () => {
 
   // J5: Step 5 — presents plan, proceeds on approval
   it('presents plan and proceeds on approval', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
@@ -153,28 +186,35 @@ describe('runPhase', () => {
   })
 
   // J5b: Step 5 — re-plans on rejection
-  it('sends feedback to API and re-plans on rejection', async () => {
+  it('sends feedback to Director and re-plans on rejection', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan v1' },
+      { action: 'approve', message: 'Plan v2 with test detail' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
     deps.askApproval = vi.fn()
       .mockResolvedValueOnce({ approved: false, feedback: 'Need more detail on tests' })
       .mockResolvedValueOnce({ approved: true })
-    deps.createMessage = vi.fn()
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis OK'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan v1'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan v2 with test detail'))
-      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
     expect(deps.askApproval).toHaveBeenCalledTimes(2)
-    expect(deps.createMessage).toHaveBeenCalledTimes(4)
-    const retryCallArgs = (deps.createMessage as ReturnType<typeof vi.fn>).mock.calls[2][0]
-    const allContent = JSON.stringify(retryCallArgs.messages)
-    expect(allContent).toContain('Need more detail on tests')
+    // Director called 4 times: analyze, plan, re-plan, complete
+    expect(mockQuery).toHaveBeenCalledTimes(4)
+    // Re-plan prompt contains feedback
+    const rePlanPrompt = mockQuery.mock.calls[2][0].prompt
+    expect(rePlanPrompt).toContain('Need more detail on tests')
   })
 
   // R1: Step 6 calls coderExecute with instructions from approved plan
   it('calls coderExecute with plan instructions at Step 6 (R1)', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan:\n1. Create files\n2. Write tests' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
@@ -187,6 +227,11 @@ describe('runPhase', () => {
 
   // R2: Step 6 passes correct model from selectModel()
   it('passes model from selectModel() to coderExecute (R2)', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
@@ -198,6 +243,11 @@ describe('runPhase', () => {
 
   // R3: Success → proceeds to Step 8
   it('proceeds to Step 8 on Coder success (R3)', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan: do things' },
+      { action: 'done', message: 'Phase done. Created scaffold.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
@@ -205,22 +255,22 @@ describe('runPhase', () => {
     expect(deps.writePhaseCompletion).toHaveBeenCalledWith(
       'spec.md', 0, 'Phase done. Created scaffold.'
     )
-    // createMessage called exactly 3 times (analyze, plan, complete — no review)
-    expect(deps.createMessage).toHaveBeenCalledTimes(3)
+    // Director called 3 times: analyze, plan, complete — no review
+    expect(mockQuery).toHaveBeenCalledTimes(3)
   })
 
   // R4: Error → Director formulates fix → retry Coder
   it('retries Coder with fix instructions on error (R4)', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan: do things' },
+      { action: 'fix', message: 'Fix the failing test by updating the assertion' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
     deps.coderExecute = vi.fn()
       .mockResolvedValueOnce(makeCoderError())
       .mockResolvedValueOnce(makeCoderSuccess())
-    // createMessage: analyze, plan, review(fix), complete
-    deps.createMessage = vi.fn()
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis OK'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: do things'))
-      .mockResolvedValueOnce(makeToolResponse('fix', 'Fix the failing test by updating the assertion'))
-      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
@@ -231,6 +281,13 @@ describe('runPhase', () => {
 
   // R5: 3 failures → escalate to human
   it('escalates to human after 3 Coder failures (R5)', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan: do things' },
+      { action: 'fix', message: 'Fix attempt 1' },
+      { action: 'fix', message: 'Fix attempt 2' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
     deps.coderExecute = vi.fn()
       .mockResolvedValueOnce(makeCoderError({ message: 'Fail 1' }))
@@ -238,13 +295,6 @@ describe('runPhase', () => {
       .mockResolvedValueOnce(makeCoderError({ message: 'Fail 3' }))
       .mockResolvedValueOnce(makeCoderSuccess())
     deps.askInput = vi.fn().mockResolvedValue('Try a different approach')
-    // createMessage: analyze, plan, review1(fix), review2(fix), complete
-    deps.createMessage = vi.fn()
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis OK'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: do things'))
-      .mockResolvedValueOnce(makeToolResponse('fix', 'Fix attempt 1'))
-      .mockResolvedValueOnce(makeToolResponse('fix', 'Fix attempt 2'))
-      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
@@ -256,6 +306,11 @@ describe('runPhase', () => {
 
   // R6: Displays Coder summary
   it('displays Coder summary to human (R6)', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
     deps.coderExecute = vi.fn().mockResolvedValue(
       makeCoderSuccess({ report: { status: 'success', summary: 'Built login form with tests' } })
@@ -270,6 +325,11 @@ describe('runPhase', () => {
 
   // R7: CoderOptions has all required fields
   it('passes complete CoderOptions to coderExecute (R7)', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
@@ -286,15 +346,16 @@ describe('runPhase', () => {
 
   // R8: Cost accumulation across retries
   it('displays accumulated Coder cost (R8)', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan: do things' },
+      { action: 'fix', message: 'Fix it' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
     deps.coderExecute = vi.fn()
       .mockResolvedValueOnce(makeCoderError({ cost: 0.50 }))
       .mockResolvedValueOnce(makeCoderSuccess({ cost: 0.75 }))
-    deps.createMessage = vi.fn()
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis OK'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: do things'))
-      .mockResolvedValueOnce(makeToolResponse('fix', 'Fix it'))
-      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
@@ -305,13 +366,14 @@ describe('runPhase', () => {
 
   // R9: Step 3 calls Coder with spec-editing permissions after clarifications
   it('calls Coder for spec update after clarifications (R9)', async () => {
+    setupDirectorResponses(
+      { action: 'ask_human', message: 'Need info', questions: ['What DB?'] },
+      { action: 'approve', message: 'Understood.' },
+      { action: 'approve', message: 'Update the spec to mention PostgreSQL' },
+      { action: 'approve', message: 'Plan: set up DB' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
-    deps.createMessage = vi.fn()
-      .mockResolvedValueOnce(makeToolResponse('ask_human', 'Need info', ['What DB?']))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Understood.'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Update the spec to mention PostgreSQL'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan: set up DB'))
-      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
     deps.askInput = vi.fn()
       .mockResolvedValueOnce('PostgreSQL')
       .mockResolvedValue('done')
@@ -326,6 +388,11 @@ describe('runPhase', () => {
 
   // J7: Step 8 — writes phase completion with done summary
   it('writes phase completion with done summary at Step 8', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'Phase done. Created scaffold.' },
+    )
     const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
@@ -337,6 +404,14 @@ describe('runPhase', () => {
 
   // J8: 3 rejections → escalation with "I'm stuck" message
   it('escalates to human after 3 plan rejections', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan v1' },
+      { action: 'approve', message: 'Plan v2' },
+      { action: 'approve', message: 'Plan v3' },
+      { action: 'approve', message: 'Plan v4' },
+      { action: 'done', message: 'Done.' },
+    )
     const deps = createHappyPathDeps()
     deps.askApproval = vi.fn()
       .mockResolvedValueOnce({ approved: false, feedback: 'F1' })
@@ -344,13 +419,6 @@ describe('runPhase', () => {
       .mockResolvedValueOnce({ approved: false, feedback: 'F3' })
       .mockResolvedValueOnce({ approved: true })
     deps.askInput = vi.fn().mockResolvedValue('try simpler approach')
-    deps.createMessage = vi.fn()
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis OK'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan v1'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan v2'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan v3'))
-      .mockResolvedValueOnce(makeToolResponse('approve', 'Plan v4'))
-      .mockResolvedValueOnce(makeToolResponse('complete', 'Done.'))
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
@@ -360,32 +428,80 @@ describe('runPhase', () => {
     expect(escalationCall![0]).toContain('3 plan rejections')
   })
 
-  // J9: Message history accumulates across steps
-  it('accumulates message history across API calls', async () => {
-    const messageCounts: number[] = []
-    const responses = [
-      makeToolResponse('approve', 'Analysis OK'),
-      makeToolResponse('approve', 'Plan: do things'),
-      makeToolResponse('complete', 'Done.'),
-    ]
-
-    const deps: DirectorDeps = {
-      createMessage: vi.fn().mockImplementation(async (params: { messages: unknown[] }) => {
-        messageCounts.push(params.messages.length)
-        return responses[messageCounts.length - 1]
-      }),
-      askApproval: vi.fn().mockResolvedValue({ approved: true }),
-      askInput: vi.fn().mockResolvedValue('done'),
-      updatePhaseStatus: vi.fn(),
-      writePhaseCompletion: vi.fn(),
-      coderExecute: vi.fn().mockResolvedValue(makeCoderSuccess()),
-      display: vi.fn(),
-    }
+  // J9: Each Director call is a fresh Agent SDK session (no message accumulation)
+  it('makes independent Agent SDK query() calls per step', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan: do things' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
-    expect(messageCounts.length).toBe(3)
-    expect(messageCounts[1]).toBeGreaterThan(messageCounts[0])
-    expect(messageCounts[2]).toBeGreaterThan(messageCounts[1])
+    expect(mockQuery).toHaveBeenCalledTimes(3)
+    // Each call is independent — prompt is a string, not accumulated messages
+    for (const call of mockQuery.mock.calls) {
+      expect(typeof call[0].prompt).toBe('string')
+    }
+  })
+
+  // J10: Director uses outputFormat for structured JSON
+  it('Director uses outputFormat for structured JSON responses', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    const firstOpts = mockQuery.mock.calls[0][0].options
+    expect(firstOpts.outputFormat).toEqual({
+      type: 'json_schema',
+      schema: expect.objectContaining({
+        type: 'object',
+        required: ['action', 'message'],
+      }),
+    })
+  })
+
+  // J11: Director strips CLAUDECODE env var
+  it('Director strips CLAUDECODE env var', async () => {
+    process.env.CLAUDECODE = '1'
+    setupDirectorResponses(
+      { action: 'approve', message: 'OK' },
+      { action: 'approve', message: 'Plan' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    const firstOpts = mockQuery.mock.calls[0][0].options
+    expect(firstOpts.env.CLAUDECODE).toBeUndefined()
+    delete process.env.CLAUDECODE
+  })
+
+  // J12: Review step gives Director Bash tool
+  it('Review step gives Director Bash tool', async () => {
+    setupDirectorResponses(
+      { action: 'approve', message: 'Analysis OK' },
+      { action: 'approve', message: 'Plan: do things' },
+      { action: 'fix', message: 'Fix it' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
+    deps.coderExecute = vi.fn()
+      .mockResolvedValueOnce(makeCoderError())
+      .mockResolvedValueOnce(makeCoderSuccess())
+
+    await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
+
+    // 4 Director calls: analyze, plan, review, complete
+    expect(mockQuery).toHaveBeenCalledTimes(4)
+    const reviewOpts = mockQuery.mock.calls[2][0].options
+    expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
   })
 })

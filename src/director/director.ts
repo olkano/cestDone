@@ -1,34 +1,23 @@
 // src/director/director.ts
-import type { ParsedSpec, Phase, PhaseStatus, ResolvedConfig, DirectorAction, CoderResult, CoderOptions } from '../shared/types.js'
+import { query } from '@anthropic-ai/claude-agent-sdk'
+import type { ParsedSpec, Phase, PhaseStatus, ResolvedConfig, DirectorResponse, CoderResult, CoderOptions, SpecMetadata } from '../shared/types.js'
 import { WorkflowStep } from '../shared/types.js'
-import { buildSystemPrompt, buildStepMessage, getDirectorTools, type DirectorTool } from './prompt-builder.js'
+import {
+  buildDirectorSystemPrompt,
+  buildDirectorTools,
+  buildAnalyzePrompt,
+  buildClarifyPrompt,
+  buildUpdateSpecPrompt,
+  buildPlanPrompt,
+  buildReviewPrompt,
+  buildCompletePrompt,
+  DIRECTOR_RESPONSE_SCHEMA,
+} from './prompts.js'
 import { selectModel } from './model-selector.js'
 import { createLogger } from '../shared/logger.js'
 import type pino from 'pino'
 
-export interface ContentBlock {
-  type: string
-  text?: string
-  id?: string
-  name?: string
-  input?: Record<string, unknown>
-}
-
-export interface ApiResponse {
-  content: ContentBlock[]
-  stop_reason: string
-}
-
-export type CreateMessageFn = (params: {
-  model: string
-  system: string
-  messages: Array<{ role: string; content: unknown }>
-  tools: DirectorTool[]
-  max_tokens: number
-}) => Promise<ApiResponse>
-
 export interface DirectorDeps {
-  createMessage: CreateMessageFn
   askApproval: () => Promise<{ approved: boolean; feedback?: string }>
   askInput: (prompt: string) => Promise<string>
   updatePhaseStatus: (filePath: string, phaseNumber: number, status: PhaseStatus) => void
@@ -36,8 +25,6 @@ export interface DirectorDeps {
   coderExecute: (options: CoderOptions) => Promise<CoderResult>
   display: (text: string) => void
 }
-
-type Message = { role: 'user' | 'assistant'; content: unknown }
 
 const MAX_REJECTIONS = 3
 const MAX_CODER_RETRIES = 3
@@ -51,53 +38,62 @@ export async function runPhase(
 ): Promise<void> {
   const logger = createLogger(config.logLevel)
   const completedPhases = parsedSpec.phases.filter(p => p.status === 'done')
-  const system = buildSystemPrompt(parsedSpec.metadata, completedPhases)
-  const tools = getDirectorTools()
-  const messages: Message[] = []
+  const specContent = phase.spec
 
   deps.updatePhaseStatus(specFilePath, phase.number, 'in-progress')
 
   // Step 1: Analyze
   logger.info({ phase: phase.number }, 'Step 1: Analyzing phase spec')
-  const analyzeAction = await sendStep(
-    messages, system, tools, deps,
-    buildStepMessage(WorkflowStep.Analyze, phase),
-    WorkflowStep.Analyze, logger
-  )
+  const analyzeResult = await executeDirector({
+    prompt: buildAnalyzePrompt(phase, specContent),
+    step: WorkflowStep.Analyze,
+    metadata: parsedSpec.metadata,
+    completedPhases,
+    config,
+    logger,
+  })
 
   // Step 2: Clarify
   let hadClarifications = false
-  if (analyzeAction.action === 'ask_human' && analyzeAction.questions?.length) {
+  let clarificationsText = ''
+  if (analyzeResult.action === 'ask_human' && analyzeResult.questions?.length) {
     hadClarifications = true
-    logger.info({ questions: analyzeAction.questions }, 'Escalating to human')
+    logger.info({ questions: analyzeResult.questions }, 'Escalating to human')
     const answers: string[] = []
-    for (const q of analyzeAction.questions) {
+    for (const q of analyzeResult.questions) {
       answers.push(await deps.askInput(`Director asks: ${q}\nYour answer: `))
     }
-    const clarification = analyzeAction.questions
+    clarificationsText = analyzeResult.questions
       .map((q, i) => `Q: ${q}\nA: ${answers[i]}`)
       .join('\n\n')
-    await sendStep(
-      messages, system, tools, deps,
-      `Human provided these clarifications:\n\n${clarification}`,
-      WorkflowStep.Clarify, logger
-    )
+
+    await executeDirector({
+      prompt: buildClarifyPrompt(analyzeResult.questions, answers),
+      step: WorkflowStep.Clarify,
+      metadata: parsedSpec.metadata,
+      completedPhases,
+      config,
+      logger,
+    })
   }
 
   // Step 3: Update spec via Coder (if there were clarifications)
   if (hadClarifications) {
     logger.info('Step 3: Updating spec with clarifications via Coder')
-    const updateAction = await sendStep(
-      messages, system, tools, deps,
-      buildStepMessage(WorkflowStep.UpdateSpec, phase),
-      WorkflowStep.UpdateSpec, logger
-    )
+    const updateResult = await executeDirector({
+      prompt: buildUpdateSpecPrompt(specContent, clarificationsText),
+      step: WorkflowStep.UpdateSpec,
+      metadata: parsedSpec.metadata,
+      completedPhases,
+      config,
+      logger,
+    })
     await deps.coderExecute(buildCoderOptions({
       step: WorkflowStep.UpdateSpec,
       phase,
       config,
       parsedSpec,
-      instructions: updateAction.message,
+      instructions: updateResult.message,
     }))
   } else {
     logger.info('Step 3: No clarifications — skipping spec update')
@@ -105,15 +101,18 @@ export async function runPhase(
 
   // Step 4: Plan
   logger.info('Step 4: Requesting implementation plan')
-  const planAction = await sendStep(
-    messages, system, tools, deps,
-    buildStepMessage(WorkflowStep.Plan, phase),
-    WorkflowStep.Plan, logger
-  )
+  const planResult = await executeDirector({
+    prompt: buildPlanPrompt(phase, specContent),
+    step: WorkflowStep.Plan,
+    metadata: parsedSpec.metadata,
+    completedPhases,
+    config,
+    logger,
+  })
 
   // Step 5: Approve plan (with rejection loop)
   let rejectionCount = 0
-  let currentPlan = planAction.message
+  let currentPlan = planResult.message
   while (true) {
     deps.display(`\n=== Director's Plan ===\n${currentPlan}\n======================`)
     const { approved, feedback } = await deps.askApproval()
@@ -128,19 +127,25 @@ export async function runPhase(
         'Please provide guidance on how to proceed: '
       )
       rejectionCount = 0
-      const fixAction = await sendStep(
-        messages, system, tools, deps,
-        `Human escalation. Guidance: ${guidance}\nPlease revise the plan.`,
-        WorkflowStep.ApprovePlan, logger
-      )
-      currentPlan = fixAction.message
+      const fixResult = await executeDirector({
+        prompt: `Human escalation. Guidance: ${guidance}\nPrevious plan:\n${currentPlan}\nPlease revise the plan.`,
+        step: WorkflowStep.ApprovePlan,
+        metadata: parsedSpec.metadata,
+        completedPhases,
+        config,
+        logger,
+      })
+      currentPlan = fixResult.message
     } else {
-      const fixAction = await sendStep(
-        messages, system, tools, deps,
-        `Plan rejected. Feedback: ${feedback}\nPlease revise the plan.`,
-        WorkflowStep.ApprovePlan, logger
-      )
-      currentPlan = fixAction.message
+      const fixResult = await executeDirector({
+        prompt: `Plan rejected. Feedback: ${feedback}\nPrevious plan:\n${currentPlan}\nPlease revise the plan.`,
+        step: WorkflowStep.ApprovePlan,
+        metadata: parsedSpec.metadata,
+        completedPhases,
+        config,
+        logger,
+      })
+      currentPlan = fixResult.message
     }
   }
 
@@ -161,7 +166,6 @@ export async function runPhase(
     }))
     totalCoderCost += coderResult.cost
 
-    // Display Coder summary
     const summary = coderResult.report?.summary ?? coderResult.message
     deps.display(`\nCoder: ${summary} (cost: $${coderResult.cost.toFixed(2)})`)
     logger.info({ status: coderResult.status, cost: coderResult.cost, totalCost: totalCoderCost }, 'Coder result')
@@ -183,26 +187,32 @@ export async function runPhase(
       coderRetries = 0
       instructions = `Human guidance: ${guidance}\nPrevious error: ${coderResult.message}\nPlease fix the issues and try again.`
     } else {
-      // Ask Director to review and formulate fix instructions
-      const reviewAction = await sendStep(
-        messages, system, tools, deps,
-        `Coder returned status: ${coderResult.status}.\nError: ${coderResult.message}\n` +
-        `Test results: ${coderResult.report?.testResults ?? 'N/A'}\n` +
-        'Please provide fix instructions for the next attempt.',
-        WorkflowStep.Review, logger
-      )
-      instructions = reviewAction.message
+      const reviewResult = await executeDirector({
+        prompt: buildReviewPrompt(
+          currentPlan,
+          JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
+        ),
+        step: WorkflowStep.Review,
+        metadata: parsedSpec.metadata,
+        completedPhases,
+        config,
+        logger,
+      })
+      instructions = reviewResult.message
     }
   }
 
   // Step 8: Complete
   logger.info('Step 8: Completing phase')
-  const completeAction = await sendStep(
-    messages, system, tools, deps,
-    buildStepMessage(WorkflowStep.Complete, phase),
-    WorkflowStep.Complete, logger
-  )
-  deps.writePhaseCompletion(specFilePath, phase.number, completeAction.message)
+  const completeResult = await executeDirector({
+    prompt: buildCompletePrompt(phase),
+    step: WorkflowStep.Complete,
+    metadata: parsedSpec.metadata,
+    completedPhases,
+    config,
+    logger,
+  })
+  deps.writePhaseCompletion(specFilePath, phase.number, completeResult.message)
 }
 
 function buildCoderOptions(params: {
@@ -226,61 +236,85 @@ function buildCoderOptions(params: {
   }
 }
 
-async function sendStep(
-  messages: Message[],
-  system: string,
-  tools: DirectorTool[],
-  deps: DirectorDeps,
-  userContent: string,
-  step: WorkflowStep,
+interface ExecuteDirectorParams {
+  prompt: string
+  step: WorkflowStep
+  metadata: SpecMetadata
+  completedPhases: Phase[]
+  config: ResolvedConfig
   logger: pino.Logger
-): Promise<DirectorAction> {
-  const model = selectModel(step, 'high')
-
-  logger.debug({ userContent }, 'User message to Director')
-
-  const lastMsg = messages[messages.length - 1]
-  if (lastMsg?.role === 'assistant' && Array.isArray(lastMsg.content)) {
-    const toolUse = (lastMsg.content as ContentBlock[]).find(b => b.type === 'tool_use')
-    if (toolUse?.id) {
-      messages.push({
-        role: 'user',
-        content: [
-          { type: 'tool_result', tool_use_id: toolUse.id, content: 'Acknowledged.' },
-          { type: 'text', text: userContent },
-        ]
-      })
-    } else {
-      messages.push({ role: 'user', content: userContent })
-    }
-  } else {
-    messages.push({ role: 'user', content: userContent })
-  }
-
-  logger.debug({ step, model, messageCount: messages.length }, 'Sending to Claude API')
-
-  const response = await deps.createMessage({
-    model,
-    system,
-    messages,
-    tools,
-    max_tokens: 4096,
-  })
-
-  messages.push({ role: 'assistant', content: response.content })
-  const action = extractAction(response)
-
-  logger.debug({ action, stopReason: response.stop_reason }, 'Director response')
-
-  return action
 }
 
-function extractAction(response: ApiResponse): DirectorAction {
-  const toolUse = response.content.find(
-    b => b.type === 'tool_use' && b.name === 'director_action'
-  )
-  if (!toolUse?.input) {
-    throw new Error('Director did not respond with a director_action tool use')
+export async function executeDirector(params: ExecuteDirectorParams): Promise<DirectorResponse> {
+  const { prompt, step, metadata, completedPhases, config, logger } = params
+  const model = selectModel(step, 'high')
+  const tools = buildDirectorTools(step)
+
+  logger.debug({ step, model, tools }, 'Director call starting')
+
+  const env = { ...process.env }
+  delete env.CLAUDECODE
+
+  const queryOptions: Record<string, unknown> = {
+    model,
+    cwd: config.targetRepoPath,
+    maxTurns: 15,
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+    tools,
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      append: buildDirectorSystemPrompt(metadata, completedPhases),
+    },
+    outputFormat: {
+      type: 'json_schema',
+      schema: DIRECTOR_RESPONSE_SCHEMA,
+    },
+    env,
   }
-  return toolUse.input as unknown as DirectorAction
+
+  let response: DirectorResponse | null = null
+
+  const q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
+
+  for await (const message of q) {
+    const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; structured_output?: unknown; result?: string }
+
+    if (msg.type === 'result') {
+      logger.info(
+        { subtype: msg.subtype, cost: msg.total_cost_usd, turns: msg.num_turns },
+        'Director call completed'
+      )
+      response = extractDirectorResponse(msg)
+    }
+  }
+
+  if (!response) {
+    throw new Error('Director session ended with no result')
+  }
+
+  logger.debug({ action: response.action }, 'Director response')
+  return response
+}
+
+function extractDirectorResponse(msg: { structured_output?: unknown; result?: string }): DirectorResponse {
+  if (msg.structured_output && typeof msg.structured_output === 'object') {
+    return msg.structured_output as DirectorResponse
+  }
+
+  if (msg.result) {
+    try {
+      const parsed = JSON.parse(msg.result) as DirectorResponse
+      if (parsed.action && parsed.message) {
+        return parsed
+      }
+    } catch {
+      // Not JSON — fall through
+    }
+
+    return { action: 'analyze', message: msg.result }
+  }
+
+  throw new Error('Director produced no structured output')
 }

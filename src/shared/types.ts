@@ -45,9 +45,9 @@ export enum WorkflowStep {
   Complete = 8,
 }
 
-export type DirectorActionType = 'approve' | 'ask_human' | 'fix' | 'complete'
+export type DirectorActionType = 'analyze' | 'ask_human' | 'approve' | 'fix' | 'done' | 'escalate'
 
-export interface DirectorAction {
+export interface DirectorResponse {
   action: DirectorActionType
   message: string
   questions?: string[]
@@ -56,15 +56,15 @@ export interface DirectorAction {
 export type Complexity = 'low' | 'high'
 
 export interface CoderReport {
-  status: 'success' | 'error' | 'partial'
+  status: 'success' | 'partial' | 'failed'
   summary: string
   filesChanged?: string[]
-  testResults?: string
-  questions?: string[]
+  testsRun?: { passed: number; failed: number; skipped: number }
+  issues?: string[]
 }
 
 export interface CoderResult {
-  status: 'success' | 'error' | 'partial'
+  status: 'success' | 'partial' | 'failed'
   message: string
   filesChanged?: string[]
   cost: number

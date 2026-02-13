@@ -2,7 +2,7 @@
 import path from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { createLogger } from '../shared/logger.js'
-import { getAllowedTools } from './permissions.js'
+import { getTools } from './permissions.js'
 import { buildCoderPrompt } from './coder-prompt.js'
 import { parseResult, type SDKResultLike } from './result-parser.js'
 import type { CoderOptions, CoderResult } from '../shared/types.js'
@@ -10,20 +10,28 @@ import type { CoderOptions, CoderResult } from '../shared/types.js'
 export const CODER_REPORT_SCHEMA = {
   type: 'object' as const,
   properties: {
-    status: { type: 'string', enum: ['success', 'error', 'partial'] },
+    status: { type: 'string', enum: ['success', 'partial', 'failed'] },
     summary: { type: 'string' },
     filesChanged: { type: 'array', items: { type: 'string' } },
-    testResults: { type: 'string' },
-    questions: { type: 'array', items: { type: 'string' } },
+    testsRun: {
+      type: 'object',
+      properties: {
+        passed: { type: 'number' },
+        failed: { type: 'number' },
+        skipped: { type: 'number' },
+      },
+    },
+    issues: { type: 'array', items: { type: 'string' } },
   },
   required: ['status', 'summary'],
 }
 
 export async function executeCoder(options: CoderOptions): Promise<CoderResult> {
   const logger = createLogger(options.logLevel)
+  const tools = getTools(options.step)
 
   logger.info(
-    { step: options.step, model: options.model, phase: options.phase.number, allowedTools: getAllowedTools(options.step) },
+    { step: options.step, model: options.model, phase: options.phase.number, tools },
     'Coder call starting'
   )
 
@@ -33,13 +41,16 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
     step: options.step,
   })
 
+  const env = { ...process.env }
+  delete env.CLAUDECODE
+
   const queryOptions: Record<string, unknown> = {
     model: options.model,
     cwd: path.resolve(options.targetRepoPath),
     maxTurns: options.maxTurns,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
-    allowedTools: getAllowedTools(options.step),
+    tools,
     systemPrompt: {
       type: 'preset',
       preset: 'claude_code',
@@ -49,6 +60,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
       type: 'json_schema',
       schema: CODER_REPORT_SCHEMA,
     },
+    env,
   }
 
   if (options.maxBudgetUsd !== undefined) {
@@ -96,19 +108,19 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
     const errorMessage = err instanceof Error ? err.message : String(err)
     logger.error({ error: errorMessage }, 'Coder call failed with exception')
     return {
-      status: 'error',
+      status: 'failed',
       message: errorMessage,
       cost: 0,
       numTurns: 0,
       durationMs: 0,
-      report: { status: 'error', summary: errorMessage },
+      report: { status: 'failed', summary: errorMessage },
     }
   }
 
   if (!resultMessage) {
     logger.warn('Coder session ended with no result message')
     return {
-      status: 'error',
+      status: 'failed',
       message: 'Coder session ended with no result message',
       cost: 0,
       numTurns: 0,
