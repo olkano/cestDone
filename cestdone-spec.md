@@ -114,6 +114,8 @@ Each phase runs in a fresh Agent SDK session to prevent context fill-up:
 
 **Context budget rule:** If a Coder session exceeds ~80% of context window, Director should wrap up, commit progress, and continue in a new session. Partial progress is noted in spec.md.
 
+**Coder permissions model:** Each workflow step restricts the Coder's capabilities via Agent SDK `allowedTools`. Plan-only steps (1, 4) grant read-only tools (file read, glob, grep). Auto-edit steps (3, 6) grant the full toolset (bash, file read/write/edit, git). The Director configures `allowedTools` per step to enforce this — the Coder cannot escalate its own permissions.
+
 **Commit rule:** The Coder never commits autonomously. See Git and commit protocol.
 
 ## Director-Coder protocol
@@ -264,6 +266,44 @@ Set up the project structure and implement the core Director loop — the part t
 - Spec parser correctly handles all status values and multi-phase files
 - All tests pass: `npm run test`
 - `npx tsc` clean
+- Windows stdin works correctly (Node `readline` with explicit Windows testing)
+
+**Clarifications:**
+
+_Parser:_
+- Enforce `## Phase N:` (H2) and `### Status/Spec/Done` (H3) exactly — no tolerance for malformed input. Error clearly and exit.
+- Phase numbering: integers starting from 0, sequential. Gaps are valid (e.g., Phase 0, Phase 2). Non-numeric = parse error.
+- Parser extracts `## Context` and `## House rules` as structured metadata, passed to Director alongside phase data.
+- Multiple-spec files: parser looks for the LAST `# H1 heading` as start of the actual spec. Everything above is documentation.
+- House rules path resolved relative to `--target`. If file doesn't exist, warn and continue (not required).
+
+_Spec lifecycle:_
+- When a phase completes, BOTH `### Spec` and `### Done` headings stay. Spec content is cleared to `_See Done summary below._` and Done is populated. Status is the source of truth.
+
+_Director:_
+- Prompt construction: Director receives (a) Context + House rules sections, (b) Done summaries of completed phases (concise), (c) Full spec of current phase. NOT the full file — focused prompt assembly to manage context window.
+- Multi-turn conversation within a phase (each step appends to message history). New phase = new conversation.
+- Implement `selectModel(step, complexity)` now. Even if Phase 0 only calls API for planning, the plumbing must exist.
+- Use `tool_use` with structured response schema for Director intent. Natural language for plan content, but structured envelope: `action: "approve" | "ask_human" | "fix" | "complete"`.
+
+_Phase 0 workflow scope:_
+- Implements Steps 1–5 (up to plan approval) and Step 8 (status update).
+- Steps 6–7 (execute/review) print "Coder integration not yet available — manual execution required" and wait for human to confirm completion.
+- After approval: update spec status to `done` and stop.
+
+_CLI:_
+- `run` starts from the first `pending` phase. If a phase is `in-progress`, prompt: "Phase N is in-progress. Reset to pending or continue?"
+- `resume` continues from the first non-`done` phase without prompting.
+- On rejection: prompt for feedback text, Director re-plans. Three rejections in a row → escalate to human with "I'm stuck, here's what I've tried."
+- Non-TTY: error with clear message in Phase 0.
+
+_Config:_
+- `ANTHROPIC_API_KEY` from env var ONLY. Never store API keys in config files.
+- `.cestdonerc.json` holds: default model, target repo path, log level. CWD only, no hierarchical lookup.
+- Config default model is fallback only. Director's per-step selection wins.
+
+_Testing:_
+- Mock the Anthropic SDK. Test prompt construction and response parsing, not the API itself.
 
 ### Done
 _(to be filled by Director when phase completes)_
