@@ -15,7 +15,12 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
-  "keywords": ["ai", "cli", "automation", "claude"],
+  "keywords": [
+    "ai",
+    "cli",
+    "automation",
+    "claude"
+  ],
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
@@ -23,7 +28,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "commander": "^13.0.0",
-    "pino": "^9.6.0"
+    "pino": "^9.6.0",
+    "pino-roll": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

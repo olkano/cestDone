@@ -26,8 +26,10 @@ vi.mock('@anthropic-ai/sdk', () => ({
   }))
 }))
 vi.mock('../src/cli/prompt.js')
+vi.mock('../src/shared/config.js')
 
 import { ensureTTY, askApproval, askInput } from '../src/cli/prompt.js'
+import { loadConfig, resolveConfig } from '../src/shared/config.js'
 import { handleRun } from '../src/cli/index.js'
 
 const SPEC_CONTENT = `# Integration Test
@@ -61,6 +63,17 @@ beforeEach(() => {
   vi.mocked(ensureTTY).mockReturnValue(undefined)
   vi.mocked(askApproval).mockResolvedValue({ approved: true })
   vi.mocked(askInput).mockResolvedValue('done')
+  vi.mocked(loadConfig).mockReturnValue({
+    defaultModel: 'claude-opus-4-20250514',
+    targetRepoPath: '.',
+    logLevel: 'silent',
+  })
+  vi.mocked(resolveConfig).mockReturnValue({
+    defaultModel: 'claude-opus-4-20250514',
+    targetRepoPath: '.',
+    logLevel: 'silent',
+    apiKey: 'sk-test-integration',
+  })
 
   mockCreate
     .mockResolvedValueOnce(makeToolResponse('approve', 'Analysis complete. No questions.'))
@@ -107,7 +120,9 @@ describe('integration', () => {
   })
 
   it('throws when ANTHROPIC_API_KEY is not set', async () => {
-    delete process.env.ANTHROPIC_API_KEY
+    vi.mocked(resolveConfig).mockImplementation(() => {
+      throw new Error('CESTDONE_CLAUDE_API_KEY or ANTHROPIC_API_KEY environment variable is required.')
+    })
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, SPEC_CONTENT, 'utf-8')
 

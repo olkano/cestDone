@@ -4,6 +4,7 @@ import { WorkflowStep } from '../shared/types.js'
 import { buildSystemPrompt, buildStepMessage, getDirectorTools, type DirectorTool } from './prompt-builder.js'
 import { selectModel } from './model-selector.js'
 import { createLogger } from '../shared/logger.js'
+import type pino from 'pino'
 
 export interface ContentBlock {
   type: string
@@ -60,12 +61,12 @@ export async function runPhase(
   const analyzeAction = await sendStep(
     messages, system, tools, deps,
     buildStepMessage(WorkflowStep.Analyze, phase),
-    WorkflowStep.Analyze
+    WorkflowStep.Analyze, logger
   )
 
   // Step 2: Clarify
   if (analyzeAction.action === 'ask_human' && analyzeAction.questions?.length) {
-    logger.info({ count: analyzeAction.questions.length }, 'Step 2: Clarifying with human')
+    logger.info({ questions: analyzeAction.questions }, 'Escalating to human')
     const answers: string[] = []
     for (const q of analyzeAction.questions) {
       answers.push(await deps.askInput(`Director asks: ${q}\nYour answer: `))
@@ -76,7 +77,7 @@ export async function runPhase(
     await sendStep(
       messages, system, tools, deps,
       `Human provided these clarifications:\n\n${clarification}`,
-      WorkflowStep.Clarify
+      WorkflowStep.Clarify, logger
     )
   }
 
@@ -88,7 +89,7 @@ export async function runPhase(
   const planAction = await sendStep(
     messages, system, tools, deps,
     buildStepMessage(WorkflowStep.Plan, phase),
-    WorkflowStep.Plan
+    WorkflowStep.Plan, logger
   )
 
   // Step 5: Approve plan (with rejection loop)
@@ -97,6 +98,7 @@ export async function runPhase(
   while (true) {
     deps.display(`\n=== Director's Plan ===\n${currentPlan}\n======================`)
     const { approved, feedback } = await deps.askApproval()
+    logger.info({ approved, feedback }, 'Human approval result')
     if (approved) break
 
     rejectionCount++
@@ -110,14 +112,14 @@ export async function runPhase(
       const fixAction = await sendStep(
         messages, system, tools, deps,
         `Human escalation. Guidance: ${guidance}\nPlease revise the plan.`,
-        WorkflowStep.ApprovePlan
+        WorkflowStep.ApprovePlan, logger
       )
       currentPlan = fixAction.message
     } else {
       const fixAction = await sendStep(
         messages, system, tools, deps,
         `Plan rejected. Feedback: ${feedback}\nPlease revise the plan.`,
-        WorkflowStep.ApprovePlan
+        WorkflowStep.ApprovePlan, logger
       )
       currentPlan = fixAction.message
     }
@@ -136,7 +138,7 @@ export async function runPhase(
   const completeAction = await sendStep(
     messages, system, tools, deps,
     buildStepMessage(WorkflowStep.Complete, phase),
-    WorkflowStep.Complete
+    WorkflowStep.Complete, logger
   )
   deps.writePhaseCompletion(specFilePath, phase.number, completeAction.message)
 }
@@ -147,9 +149,12 @@ async function sendStep(
   tools: DirectorTool[],
   deps: DirectorDeps,
   userContent: string,
-  step: WorkflowStep
+  step: WorkflowStep,
+  logger: pino.Logger
 ): Promise<DirectorAction> {
   const model = selectModel(step, 'high')
+
+  logger.debug({ userContent }, 'User message to Director')
 
   const lastMsg = messages[messages.length - 1]
   if (lastMsg?.role === 'assistant' && Array.isArray(lastMsg.content)) {
@@ -169,6 +174,8 @@ async function sendStep(
     messages.push({ role: 'user', content: userContent })
   }
 
+  logger.debug({ step, model, messageCount: messages.length }, 'Sending to Claude API')
+
   const response = await deps.createMessage({
     model,
     system,
@@ -178,7 +185,11 @@ async function sendStep(
   })
 
   messages.push({ role: 'assistant', content: response.content })
-  return extractAction(response)
+  const action = extractAction(response)
+
+  logger.debug({ action, stopReason: response.stop_reason }, 'Director response')
+
+  return action
 }
 
 function extractAction(response: ApiResponse): DirectorAction {
