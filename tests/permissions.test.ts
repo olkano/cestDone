@@ -14,8 +14,8 @@ describe('getTools', () => {
   })
 
   // N2: Step 3 is now Director-only (orchestrator writes spec directly)
-  it('throws for UpdateSpec step (Director-only)', () => {
-    expect(() => getTools(WorkflowStep.UpdateSpec)).toThrow('no Coder call')
+  it('throws for CreatePlan step (Director-only)', () => {
+    expect(() => getTools(WorkflowStep.CreatePlan)).toThrow('no Coder call')
   })
 
   // N3: Step 6 returns full auto-edit tools

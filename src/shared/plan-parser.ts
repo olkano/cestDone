@@ -1,7 +1,6 @@
-// src/shared/spec-parser.ts
-import fs from 'node:fs'
+// src/shared/plan-parser.ts
 import path from 'node:path'
-import type { ParsedSpec, Phase, PhaseStatus, SpecMetadata } from './types.js'
+import type { Plan, Phase, PhaseStatus } from './types.js'
 
 const VALID_STATUSES: PhaseStatus[] = ['pending', 'in-progress', 'done']
 
@@ -10,30 +9,36 @@ interface Section {
   content: string[]
 }
 
-export function parseSpec(content: string, targetDir?: string): ParsedSpec {
+export function parsePlan(content: string): Plan {
   const lines = content.split(/\r?\n/)
 
-  const specStartIndex = findLastH1(lines)
-  if (specStartIndex === -1) {
-    throw new Error('No H1 heading found in spec file')
+  const titleIndex = lines.findIndex(line => line.startsWith('# Plan:'))
+  if (titleIndex === -1) {
+    throw new Error('No "# Plan:" heading found in plan file')
   }
 
-  const title = lines[specStartIndex].replace(/^# /, '').trim()
-  const specLines = lines.slice(specStartIndex + 1)
-  const sections = splitByH2(specLines)
-  const metadata = extractMetadata(sections, targetDir)
+  const title = lines[titleIndex].replace(/^# Plan:\s*/, '').trim()
+  const bodyLines = lines.slice(titleIndex + 1)
+  const sections = splitByH2(bodyLines)
+
+  const context = findSectionContent(sections, 'Context')
+  const techStack = findSectionContent(sections, 'Tech Stack')
+  const houseRules = findSectionContent(sections, 'House Rules')
   const phases = extractPhases(sections)
 
-  return { title, metadata, phases }
+  return { title, context, techStack, houseRules, phases }
 }
 
-function findLastH1(lines: string[]): number {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
-      return i
-    }
+export function getPlanPath(specFilePath: string): string {
+  const ext = path.extname(specFilePath)
+  if (ext) {
+    return specFilePath.replace(new RegExp(`${escapeRegExp(ext)}$`), `.plan${ext}`)
   }
-  return -1
+  return specFilePath + '.plan.md'
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function splitByH2(lines: string[]): Section[] {
@@ -70,27 +75,9 @@ function splitByH3(lines: string[]): Section[] {
   return sections
 }
 
-function extractMetadata(sections: Section[], targetDir?: string): SpecMetadata {
-  const contextSection = sections.find(s => s.heading === 'Context')
-  const houseRulesSection = sections.find(s => s.heading === 'House rules')
-
-  const context = contextSection ? contextSection.content.join('\n').trim() : ''
-  const houseRulesRef = houseRulesSection ? houseRulesSection.content.join('\n').trim() : ''
-
-  let houseRulesContent: string | undefined
-  if (targetDir && houseRulesRef) {
-    const pathMatch = houseRulesRef.match(/`([^`]+\.md)`/)
-    if (pathMatch) {
-      const rulesPath = path.resolve(targetDir, pathMatch[1])
-      if (fs.existsSync(rulesPath)) {
-        houseRulesContent = fs.readFileSync(rulesPath, 'utf-8')
-      } else {
-        console.warn(`Warning: House rules file not found at ${rulesPath}, continuing without it`)
-      }
-    }
-  }
-
-  return { context, houseRulesRef, houseRulesContent }
+function findSectionContent(sections: Section[], heading: string): string {
+  const section = sections.find(s => s.heading === heading)
+  return section ? section.content.join('\n').trim() : ''
 }
 
 function extractPhases(sections: Section[]): Phase[] {
@@ -132,17 +119,20 @@ function extractPhases(sections: Section[]): Phase[] {
       throw new Error(`Missing "### Done" in Phase ${phaseNum}: ${name}`)
     }
 
+    const rulesSub = subsections.find(s => s.heading === 'Applicable Rules')
+
     phases.push({
       number: phaseNum,
       name,
       status,
       spec: specSub.content.join('\n').trim(),
+      applicableRules: rulesSub ? rulesSub.content.join('\n').trim() : '',
       done: doneSub.content.join('\n').trim(),
     })
   }
 
   if (phases.length === 0) {
-    throw new Error('No phases found in spec file')
+    throw new Error('No phases found in plan file')
   }
 
   return phases

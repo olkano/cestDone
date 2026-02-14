@@ -12,7 +12,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 function makeOptions(overrides: Partial<CoderOptions> = {}): CoderOptions {
   return {
     step: WorkflowStep.Execute,
-    phase: { number: 1, name: 'Test Phase', status: 'in-progress', spec: 'Do stuff.', done: '' },
+    phase: { number: 1, name: 'Test Phase', status: 'in-progress', spec: 'Do stuff.', applicableRules: '', done: '' },
     model: 'claude-opus-4-20250514',
     targetRepoPath: '/tmp/repo',
     houseRulesContent: 'Use TDD.',

@@ -8,20 +8,10 @@ export interface Phase {
   name: string
   status: PhaseStatus
   spec: string
+  applicableRules: string
   done: string
 }
 
-export interface SpecMetadata {
-  context: string
-  houseRulesRef: string
-  houseRulesContent?: string
-}
-
-export interface ParsedSpec {
-  title: string
-  metadata: SpecMetadata
-  phases: Phase[]
-}
 
 export interface Config {
   defaultModel: string
@@ -37,7 +27,7 @@ export interface ResolvedConfig extends Config {
 export enum WorkflowStep {
   Analyze = 1,
   Clarify = 2,
-  UpdateSpec = 3,
+  CreatePlan = 3,
   Plan = 4,
   ApprovePlan = 5,
   Execute = 6,
@@ -85,4 +75,18 @@ export interface CoderOptions {
   apiKey: string
   logger: SessionLogger
   completedSubPhases?: string[]
+}
+
+export interface FreeFormSpec {
+  text: string
+  houseRulesContent: string
+  specFilePath: string
+}
+
+export interface Plan {
+  title: string
+  context: string
+  techStack: string
+  houseRules: string
+  phases: Phase[]
 }

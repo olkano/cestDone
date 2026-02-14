@@ -5,17 +5,18 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Command } from 'commander'
 import { loadConfig, resolveConfig } from '../shared/config.js'
-import { parseSpec } from '../shared/spec-parser.js'
-import { updatePhaseStatus, updatePhaseSpec, writePhaseCompletion } from '../shared/spec-writer.js'
-import { runPhase, type DirectorDeps } from '../director/director.js'
+import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
+import { createPlanFile, updatePhaseStatus, writePhaseCompletion } from '../shared/spec-writer.js'
+import { runPlanningFlow, runPhase, type DirectorDeps } from '../director/director.js'
 import { askApproval, askInput, ensureTTY } from './prompt.js'
 import { executeCoder } from '../coder/coder.js'
 import { ensureGitRepo } from '../shared/git.js'
 import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
+import type { FreeFormSpec } from '../shared/types.js'
 
 export async function handleRun(
   specPath: string,
-  options?: { target?: string }
+  options?: { target?: string; houseRules?: string }
 ): Promise<void> {
   ensureTTY()
   const logger = createSessionLogger()
@@ -25,42 +26,77 @@ export async function handleRun(
   const targetDir = path.resolve(options?.target ?? resolved.targetRepoPath)
   resolved.targetRepoPath = targetDir
   ensureGitRepo(targetDir)
-  const resolvedSpecPath = path.resolve(specPath)
-  const content = fs.readFileSync(resolvedSpecPath, 'utf-8')
-  const spec = parseSpec(content, targetDir)
 
-  const inProgress = spec.phases.find(p => p.status === 'in-progress')
-  if (inProgress) {
-    const answer = await askInput(
-      `Phase ${inProgress.number} (${inProgress.name}) is in-progress. ` +
-      'Reset to pending or continue? (reset/continue): '
-    )
-    if (answer.trim().toLowerCase() === 'reset') {
-      updatePhaseStatus(resolvedSpecPath, inProgress.number, 'pending')
-      const updated = fs.readFileSync(resolvedSpecPath, 'utf-8')
-      const updatedSpec = parseSpec(updated, targetDir)
-      const pending = updatedSpec.phases.find(p => p.status === 'pending')
-      if (!pending) {
-        console.log('No pending phases found.')
+  const resolvedSpecPath = path.resolve(specPath)
+  const specText = fs.readFileSync(resolvedSpecPath, 'utf-8')
+
+  // Load house rules if provided
+  let houseRulesContent = ''
+  if (options?.houseRules) {
+    const houseRulesPath = path.resolve(options.houseRules)
+    houseRulesContent = fs.readFileSync(houseRulesPath, 'utf-8')
+  }
+
+  const planPath = getPlanPath(resolvedSpecPath)
+
+  // Check if plan already exists
+  if (fs.existsSync(planPath)) {
+    const planContent = fs.readFileSync(planPath, 'utf-8')
+    const plan = parsePlan(planContent)
+
+    const inProgress = plan.phases.find(p => p.status === 'in-progress')
+    if (inProgress) {
+      const answer = await askInput(
+        `Phase ${inProgress.number} (${inProgress.name}) is in-progress. ` +
+        'Reset to pending or continue? (reset/continue): '
+      )
+      if (answer.trim().toLowerCase() === 'reset') {
+        updatePhaseStatus(planPath, inProgress.number, 'pending')
+        const updated = fs.readFileSync(planPath, 'utf-8')
+        const updatedPlan = parsePlan(updated)
+        const pending = updatedPlan.phases.find(p => p.status === 'pending')
+        if (!pending) {
+          console.log('No pending phases found.')
+          return
+        }
+        const deps = buildDeps(logger)
+        await runPhase(updatedPlan, pending, resolved, planPath, deps)
         return
       }
       const deps = buildDeps(logger)
-      await runPhase(updatedSpec, pending, resolved, resolvedSpecPath, deps)
+      await runPhase(plan, inProgress, resolved, planPath, deps)
       return
     }
+
+    const pending = plan.phases.find(p => p.status === 'pending')
+    if (!pending) {
+      console.log('All phases are done.')
+      return
+    }
+
     const deps = buildDeps(logger)
-    await runPhase(spec, inProgress, resolved, resolvedSpecPath, deps)
+    await runPhase(plan, pending, resolved, planPath, deps)
     return
   }
 
-  const pending = spec.phases.find(p => p.status === 'pending')
-  if (!pending) {
-    console.log('No pending phases found.')
-    return
+  // No plan exists — run planning flow
+  const freeFormSpec: FreeFormSpec = {
+    text: specText,
+    houseRulesContent,
+    specFilePath: resolvedSpecPath,
   }
 
   const deps = buildDeps(logger)
-  await runPhase(spec, pending, resolved, resolvedSpecPath, deps)
+  const { plan, planPath: createdPlanPath } = await runPlanningFlow(freeFormSpec, resolved, deps)
+
+  // Execute first pending phase
+  const pending = plan.phases.find(p => p.status === 'pending')
+  if (!pending) {
+    console.log('Plan created but no pending phases found.')
+    return
+  }
+
+  await runPhase(plan, pending, resolved, createdPlanPath, deps)
 }
 
 export async function handleResume(
@@ -75,26 +111,33 @@ export async function handleResume(
   const targetDir = path.resolve(options?.target ?? resolved.targetRepoPath)
   resolved.targetRepoPath = targetDir
   ensureGitRepo(targetDir)
-  const resolvedSpecPath = path.resolve(specPath)
-  const content = fs.readFileSync(resolvedSpecPath, 'utf-8')
-  const spec = parseSpec(content, targetDir)
 
-  const target = spec.phases.find(p => p.status !== 'done')
+  const resolvedSpecPath = path.resolve(specPath)
+  const planPath = getPlanPath(resolvedSpecPath)
+
+  if (!fs.existsSync(planPath)) {
+    throw new Error(`No plan file found at ${planPath}. Run 'cestdone run' first to create a plan.`)
+  }
+
+  const planContent = fs.readFileSync(planPath, 'utf-8')
+  const plan = parsePlan(planContent)
+
+  const target = plan.phases.find(p => p.status !== 'done')
   if (!target) {
     console.log('All phases are done.')
     return
   }
 
   const deps = buildDeps(logger)
-  await runPhase(spec, target, resolved, resolvedSpecPath, deps)
+  await runPhase(plan, target, resolved, planPath, deps)
 }
 
 function buildDeps(logger: SessionLogger): DirectorDeps {
   return {
     askApproval,
     askInput,
+    createPlanFile: (p, c) => createPlanFile(p, c),
     updatePhaseStatus: (fp, pn, st) => updatePhaseStatus(fp, pn, st),
-    updatePhaseSpec: (fp, pn, spec) => updatePhaseSpec(fp, pn, spec),
     writePhaseCompletion: (fp, pn, ds) => writePhaseCompletion(fp, pn, ds),
     coderExecute: executeCoder,
     display: (text: string) => console.log(text),
@@ -109,10 +152,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   program.name('cestdone').description('AI-orchestrated development CLI')
 
   program.command('run')
-    .requiredOption('--spec <path>', 'Path to spec file')
+    .requiredOption('--spec <path>', 'Path to spec file (free-form text)')
     .option('--target <path>', 'Target repository path')
-    .action(async (opts: { spec: string; target?: string }) => {
-      await handleRun(opts.spec, { target: opts.target })
+    .option('--house-rules <path>', 'Path to house rules file')
+    .action(async (opts: { spec: string; target?: string; houseRules?: string }) => {
+      await handleRun(opts.spec, { target: opts.target, houseRules: opts.houseRules })
     })
 
   program.command('resume')

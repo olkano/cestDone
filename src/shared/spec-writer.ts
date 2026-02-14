@@ -2,6 +2,10 @@
 import fs from 'node:fs'
 import type { PhaseStatus } from './types.js'
 
+export function createPlanFile(filePath: string, content: string): void {
+  atomicWrite(filePath, content)
+}
+
 export function updatePhaseStatus(filePath: string, phaseNumber: number, newStatus: PhaseStatus): void {
   const content = fs.readFileSync(filePath, 'utf-8')
   const updated = replaceInPhase(content, phaseNumber, (phaseBlock) => {
@@ -9,14 +13,6 @@ export function updatePhaseStatus(filePath: string, phaseNumber: number, newStat
       /### Status: \S+/,
       `### Status: ${newStatus}`
     )
-  })
-  atomicWrite(filePath, updated)
-}
-
-export function updatePhaseSpec(filePath: string, phaseNumber: number, updatedSpec: string): void {
-  const content = fs.readFileSync(filePath, 'utf-8')
-  const updated = replaceInPhase(content, phaseNumber, (phaseBlock) => {
-    return replaceSection(phaseBlock, 'Spec', updatedSpec)
   })
   atomicWrite(filePath, updated)
 }

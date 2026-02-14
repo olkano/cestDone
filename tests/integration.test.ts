@@ -18,25 +18,29 @@ vi.mock('../src/shared/logger.js', () => ({
 
 import { ensureTTY, askApproval, askInput } from '../src/cli/prompt.js'
 import { loadConfig, resolveConfig } from '../src/shared/config.js'
-import { handleRun } from '../src/cli/index.js'
+import { handleRun, handleResume } from '../src/cli/index.js'
 
-const SPEC_CONTENT = `# Integration Test
-
-## Context
-An integration test project.
-
-## House rules
-
-## Phase 0: Setup
-
-### Status: pending
-
-### Spec
-Set up the project structure.
-
-### Done
-_(to be filled)_
-`
+const VALID_PLAN_CONTENT = [
+  '# Plan: Integration Test',
+  '',
+  '## Context',
+  'An integration test project.',
+  '',
+  '## Tech Stack',
+  'TypeScript, Node.js',
+  '',
+  '## House Rules',
+  'Use TDD.',
+  '',
+  '## Phase 1: Setup',
+  '### Status: pending',
+  '### Spec',
+  'Set up the project structure.',
+  '### Applicable Rules',
+  'Use TDD.',
+  '### Done',
+  '_(to be filled)_',
+].join('\n')
 
 function makeDirectorResult(action: string, message: string) {
   return {
@@ -92,21 +96,6 @@ beforeEach(() => {
     maxTurns: 100,
     apiKey: 'sk-test-integration',
   })
-
-  // Both Director and Coder use Agent SDK query() now.
-  // Order: Director(analyze), Director(plan), Coder(execute), Director(review), Director(complete)
-  const responses = [
-    makeDirectorResult('approve', 'Analysis complete. No questions.'),
-    makeDirectorResult('approve', 'Plan:\n1. Create files\n2. Write tests'),
-    makeCoderResult(),
-    makeDirectorResult('done', 'All verified.'),
-    makeDirectorResult('done', 'Phase done. Created scaffold.'),
-  ]
-
-  mockQuery.mockImplementation(() => {
-    const idx = queryCallIndex++
-    return generateMessages(responses[idx])
-  })
 })
 
 afterEach(() => {
@@ -119,43 +108,109 @@ afterEach(() => {
 })
 
 describe('integration', () => {
-  // S3: Full Director→Coder→Director flow (all via Agent SDK)
-  it('runs full workflow: analyze → plan → approve → execute(coder) → complete', async () => {
+  // I1: Full flow — no plan exists → planning flow → phase execution
+  it('runs full workflow: planning → phase execution → completion', async () => {
+    // Planning flow: Director(analyze), Director(createPlan)
+    // Phase execution: Director(sub-plan), Coder(execute), Director(review), Director(complete)
+    const responses = [
+      makeDirectorResult('analyze', 'Spec is clear. No questions.'),
+      makeDirectorResult('done', VALID_PLAN_CONTENT),
+      makeDirectorResult('approve', 'Plan:\n1. Create files\n2. Write tests'),
+      makeCoderResult(),
+      makeDirectorResult('done', 'All verified.'),
+      makeDirectorResult('done', 'Phase done. Created scaffold.'),
+    ]
+
+    mockQuery.mockImplementation(() => {
+      const idx = queryCallIndex++
+      return generateMessages(responses[idx])
+    })
+
     const specPath = path.join(tmpDir, 'spec.md')
-    fs.writeFileSync(specPath, SPEC_CONTENT, 'utf-8')
+    fs.writeFileSync(specPath, 'Build a simple project with tests.', 'utf-8')
 
     await handleRun(specPath)
 
-    const result = fs.readFileSync(specPath, 'utf-8')
+    // Plan file created
+    const planPath = specPath.replace('.md', '.plan.md')
+    expect(fs.existsSync(planPath)).toBe(true)
+    const planContent = fs.readFileSync(planPath, 'utf-8')
+    expect(planContent).toContain('# Plan: Integration Test')
 
-    // Phase status should be 'done'
-    expect(result).toContain('### Status: done')
-    expect(result).not.toContain('### Status: pending')
-    expect(result).not.toContain('### Status: in-progress')
+    // Phase completed in plan file
+    expect(planContent).toContain('### Status: done')
+    expect(planContent).toContain('Phase done. Created scaffold.')
 
-    // Done summary should be written
-    expect(result).toContain('Phase done. Created scaffold.')
+    // Original spec file unchanged
+    const specContent = fs.readFileSync(specPath, 'utf-8')
+    expect(specContent).toBe('Build a simple project with tests.')
 
-    // Agent SDK query() called 5 times: Director(analyze), Director(plan), Coder(execute), Director(review), Director(complete)
-    expect(mockQuery).toHaveBeenCalledTimes(5)
+    // 6 query() calls: 2 planning + 4 execution
+    expect(mockQuery).toHaveBeenCalledTimes(6)
 
-    // Approval was requested
-    expect(askApproval).toHaveBeenCalledTimes(1)
+    // askApproval called twice: once for plan approval, once for sub-plan approval
+    expect(askApproval).toHaveBeenCalledTimes(2)
   })
 
-  // S4: Coder receives correct tools for Execute step
+  // I2: Coder receives correct tools for Execute step
   it('passes correct tools to Coder for Execute step', async () => {
+    const responses = [
+      makeDirectorResult('analyze', 'Spec is clear.'),
+      makeDirectorResult('done', VALID_PLAN_CONTENT),
+      makeDirectorResult('approve', 'Plan:\n1. Create files'),
+      makeCoderResult(),
+      makeDirectorResult('done', 'All verified.'),
+      makeDirectorResult('done', 'Done.'),
+    ]
+
+    mockQuery.mockImplementation(() => {
+      const idx = queryCallIndex++
+      return generateMessages(responses[idx])
+    })
+
     const specPath = path.join(tmpDir, 'spec.md')
-    fs.writeFileSync(specPath, SPEC_CONTENT, 'utf-8')
+    fs.writeFileSync(specPath, 'Build something.', 'utf-8')
 
     await handleRun(specPath)
 
-    // The 3rd query() call is the Coder (execute step)
-    expect(mockQuery).toHaveBeenCalledTimes(5)
-    const coderParams = mockQuery.mock.calls[2][0]
+    // The 4th query() call (index 3) is the Coder (execute step)
+    expect(mockQuery).toHaveBeenCalledTimes(6)
+    const coderParams = mockQuery.mock.calls[3][0]
     expect(coderParams.options.tools).toEqual(
       ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
     )
+  })
+
+  // I3: Resume with existing plan — skips planning, continues execution
+  it('resumes from existing plan without re-planning', async () => {
+    // Write plan file directly
+    const specPath = path.join(tmpDir, 'spec.md')
+    const planPath = specPath.replace('.md', '.plan.md')
+    fs.writeFileSync(specPath, 'Original spec.', 'utf-8')
+    fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
+
+    // Phase execution only: Director(sub-plan), Coder(execute), Director(review), Director(complete)
+    const responses = [
+      makeDirectorResult('approve', 'Plan:\n1. Create files'),
+      makeCoderResult(),
+      makeDirectorResult('done', 'All verified.'),
+      makeDirectorResult('done', 'Resumed and done.'),
+    ]
+
+    mockQuery.mockImplementation(() => {
+      const idx = queryCallIndex++
+      return generateMessages(responses[idx])
+    })
+
+    await handleResume(specPath)
+
+    // Only 4 calls — no planning flow
+    expect(mockQuery).toHaveBeenCalledTimes(4)
+
+    // Plan file updated with completion
+    const updated = fs.readFileSync(planPath, 'utf-8')
+    expect(updated).toContain('### Status: done')
+    expect(updated).toContain('Resumed and done.')
   })
 
   it('throws when ANTHROPIC_API_KEY is not set', async () => {
@@ -163,37 +218,26 @@ describe('integration', () => {
       throw new Error('ANTHROPIC_API_KEY environment variable is required.')
     })
     const specPath = path.join(tmpDir, 'spec.md')
-    fs.writeFileSync(specPath, SPEC_CONTENT, 'utf-8')
+    fs.writeFileSync(specPath, 'Some spec.', 'utf-8')
 
     await expect(handleRun(specPath)).rejects.toThrow('ANTHROPIC_API_KEY')
   })
 
-  it('exits cleanly when all phases are done', async () => {
-    const doneSpec = `# Done Project
+  it('exits cleanly when all phases are done in existing plan', async () => {
+    const donePlan = VALID_PLAN_CONTENT
+      .replace('### Status: pending', '### Status: done')
+      .replace('_(to be filled)_', 'Already completed.')
 
-## Context
-Already done.
-
-## House rules
-
-## Phase 0: Setup
-
-### Status: done
-
-### Spec
-_See Done summary below._
-
-### Done
-Already completed.
-`
     const specPath = path.join(tmpDir, 'spec.md')
-    fs.writeFileSync(specPath, doneSpec, 'utf-8')
+    const planPath = specPath.replace('.md', '.plan.md')
+    fs.writeFileSync(specPath, 'Done spec.', 'utf-8')
+    fs.writeFileSync(planPath, donePlan, 'utf-8')
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     await handleRun(specPath)
 
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('No pending'))
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('done'))
     expect(mockQuery).not.toHaveBeenCalled()
 
     consoleSpy.mockRestore()

@@ -1,6 +1,6 @@
 // tests/spec-writer.test.ts
 import { describe, it, expect, afterEach } from 'vitest'
-import { updatePhaseStatus, updatePhaseSpec, writePhaseCompletion } from '../src/shared/spec-writer.js'
+import { createPlanFile, updatePhaseStatus, writePhaseCompletion } from '../src/shared/spec-writer.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -42,6 +42,28 @@ const SAMPLE_SPEC = [
   '_(to be filled)_',
 ].join('\n')
 
+describe('createPlanFile', () => {
+  let tmpDir: string
+
+  afterEach(() => {
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('writes plan content to file atomically', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-plan-'))
+    const planPath = path.join(tmpDir, 'spec.plan.md')
+    const content = '# Plan: Test\n\n## Phase 1: Setup\n### Status: pending\n### Spec\nDo stuff.\n### Done\n_(tbd)_\n'
+
+    createPlanFile(planPath, content)
+
+    const result = fs.readFileSync(planPath, 'utf-8')
+    expect(result).toBe(content)
+    // No leftover .tmp file
+    const tmpFiles = fs.readdirSync(tmpDir).filter(f => f.endsWith('.tmp'))
+    expect(tmpFiles).toHaveLength(0)
+  })
+})
+
 describe('updatePhaseStatus', () => {
   let tmpDir: string
 
@@ -76,40 +98,6 @@ describe('updatePhaseStatus', () => {
     expect(result).toContain('Some context.')
     expect(result).toContain('Build the features.')
     expect(result).toContain('_(to be filled)_')
-  })
-})
-
-describe('updatePhaseSpec', () => {
-  let tmpDir: string
-
-  afterEach(() => {
-    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
-  })
-
-  it('updates the Spec section with new content', () => {
-    const { dir, filePath } = makeTmpSpec(SAMPLE_SPEC)
-    tmpDir = dir
-
-    updatePhaseSpec(filePath, 0, 'Updated spec with PostgreSQL and JWT auth.')
-
-    const result = fs.readFileSync(filePath, 'utf-8')
-    expect(result).toContain('Updated spec with PostgreSQL and JWT auth.')
-    expect(result).not.toContain('Set up the project structure.')
-    // Status unchanged
-    expect(result).toMatch(/## Phase 0[\s\S]*?### Status: pending/)
-    // Done unchanged
-    expect(result).toContain('_(to be filled)_')
-  })
-
-  it('does not modify other phases', () => {
-    const { dir, filePath } = makeTmpSpec(SAMPLE_SPEC)
-    tmpDir = dir
-
-    updatePhaseSpec(filePath, 0, 'New spec for phase 0.')
-
-    const result = fs.readFileSync(filePath, 'utf-8')
-    // Phase 1 spec untouched
-    expect(result).toContain('Build the features.')
   })
 })
 

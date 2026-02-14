@@ -24,8 +24,9 @@ describe('selectModel', () => {
     expect(selectModel(WorkflowStep.Clarify, 'high')).toBe(OPUS)
   })
 
-  it('returns Sonnet for UpdateSpec step with low complexity', () => {
-    expect(selectModel(WorkflowStep.UpdateSpec, 'low')).toBe(SONNET)
+  it('returns Opus for CreatePlan step regardless of complexity', () => {
+    expect(selectModel(WorkflowStep.CreatePlan, 'low')).toBe(OPUS)
+    expect(selectModel(WorkflowStep.CreatePlan, 'high')).toBe(OPUS)
   })
 
   it('returns Opus for ApprovePlan step with high complexity', () => {

@@ -6,6 +6,7 @@ export const SONNET = 'claude-sonnet-4-20250514'
 
 const ALWAYS_OPUS: WorkflowStep[] = [
   WorkflowStep.Analyze,
+  WorkflowStep.CreatePlan,
   WorkflowStep.Plan,
   WorkflowStep.Review,
   WorkflowStep.Complete,

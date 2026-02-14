@@ -9,6 +9,7 @@ const TEST_PHASE: Phase = {
   name: 'Agent SDK integration',
   status: 'in-progress',
   spec: 'Connect Director to Coder via Agent SDK.',
+  applicableRules: '',
   done: '_(to be filled)_',
 }
 
