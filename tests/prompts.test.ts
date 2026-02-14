@@ -97,6 +97,18 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('tsc --noEmit')
   })
 
+  it('instructs Director to review code, not just run tests', () => {
+    const prompt = buildReviewPrompt('The phase spec', '{"status":"success"}')
+
+    expect(prompt).toContain('Code Review (mandatory')
+    expect(prompt).toContain('Read every file the Coder changed')
+    expect(prompt).toContain('Correctness')
+    expect(prompt).toContain('Completeness')
+    expect(prompt).toContain('Quality')
+    expect(prompt).toContain('Security')
+    expect(prompt).toContain('Requirements Check')
+  })
+
   it('includes response action instructions for continue/done/fix', () => {
     const prompt = buildReviewPrompt('Plan', '{"status":"success"}')
 
