@@ -4,6 +4,7 @@ import { runPhase, runPlanningFlow } from '../src/director/director.js'
 import type { DirectorDeps } from '../src/director/director.js'
 import { WorkflowStep } from '../src/shared/types.js'
 import type { ResolvedConfig, Phase, CoderResult, CoderOptions, FreeFormSpec, Plan } from '../src/shared/types.js'
+import { CostTracker } from '../src/shared/cost-tracker.js'
 
 const mockQuery = vi.fn()
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -24,6 +25,7 @@ function makeDirectorResult(action: string, message: string, questions?: string[
     total_cost_usd: 0.05,
     num_turns: 3,
     duration_ms: 2000,
+    usage: { inputTokens: 500, outputTokens: 200, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
     structured_output: { action, message, ...(questions ? { questions } : {}) },
   }
 }
@@ -64,6 +66,7 @@ function makeCoderSuccess(overrides: Partial<CoderResult> = {}): CoderResult {
     cost: 0.25,
     numTurns: 10,
     durationMs: 5000,
+    usage: { inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
     report: { status: 'success', summary: 'Implementation complete' },
     ...overrides,
   }
@@ -76,6 +79,7 @@ function makeCoderError(overrides: Partial<CoderResult> = {}): CoderResult {
     cost: 0.10,
     numTurns: 5,
     durationMs: 3000,
+    usage: { inputTokens: 500, outputTokens: 200, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
     report: { status: 'failed', summary: 'Tests failing' },
     ...overrides,
   }
@@ -99,6 +103,7 @@ function createHappyPathDeps(): DirectorDeps {
     coderExecute: vi.fn().mockResolvedValue(makeCoderSuccess()),
     display: vi.fn(),
     logger: { log: vi.fn(), logVerbose: vi.fn() },
+    costTracker: new CostTracker(),
   }
 }
 

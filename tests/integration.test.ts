@@ -49,6 +49,7 @@ function makeDirectorResult(action: string, message: string) {
     total_cost_usd: 0.05,
     num_turns: 3,
     duration_ms: 2000,
+    usage: { inputTokens: 500, outputTokens: 200, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
     structured_output: { action, message },
   }
 }
@@ -60,6 +61,7 @@ function makeCoderResult(overrides: Record<string, unknown> = {}) {
     total_cost_usd: 0.25,
     num_turns: 10,
     duration_ms: 5000,
+    usage: { inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
     structured_output: { status: 'success', summary: 'Implementation complete' },
     ...overrides,
   }

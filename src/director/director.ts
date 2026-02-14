@@ -1,7 +1,9 @@
 // src/director/director.ts
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import type { Phase, PhaseStatus, ResolvedConfig, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan } from '../shared/types.js'
+import type { Phase, PhaseStatus, ResolvedConfig, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan, TokenUsage } from '../shared/types.js'
 import { WorkflowStep } from '../shared/types.js'
+import { CostTracker, formatTotals } from '../shared/cost-tracker.js'
+import type { UsageSnapshot } from '../shared/cost-tracker.js'
 import {
   buildDirectorTools,
   buildClarifyPrompt,
@@ -28,10 +30,32 @@ export interface DirectorDeps {
   coderExecute: (options: CoderOptions) => Promise<CoderResult>
   display: (text: string) => void
   logger: SessionLogger
+  costTracker: CostTracker
 }
 
 const MAX_REJECTIONS = 3
 const MAX_CODER_RETRIES = 3
+const ZERO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
+
+export interface DirectorCallResult {
+  response: DirectorResponse
+  costUsd: number
+  numTurns: number
+  durationMs: number
+  usage: TokenUsage
+}
+
+function recordDirectorCall(deps: DirectorDeps, result: DirectorCallResult): DirectorResponse {
+  deps.costTracker.recordDirector({
+    costUsd: result.costUsd,
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    cacheReadInputTokens: result.usage.cacheReadInputTokens,
+    cacheCreationInputTokens: result.usage.cacheCreationInputTokens,
+  })
+  deps.logger.log('Session', formatTotals(deps.costTracker))
+  return result.response
+}
 
 // === Planning flow ===
 
@@ -45,13 +69,13 @@ export async function runPlanningFlow(
 
   // Step 1: Analyze free-form spec
   logger.log('Director', 'Planning: Analyzing free-form spec')
-  const analyzeResult = await executeDirector({
+  const analyzeResult = recordDirectorCall(deps, await executeDirector({
     prompt: buildFreeFormAnalyzePrompt(spec),
     step: WorkflowStep.Analyze,
     systemPromptText,
     config,
     logger,
-  })
+  }))
 
   // Step 2: Clarify (iterative — ask follow-ups until Director is satisfied)
   let clarificationsText = ''
@@ -67,13 +91,13 @@ export async function runPlanningFlow(
     clarificationsText += (clarificationsText ? '\n\n' : '') +
       pendingQuestions.map((q, i) => `Q: ${q}\nA: ${answers[i]}`).join('\n\n')
 
-    const clarifyResult = await executeDirector({
+    const clarifyResult = recordDirectorCall(deps, await executeDirector({
       prompt: buildClarifyPrompt(pendingQuestions, answers),
       step: WorkflowStep.Clarify,
       systemPromptText,
       config,
       logger,
-    })
+    }))
 
     // If Director has follow-up questions, loop; otherwise proceed
     if (clarifyResult.action === 'ask_human' && clarifyResult.questions?.length) {
@@ -85,13 +109,13 @@ export async function runPlanningFlow(
 
   // Step 3: Create plan
   logger.log('Director', 'Planning: Creating structured plan')
-  const createResult = await executeDirector({
+  const createResult = recordDirectorCall(deps, await executeDirector({
     prompt: buildCreatePlanPrompt(spec, clarificationsText),
     step: WorkflowStep.CreatePlan,
     systemPromptText,
     config,
     logger,
-  })
+  }))
 
   // Validate + approve loop
   let rejectionCount = 0
@@ -103,13 +127,13 @@ export async function runPlanningFlow(
       parsePlan(currentPlanContent)
     } catch (err) {
       logger.log('Director', `Plan format invalid: ${(err as Error).message}. Asking Director to fix.`)
-      const fixResult = await executeDirector({
+      const fixResult = recordDirectorCall(deps, await executeDirector({
         prompt: `The plan you produced has a format error: ${(err as Error).message}\n\nPlease fix it and return the corrected plan in your message field.\n\nOriginal plan:\n${currentPlanContent}`,
         step: WorkflowStep.CreatePlan,
         systemPromptText,
         config,
         logger,
-      })
+      }))
       currentPlanContent = fixResult.message
       continue
     }
@@ -127,22 +151,22 @@ export async function runPlanningFlow(
         'Please provide guidance on how to proceed: '
       )
       rejectionCount = 0
-      const fixResult = await executeDirector({
+      const fixResult = recordDirectorCall(deps, await executeDirector({
         prompt: `Human escalation. Guidance: ${guidance}\nPrevious plan:\n${currentPlanContent}\nPlease revise the plan.`,
         step: WorkflowStep.CreatePlan,
         systemPromptText,
         config,
         logger,
-      })
+      }))
       currentPlanContent = fixResult.message
     } else {
-      const fixResult = await executeDirector({
+      const fixResult = recordDirectorCall(deps, await executeDirector({
         prompt: buildRevisePlanPrompt(currentPlanContent, feedback ?? ''),
         step: WorkflowStep.CreatePlan,
         systemPromptText,
         config,
         logger,
-      })
+      }))
       currentPlanContent = fixResult.message
     }
   }
@@ -192,6 +216,14 @@ export async function runPhase(
       logger,
     }))
     totalCoderCost += coderResult.cost
+    deps.costTracker.recordCoder({
+      costUsd: coderResult.cost,
+      inputTokens: coderResult.usage.inputTokens,
+      outputTokens: coderResult.usage.outputTokens,
+      cacheReadInputTokens: coderResult.usage.cacheReadInputTokens,
+      cacheCreationInputTokens: coderResult.usage.cacheCreationInputTokens,
+    })
+    logger.log('Session', formatTotals(deps.costTracker))
 
     const summary = coderResult.report?.summary ?? coderResult.message
     deps.display(`\nCoder: ${summary} (cost: $${coderResult.cost.toFixed(2)})`)
@@ -199,7 +231,7 @@ export async function runPhase(
 
     // Step 7: Review — always runs, Director verifies and decides next action
     logger.log('Director', 'Step 7: Reviewing Coder output')
-    const reviewResult = await executeDirector({
+    const reviewResult = recordDirectorCall(deps, await executeDirector({
       prompt: buildReviewPrompt(
         phase.spec,
         JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
@@ -209,7 +241,7 @@ export async function runPhase(
       systemPromptText,
       config,
       logger,
-    })
+    }))
 
     if (reviewResult.action === 'done') {
       deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
@@ -243,13 +275,13 @@ export async function runPhase(
 
   // Step 8: Complete
   logger.log('Director', 'Step 8: Completing phase')
-  const completeResult = await executeDirector({
+  const completeResult = recordDirectorCall(deps, await executeDirector({
     prompt: buildCompletePrompt(phase),
     step: WorkflowStep.Complete,
     systemPromptText,
     config,
     logger,
-  })
+  }))
   deps.writePhaseCompletion(planFilePath, phase.number, completeResult.message)
 }
 
@@ -285,7 +317,7 @@ interface ExecuteDirectorParams {
   logger: SessionLogger
 }
 
-export async function executeDirector(params: ExecuteDirectorParams): Promise<DirectorResponse> {
+export async function executeDirector(params: ExecuteDirectorParams): Promise<DirectorCallResult> {
   const { prompt, step, systemPromptText, config, logger } = params
   const model = selectModel(step, 'high')
   const tools = buildDirectorTools(step)
@@ -315,12 +347,12 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
     env,
   }
 
-  let response: DirectorResponse | null = null
+  let callResult: DirectorCallResult | null = null
 
   const q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
 
   for await (const message of q) {
-    const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string }> } }
+    const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string }> }; usage?: TokenUsage }
 
     if (msg.type === 'assistant' && msg.message?.content) {
       for (const block of msg.message.content) {
@@ -331,17 +363,25 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
     }
 
     if (msg.type === 'result') {
+      const usage = msg.usage ?? ZERO_USAGE
       logger.log('Director', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns})`)
-      response = extractDirectorResponse(msg)
+      logger.log('Director', `Tokens: in:${usage.inputTokens} out:${usage.outputTokens} cache-r:${usage.cacheReadInputTokens} cache-w:${usage.cacheCreationInputTokens}`)
+      callResult = {
+        response: extractDirectorResponse(msg),
+        costUsd: msg.total_cost_usd ?? 0,
+        numTurns: msg.num_turns ?? 0,
+        durationMs: msg.duration_ms ?? 0,
+        usage,
+      }
     }
   }
 
-  if (!response) {
+  if (!callResult) {
     throw new Error('Director session ended with no result')
   }
 
-  logger.log('Director', `Response action: ${response.action}`)
-  return response
+  logger.log('Director', `Response action: ${callResult.response.action}`)
+  return callResult
 }
 
 function extractDirectorResponse(msg: { structured_output?: unknown; result?: string }): DirectorResponse {

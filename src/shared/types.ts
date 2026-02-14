@@ -43,6 +43,13 @@ export interface DirectorResponse {
 
 export type Complexity = 'low' | 'high'
 
+export interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+}
+
 export interface CoderReport {
   status: 'success' | 'partial' | 'failed'
   summary: string
@@ -58,6 +65,7 @@ export interface CoderResult {
   cost: number
   numTurns: number
   durationMs: number
+  usage: TokenUsage
   report: CoderReport | null
 }
 

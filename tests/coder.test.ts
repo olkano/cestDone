@@ -263,6 +263,7 @@ describe('executeCoder', () => {
     expect(result.cost).toBe(1.50)
     expect(result.numTurns).toBe(42)
     expect(result.durationMs).toBe(120000)
+    expect(result.usage).toEqual({ inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
   })
 
   // Q10: Returns parsed CoderResult from result-parser
@@ -300,6 +301,7 @@ describe('executeCoder', () => {
     expect(result.status).toBe('failed')
     expect(result.message).toContain('no result')
     expect(result.cost).toBe(0)
+    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
     expect(result.report).toBeNull()
   })
 
@@ -317,6 +319,7 @@ describe('executeCoder', () => {
     expect(result.cost).toBe(0)
     expect(result.numTurns).toBe(0)
     expect(result.durationMs).toBe(0)
+    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
     expect(result.report).not.toBeNull()
     expect(result.report!.status).toBe('failed')
     expect(result.report!.summary).toContain('Network connection failed')

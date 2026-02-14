@@ -154,4 +154,33 @@ describe('parseResult', () => {
     expect(result.numTurns).toBe(100)
     expect(result.durationMs).toBe(90000)
   })
+
+  // Usage extraction
+  it('extracts usage tokens from result message', () => {
+    const msg = makeSuccessResult({
+      structured_output: { status: 'success', summary: 'OK' },
+      usage: { inputTokens: 2000, outputTokens: 800, cacheReadInputTokens: 500, cacheCreationInputTokens: 100 },
+    })
+
+    const result = parseResult(msg)
+
+    expect(result.usage.inputTokens).toBe(2000)
+    expect(result.usage.outputTokens).toBe(800)
+    expect(result.usage.cacheReadInputTokens).toBe(500)
+    expect(result.usage.cacheCreationInputTokens).toBe(100)
+  })
+
+  it('defaults usage to zeros when missing from result', () => {
+    const msg = makeSuccessResult({
+      structured_output: { status: 'success', summary: 'OK' },
+      usage: undefined,
+    })
+
+    const result = parseResult(msg)
+
+    expect(result.usage.inputTokens).toBe(0)
+    expect(result.usage.outputTokens).toBe(0)
+    expect(result.usage.cacheReadInputTokens).toBe(0)
+    expect(result.usage.cacheCreationInputTokens).toBe(0)
+  })
 })

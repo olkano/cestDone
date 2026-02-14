@@ -12,6 +12,7 @@ import { askApproval, askInput, ensureTTY } from './prompt.js'
 import { executeCoder } from '../coder/coder.js'
 import { ensureGitRepo } from '../shared/git.js'
 import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
+import { CostTracker } from '../shared/cost-tracker.js'
 import type { FreeFormSpec } from '../shared/types.js'
 
 export async function handleRun(
@@ -132,7 +133,7 @@ export async function handleResume(
   await runPhase(plan, target, resolved, planPath, deps)
 }
 
-function buildDeps(logger: SessionLogger): DirectorDeps {
+function buildDeps(logger: SessionLogger, costTracker?: CostTracker): DirectorDeps {
   return {
     askApproval,
     askInput,
@@ -142,6 +143,7 @@ function buildDeps(logger: SessionLogger): DirectorDeps {
     coderExecute: executeCoder,
     display: (text: string) => console.log(text),
     logger,
+    costTracker: costTracker ?? new CostTracker(),
   }
 }
 

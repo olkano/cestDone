@@ -106,6 +106,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
       cost: 0,
       numTurns: 0,
       durationMs: 0,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
       report: { status: 'failed', summary: errorMessage },
     }
   }
@@ -118,6 +119,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
       cost: 0,
       numTurns: 0,
       durationMs: 0,
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
       report: null,
     }
   }
@@ -125,6 +127,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
   const result = parseResult(resultMessage)
 
   logger.log('Coder', `Result: ${result.status} (cost: $${result.cost.toFixed(2)}, turns: ${result.numTurns})`)
+  logger.log('Coder', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
   logger.logVerbose('Coder', `Full result:\n${JSON.stringify(result, null, 2)}`)
 
   return result
