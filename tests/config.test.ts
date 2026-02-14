@@ -1,5 +1,5 @@
 // tests/config.test.ts
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { loadConfig, resolveConfig } from '../src/shared/config.js'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -7,10 +7,20 @@ import os from 'node:os'
 
 describe('loadConfig', () => {
   let tmpDir: string
+  const origModel = process.env.CESTDONE_MODEL
+
+  beforeEach(() => {
+    delete process.env.CESTDONE_MODEL
+  })
 
   afterEach(() => {
     if (tmpDir) {
       fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+    if (origModel !== undefined) {
+      process.env.CESTDONE_MODEL = origModel
+    } else {
+      delete process.env.CESTDONE_MODEL
     }
   })
 
