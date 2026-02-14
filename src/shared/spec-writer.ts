@@ -13,6 +13,14 @@ export function updatePhaseStatus(filePath: string, phaseNumber: number, newStat
   atomicWrite(filePath, updated)
 }
 
+export function updatePhaseSpec(filePath: string, phaseNumber: number, updatedSpec: string): void {
+  const content = fs.readFileSync(filePath, 'utf-8')
+  const updated = replaceInPhase(content, phaseNumber, (phaseBlock) => {
+    return replaceSection(phaseBlock, 'Spec', updatedSpec)
+  })
+  atomicWrite(filePath, updated)
+}
+
 export function writePhaseCompletion(filePath: string, phaseNumber: number, doneSummary: string): void {
   const content = fs.readFileSync(filePath, 'utf-8')
   const updated = replaceInPhase(content, phaseNumber, (phaseBlock) => {

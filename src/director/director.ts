@@ -21,6 +21,7 @@ export interface DirectorDeps {
   askApproval: () => Promise<{ approved: boolean; feedback?: string }>
   askInput: (prompt: string) => Promise<string>
   updatePhaseStatus: (filePath: string, phaseNumber: number, status: PhaseStatus) => void
+  updatePhaseSpec: (filePath: string, phaseNumber: number, updatedSpec: string) => void
   writePhaseCompletion: (filePath: string, phaseNumber: number, doneSummary: string) => void
   coderExecute: (options: CoderOptions) => Promise<CoderResult>
   display: (text: string) => void
@@ -77,9 +78,9 @@ export async function runPhase(
     })
   }
 
-  // Step 3: Update spec via Coder (if there were clarifications)
+  // Step 3: Update spec (if there were clarifications)
   if (hadClarifications) {
-    logger.info('Step 3: Updating spec with clarifications via Coder')
+    logger.info('Step 3: Updating spec with clarifications')
     const updateResult = await executeDirector({
       prompt: buildUpdateSpecPrompt(specContent, clarificationsText),
       step: WorkflowStep.UpdateSpec,
@@ -88,13 +89,7 @@ export async function runPhase(
       config,
       logger,
     })
-    await deps.coderExecute(buildCoderOptions({
-      step: WorkflowStep.UpdateSpec,
-      phase,
-      config,
-      parsedSpec,
-      instructions: updateResult.message,
-    }))
+    deps.updatePhaseSpec(specFilePath, phase.number, updateResult.message)
   } else {
     logger.info('Step 3: No clarifications — skipping spec update')
   }

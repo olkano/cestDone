@@ -159,7 +159,7 @@ describe('integration', () => {
 
   it('throws when ANTHROPIC_API_KEY is not set', async () => {
     vi.mocked(resolveConfig).mockImplementation(() => {
-      throw new Error('CESTDONE_CLAUDE_API_KEY or ANTHROPIC_API_KEY environment variable is required.')
+      throw new Error('ANTHROPIC_API_KEY environment variable is required.')
     })
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, SPEC_CONTENT, 'utf-8')

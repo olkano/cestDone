@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Command } from 'commander'
 import { loadConfig, resolveConfig } from '../shared/config.js'
 import { parseSpec } from '../shared/spec-parser.js'
-import { updatePhaseStatus, writePhaseCompletion } from '../shared/spec-writer.js'
+import { updatePhaseStatus, updatePhaseSpec, writePhaseCompletion } from '../shared/spec-writer.js'
 import { runPhase, type DirectorDeps } from '../director/director.js'
 import { askApproval, askInput, ensureTTY } from './prompt.js'
 import { executeCoder } from '../coder/coder.js'
@@ -91,6 +91,7 @@ function buildDeps(): DirectorDeps {
     askApproval,
     askInput,
     updatePhaseStatus: (fp, pn, st) => updatePhaseStatus(fp, pn, st),
+    updatePhaseSpec: (fp, pn, spec) => updatePhaseSpec(fp, pn, spec),
     writePhaseCompletion: (fp, pn, ds) => writePhaseCompletion(fp, pn, ds),
     coderExecute: executeCoder,
     display: (text: string) => console.log(text),

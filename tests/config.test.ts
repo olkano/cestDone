@@ -71,7 +71,6 @@ describe('loadConfig', () => {
 
 describe('resolveConfig', () => {
   const originalKey = process.env.ANTHROPIC_API_KEY
-  const originalCestdoneKey = process.env.CESTDONE_CLAUDE_API_KEY
 
   afterEach(() => {
     if (originalKey !== undefined) {
@@ -79,16 +78,10 @@ describe('resolveConfig', () => {
     } else {
       delete process.env.ANTHROPIC_API_KEY
     }
-    if (originalCestdoneKey !== undefined) {
-      process.env.CESTDONE_CLAUDE_API_KEY = originalCestdoneKey
-    } else {
-      delete process.env.CESTDONE_CLAUDE_API_KEY
-    }
   })
 
   // B3: Reads ANTHROPIC_API_KEY from process.env
   it('reads ANTHROPIC_API_KEY from process.env', () => {
-    delete process.env.CESTDONE_CLAUDE_API_KEY
     process.env.ANTHROPIC_API_KEY = 'sk-test-key-123'
     const config = loadConfig(os.tmpdir())
 
@@ -98,25 +91,11 @@ describe('resolveConfig', () => {
     expect(resolved.defaultModel).toBe(config.defaultModel)
   })
 
-  // B4: Throws clear error when both API keys are missing
-  it('throws clear error when no API key env var is set', () => {
+  // B4: Throws clear error when ANTHROPIC_API_KEY is missing
+  it('throws clear error when ANTHROPIC_API_KEY is not set', () => {
     delete process.env.ANTHROPIC_API_KEY
-    delete process.env.CESTDONE_CLAUDE_API_KEY
     const config = loadConfig(os.tmpdir())
 
-    expect(() => resolveConfig(config)).toThrow(
-      'CESTDONE_CLAUDE_API_KEY or ANTHROPIC_API_KEY'
-    )
-  })
-
-  // B5: CESTDONE_CLAUDE_API_KEY takes priority over ANTHROPIC_API_KEY
-  it('prefers CESTDONE_CLAUDE_API_KEY over ANTHROPIC_API_KEY', () => {
-    process.env.CESTDONE_CLAUDE_API_KEY = 'sk-cestdone-key'
-    process.env.ANTHROPIC_API_KEY = 'sk-anthropic-key'
-    const config = loadConfig(os.tmpdir())
-
-    const resolved = resolveConfig(config)
-
-    expect(resolved.apiKey).toBe('sk-cestdone-key')
+    expect(() => resolveConfig(config)).toThrow('ANTHROPIC_API_KEY')
   })
 })

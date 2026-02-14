@@ -60,7 +60,8 @@ Human writes spec.md
              ▼                       │
  ┌─ 3. UPDATE SPEC ──────┐          │
  │  Director drafts text  │          │
- │  Coder writes to disk  │          │
+ │  Orchestrator writes   │          │
+ │  to spec.md            │          │
  └───────────┬────────────┘          │
              │                       │
              ◄───────────────────────┘
@@ -141,7 +142,7 @@ Director explores my-app/ with Read/Glob/Grep, reads spec.
   Your answer: 24h
 
 ── Step 3: Update Spec ──────────────────────────────────────
-Director drafts updated spec text. Coder writes it to spec.md.
+Director drafts updated spec text. Orchestrator writes it to spec.md.
 Spec now includes: "JWT_SECRET from env, 24h expiry."
 
 ── Step 4: Plan ─────────────────────────────────────────────
@@ -226,8 +227,7 @@ Each agent gets only the tools it needs per step:
 |------|-------|-------|
 | Analyze | Director | Read, Glob, Grep |
 | Clarify | Director | Read, Glob, Grep |
-| UpdateSpec (Director) | Director | Read, Glob, Grep |
-| UpdateSpec (Coder) | Coder | Read, Write, Edit, Glob, Grep |
+| UpdateSpec | Director | Read, Glob, Grep (orchestrator writes spec) |
 | Plan | Director | Read, Glob, Grep |
 | Execute | Coder | Read, Write, Edit, MultiEdit, Bash, Glob, Grep |
 | Review | Director | Read, Glob, Grep, **Bash** |
@@ -287,19 +287,19 @@ Status transitions: `pending` → `in-progress` → `done`. When done, the Spec 
 npm install
 ```
 
-Set your API key:
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+Set your API key in a `.env` file (Node 22+ loads it via `--env-file`):
+```
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 Run a spec:
 ```bash
-npx cestdone run --spec ./my-spec.md --target /path/to/repo
+npx tsx --env-file=.env src/cli/index.ts run --spec ./my-spec.md --target /path/to/repo
 ```
 
 Resume from last incomplete phase:
 ```bash
-npx cestdone resume --spec ./my-spec.md --target /path/to/repo
+npx tsx --env-file=.env src/cli/index.ts resume --spec ./my-spec.md --target /path/to/repo
 ```
 
 ### Configuration

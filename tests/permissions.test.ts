@@ -13,11 +13,9 @@ describe('getTools', () => {
     expect(getTools(WorkflowStep.Plan)).toEqual(['Read', 'Glob', 'Grep'])
   })
 
-  // N2: Step 3 returns spec-editing tools
-  it('returns spec-editing tools for UpdateSpec step', () => {
-    expect(getTools(WorkflowStep.UpdateSpec)).toEqual(
-      ['Read', 'Write', 'Edit', 'Glob', 'Grep']
-    )
+  // N2: Step 3 is now Director-only (orchestrator writes spec directly)
+  it('throws for UpdateSpec step (Director-only)', () => {
+    expect(() => getTools(WorkflowStep.UpdateSpec)).toThrow('no Coder call')
   })
 
   // N3: Step 6 returns full auto-edit tools

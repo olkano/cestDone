@@ -92,6 +92,7 @@ function createHappyPathDeps(): DirectorDeps {
     askApproval: vi.fn().mockResolvedValue({ approved: true }),
     askInput: vi.fn().mockResolvedValue('done'),
     updatePhaseStatus: vi.fn(),
+    updatePhaseSpec: vi.fn(),
     writePhaseCompletion: vi.fn(),
     coderExecute: vi.fn().mockResolvedValue(makeCoderSuccess()),
     display: vi.fn(),
@@ -382,12 +383,12 @@ describe('runPhase', () => {
     expect(allDisplayText).toContain('1.25')
   })
 
-  // R9: Step 3 calls Coder with spec-editing permissions after clarifications
-  it('calls Coder for spec update after clarifications (R9)', async () => {
+  // R9: Step 3 writes spec directly after clarifications (no Coder involved)
+  it('updates spec file directly after clarifications (R9)', async () => {
     setupDirectorResponses(
       { action: 'ask_human', message: 'Need info', questions: ['What DB?'] },
       { action: 'approve', message: 'Understood.' },
-      { action: 'approve', message: 'Update the spec to mention PostgreSQL' },
+      { action: 'approve', message: 'Updated spec with PostgreSQL' },
       { action: 'approve', message: 'Plan: set up DB' },
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
@@ -399,10 +400,12 @@ describe('runPhase', () => {
 
     await runPhase(TEST_SPEC, TEST_PHASE, TEST_CONFIG, 'spec.md', deps)
 
+    // Spec updated directly by orchestrator, not via Coder
+    expect(deps.updatePhaseSpec).toHaveBeenCalledWith('spec.md', 0, 'Updated spec with PostgreSQL')
+    // Coder only called once for Execute step, not for UpdateSpec
     const coderCalls = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls
-    expect(coderCalls.length).toBeGreaterThanOrEqual(2)
-    const specUpdateCall = coderCalls.find((c: CoderOptions[]) => c[0].step === WorkflowStep.UpdateSpec)
-    expect(specUpdateCall).toBeTruthy()
+    expect(coderCalls).toHaveLength(1)
+    expect(coderCalls[0][0].step).toBe(WorkflowStep.Execute)
   })
 
   // J7: Step 8 — writes phase completion with done summary
