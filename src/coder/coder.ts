@@ -5,7 +5,7 @@ import { getTools } from './permissions.js'
 import { buildCoderPrompt } from './coder-prompt.js'
 import { parseResult, type SDKResultLike } from './result-parser.js'
 import type { CoderOptions, CoderResult } from '../shared/types.js'
-import { formatToolCall } from '../shared/types.js'
+import { formatDuration, formatToolCall } from '../shared/types.js'
 
 export const CODER_REPORT_SCHEMA = {
   type: 'object' as const,
@@ -94,7 +94,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
 
         case 'result':
           resultMessage = msg as unknown as SDKResultLike
-          logger.log('Coder', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns}, duration: ${msg.duration_ms}ms)`)
+          logger.log('Coder', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns}, duration: ${formatDuration(msg.duration_ms ?? 0)})`)
           break
       }
     }

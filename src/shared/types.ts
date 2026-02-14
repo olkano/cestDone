@@ -111,6 +111,18 @@ export function mapSdkUsage(raw: unknown): TokenUsage {
   }
 }
 
+/** Formats milliseconds into a human-readable duration (e.g. "200 ms", "45 s", "7m 45s", "1h 4m 42s"). */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  const totalSeconds = Math.floor(ms / 1000)
+  const h = Math.floor(totalSeconds / 3600)
+  const m = Math.floor((totalSeconds % 3600) / 60)
+  const s = totalSeconds % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
 /** Formats a tool call for logging — shows meaningful details per tool type. */
 export function formatToolCall(name: string, input: unknown): string {
   const params = input as Record<string, unknown> | undefined
