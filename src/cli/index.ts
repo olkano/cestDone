@@ -169,6 +169,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
     })
 
   program.parseAsync().catch((err: Error) => {
+    const errorLogger = createSessionLogger()
+    errorLogger.log('FATAL', `Unhandled error: ${err.message}`)
+    errorLogger.log('FATAL', `Stack: ${err.stack ?? 'N/A'}`)
     console.error(err.message)
     process.exit(1)
   })

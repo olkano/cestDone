@@ -78,8 +78,10 @@ export function buildInitialCoderInstructions(plan: Plan, phase: Phase, complete
   return parts.join('\n')
 }
 
-export function buildReviewPrompt(phaseSpec: string, coderReport: string, completedSubPhases: string[] = []): string {
+export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, coderReport: string, completedSubPhases: string[] = []): string {
   const parts: string[] = [
+    `## You are reviewing: Phase ${phaseNumber} — ${phaseName}`,
+    '',
     '## Phase Spec',
     phaseSpec,
     '',
@@ -88,7 +90,7 @@ export function buildReviewPrompt(phaseSpec: string, coderReport: string, comple
   ]
 
   if (completedSubPhases.length > 0) {
-    parts.push('', '## Previously Completed Sub-phases')
+    parts.push('', '## Previously Completed Sub-phases (within this phase)')
     completedSubPhases.forEach((summary, i) => {
       parts.push(`### Sub-phase ${i + 1}`, summary)
     })
@@ -137,10 +139,14 @@ export function buildReviewPrompt(phaseSpec: string, coderReport: string, comple
     'Do NOT commit if tests fail, types have errors, or the implementation is incomplete.',
     '',
     '## Response Actions',
-    '- **fix**: Issues found. Do NOT commit. Return specific fix instructions for the Coder.',
-    '- **continue**: Current sub-phase is correct, committed, AND more sub-phases remain.',
-    '  Include the next sub-phase instructions in your message.',
-    '- **done**: All sub-phases are complete, verified, and committed. Everything passes.',
+    `Your scope is ONLY Phase ${phaseNumber} (${phaseName}). Do NOT plan or include work for subsequent phases.`,
+    '',
+    '- **fix**: Issues found in this phase. Do NOT commit. Return specific fix instructions for the Coder.',
+    '- **continue**: This phase was split into sub-phases, and the current sub-phase is correct and committed,',
+    '  but more sub-phases WITHIN THIS SAME PHASE remain. Include the next sub-phase instructions.',
+    '  Do NOT use "continue" to advance to the next plan phase — that is handled automatically.',
+    `- **done**: Phase ${phaseNumber} is complete — all deliverables verified and committed. Use this when`,
+    '  the phase spec requirements are fully met, even if other plan phases exist after this one.',
   )
 
   return parts.join('\n')

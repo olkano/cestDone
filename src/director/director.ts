@@ -227,24 +227,42 @@ export async function runPhase(
     const summary = coderResult.report?.summary ?? coderResult.message
     deps.display(`\nCoder: ${summary} (cost: $${coderResult.cost.toFixed(2)})`)
     logger.log('Director', `Coder result: ${coderResult.status} (cost: $${coderResult.cost.toFixed(2)}, total: $${totalCoderCost.toFixed(2)})`)
+    logger.logVerbose('Director', `Coder report: ${JSON.stringify(coderResult.report)}`)
 
     // Step 7: Review — always runs, Director verifies and decides next action
-    logger.log('Director', 'Step 7: Reviewing Coder output')
-    const reviewResult = recordDirectorCall(deps, await executeDirector({
-      prompt: buildReviewPrompt(
-        phase.spec,
-        JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
-        completedSubPhases,
-      ),
-      step: WorkflowStep.Review,
-      systemPromptText,
-      config,
-      logger,
-    }))
+    logger.log('Director', `Step 7: Reviewing Coder output for Phase ${phase.number} (${phase.name})`)
+    logger.logVerbose('Director', `Review state: completedSubPhases=${completedSubPhases.length}, coderRetries=${coderRetries}`)
+    const reviewPrompt = buildReviewPrompt(
+      phase.number,
+      phase.name,
+      phase.spec,
+      JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
+      completedSubPhases,
+    )
+    logger.logVerbose('Director', `Review prompt length: ${reviewPrompt.length} chars`)
+
+    let reviewResult: DirectorResponse
+    try {
+      reviewResult = recordDirectorCall(deps, await executeDirector({
+        prompt: reviewPrompt,
+        step: WorkflowStep.Review,
+        systemPromptText,
+        config,
+        logger,
+      }))
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      logger.log('Director', `Review call crashed: ${errorMessage}`)
+      logger.logVerbose('Director', `Review crash stack: ${err instanceof Error ? err.stack : 'N/A'}`)
+      throw err
+    }
+
+    logger.log('Director', `Review decision: action=${reviewResult.action}, message length=${reviewResult.message.length}`)
+    logger.logVerbose('Director', `Review message: ${reviewResult.message.slice(0, 1000)}`)
 
     if (reviewResult.action === 'done') {
       deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
-      logger.log('Director', `All sub-phases complete (total cost: $${totalCoderCost.toFixed(2)}, sub-phases: ${completedSubPhases.length + 1})`)
+      logger.log('Director', `Phase ${phase.number} done (total cost: $${totalCoderCost.toFixed(2)}, sub-phases: ${completedSubPhases.length + 1})`)
       break
     }
 
@@ -252,12 +270,14 @@ export async function runPhase(
       completedSubPhases.push(summary)
       coderRetries = 0
       instructions = reviewResult.message
-      logger.log('Director', `Sub-phase ${completedSubPhases.length} complete, continuing`)
+      logger.log('Director', `Sub-phase ${completedSubPhases.length} complete within Phase ${phase.number}, continuing`)
+      logger.logVerbose('Director', `Next sub-phase instructions: ${instructions.slice(0, 500)}`)
       deps.display(`\nSub-phase ${completedSubPhases.length} complete. Continuing...`)
       continue
     }
 
     // action === 'fix' (or any other) — retry with fix instructions
+    logger.log('Director', `Review returned '${reviewResult.action}' — treating as fix (retry ${coderRetries + 1}/${MAX_CODER_RETRIES})`)
     coderRetries++
     if (coderRetries >= MAX_CODER_RETRIES) {
       logger.log('Director', `Escalating after ${coderRetries} Coder failures`)
@@ -381,8 +401,12 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
         durationMs: msg.duration_ms ?? 0,
         usage,
       }
+      logger.logVerbose('Director', 'Result received, breaking out of SDK stream')
+      break
     }
   }
+
+  logger.logVerbose('Director', 'SDK stream iteration ended')
 
   if (!callResult) {
     throw new Error('Director session ended with no result')
@@ -393,7 +417,11 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
 }
 
 function extractDirectorResponse(msg: { structured_output?: unknown; result?: string; subtype?: string }, logger: SessionLogger): DirectorResponse {
+  logger.logVerbose('Director', `extractDirectorResponse: subtype=${msg.subtype}, has_structured_output=${!!msg.structured_output}, has_result=${!!msg.result}, result_length=${msg.result?.length ?? 0}`)
+
   if (msg.structured_output && typeof msg.structured_output === 'object') {
+    const so = msg.structured_output as Record<string, unknown>
+    logger.logVerbose('Director', `Using structured_output: action=${so.action}, message_length=${(so.message as string)?.length ?? 0}`)
     return msg.structured_output as DirectorResponse
   }
 
@@ -401,6 +429,7 @@ function extractDirectorResponse(msg: { structured_output?: unknown; result?: st
     try {
       const parsed = JSON.parse(msg.result) as DirectorResponse
       if (parsed.action && parsed.message) {
+        logger.logVerbose('Director', `Parsed result text as JSON: action=${parsed.action}`)
         return parsed
       }
     } catch {

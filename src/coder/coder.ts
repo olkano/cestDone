@@ -5,7 +5,7 @@ import { getTools } from './permissions.js'
 import { buildCoderPrompt } from './coder-prompt.js'
 import { parseResult, type SDKResultLike } from './result-parser.js'
 import type { CoderOptions, CoderResult } from '../shared/types.js'
-import { formatDuration, formatToolCall } from '../shared/types.js'
+import { formatDuration, formatToolCall, mapSdkUsage } from '../shared/types.js'
 
 export const CODER_REPORT_SCHEMA = {
   type: 'object' as const,
@@ -95,12 +95,18 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
         case 'result':
           resultMessage = msg as unknown as SDKResultLike
           logger.log('Coder', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns}, duration: ${formatDuration(msg.duration_ms ?? 0)})`)
+          logger.logVerbose('Coder', `Raw result message: subtype=${resultMessage.subtype}, has_structured_output=${!!resultMessage.structured_output}, has_result=${!!resultMessage.result}, has_usage=${!!resultMessage.usage}`)
           break
       }
+
+      // Break after result — no meaningful messages follow, and lingering
+      // background processes (e.g. dev servers) can keep the stream open.
+      if (resultMessage) break
     }
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err)
-    logger.log('Coder', `Call failed: ${errorMessage}`)
+    logger.log('Coder', `SDK stream error: ${errorMessage}`)
+    logger.logVerbose('Coder', `SDK stream error stack: ${err instanceof Error ? err.stack : 'N/A'}`)
     return {
       status: 'failed',
       message: errorMessage,
@@ -125,11 +131,29 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
     }
   }
 
-  const result = parseResult(resultMessage)
+  logger.logVerbose('Coder', 'Parsing result...')
+  let result: CoderResult
+  try {
+    result = parseResult(resultMessage)
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    logger.log('Coder', `parseResult crashed: ${errorMessage}`)
+    logger.logVerbose('Coder', `parseResult stack: ${err instanceof Error ? err.stack : 'N/A'}`)
+    logger.logVerbose('Coder', `Raw msg for crashed parse: ${JSON.stringify(resultMessage, null, 2)}`)
+    return {
+      status: 'failed',
+      message: `parseResult error: ${errorMessage}`,
+      cost: resultMessage.total_cost_usd ?? 0,
+      numTurns: resultMessage.num_turns ?? 0,
+      durationMs: resultMessage.duration_ms ?? 0,
+      usage: mapSdkUsage(resultMessage.usage),
+      report: null,
+    }
+  }
 
   logger.log('Coder', `Result: ${result.status} (cost: $${result.cost.toFixed(2)}, turns: ${result.numTurns})`)
   logger.log('Coder', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
-  logger.logVerbose('Coder', `Full result:\n${JSON.stringify(result, null, 2)}`)
+  logger.logVerbose('Coder', `Parsed report: ${JSON.stringify(result.report, null, 2)}`)
 
   return result
 }

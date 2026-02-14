@@ -96,9 +96,11 @@ describe('buildInitialCoderInstructions', () => {
 })
 
 describe('buildReviewPrompt', () => {
-  it('includes phase spec and coder report', () => {
-    const prompt = buildReviewPrompt('The phase spec', '{"status":"success"}')
+  it('includes phase identity, spec, and coder report', () => {
+    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
 
+    expect(prompt).toContain('Phase 1')
+    expect(prompt).toContain('Setup')
     expect(prompt).toContain('The phase spec')
     expect(prompt).toContain('success')
     expect(prompt).toContain('npm test')
@@ -106,7 +108,7 @@ describe('buildReviewPrompt', () => {
   })
 
   it('instructs Director to review code, not just run tests', () => {
-    const prompt = buildReviewPrompt('The phase spec', '{"status":"success"}')
+    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
 
     expect(prompt).toContain('Code Review (mandatory')
     expect(prompt).toContain('Read every file the Coder changed')
@@ -118,15 +120,23 @@ describe('buildReviewPrompt', () => {
   })
 
   it('includes response action instructions for continue/done/fix', () => {
-    const prompt = buildReviewPrompt('Plan', '{"status":"success"}')
+    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}')
 
     expect(prompt).toContain('continue')
     expect(prompt).toContain('done')
     expect(prompt).toContain('fix')
   })
 
+  it('scopes response actions to the current phase only', () => {
+    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}')
+
+    expect(prompt).toContain('Your scope is ONLY Phase 2 (API)')
+    expect(prompt).toContain('Do NOT use "continue" to advance to the next plan phase')
+    expect(prompt).toContain('Phase 2 is complete')
+  })
+
   it('includes completed sub-phases when provided', () => {
-    const prompt = buildReviewPrompt('Plan', '{"status":"success"}', [
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', [
       'Created models and migrations',
       'Added API routes',
     ])
@@ -139,13 +149,13 @@ describe('buildReviewPrompt', () => {
   })
 
   it('omits sub-phases section when none completed', () => {
-    const prompt = buildReviewPrompt('Plan', '{"status":"success"}', [])
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', [])
 
     expect(prompt).not.toContain('Previously Completed Sub-phases')
   })
 
   it('includes git commit instructions for verified work', () => {
-    const prompt = buildReviewPrompt('Plan', '{"status":"success"}')
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}')
 
     expect(prompt).toContain('git add -A')
     expect(prompt).toContain('git commit')
