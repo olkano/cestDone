@@ -24,7 +24,7 @@ export async function askApproval(
   return new Promise((resolve) => {
     let waitingForFeedback = false
 
-    output.write('Approve? (y/n): ')
+    output.write('Approve this plan? (y = proceed, n = request changes): ')
 
     rl.on('line', (line) => {
       if (!waitingForFeedback) {
