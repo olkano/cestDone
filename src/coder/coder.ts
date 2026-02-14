@@ -5,6 +5,7 @@ import { getTools } from './permissions.js'
 import { buildCoderPrompt } from './coder-prompt.js'
 import { parseResult, type SDKResultLike } from './result-parser.js'
 import type { CoderOptions, CoderResult } from '../shared/types.js'
+import { formatToolCall } from '../shared/types.js'
 
 export const CODER_REPORT_SCHEMA = {
   type: 'object' as const,
@@ -85,7 +86,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
               if (block.type === 'text' && block.text) {
                 logger.log('Coder', block.text.slice(0, 500))
               } else if (block.type === 'tool_use' && block.name) {
-                logger.log('Coder', `Tool: ${block.name}(${block.input ? Object.keys(block.input as Record<string, unknown>).join(', ') : ''})`)
+                logger.log('Coder', `Tool: ${formatToolCall(block.name, block.input)}`)
               }
             }
           }

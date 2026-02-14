@@ -1,7 +1,6 @@
 // src/coder/result-parser.ts
-import type { CoderResult, CoderReport, TokenUsage } from '../shared/types.js'
-
-const ZERO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
+import type { CoderResult, CoderReport } from '../shared/types.js'
+import { mapSdkUsage } from '../shared/types.js'
 
 export interface SDKResultLike {
   type: 'result'
@@ -12,7 +11,7 @@ export interface SDKResultLike {
   result?: string
   structured_output?: unknown
   errors?: string[]
-  usage?: TokenUsage
+  usage?: unknown
 }
 
 export function parseResult(msg: SDKResultLike): CoderResult {
@@ -20,7 +19,7 @@ export function parseResult(msg: SDKResultLike): CoderResult {
     cost: msg.total_cost_usd,
     numTurns: msg.num_turns,
     durationMs: msg.duration_ms,
-    usage: msg.usage ?? ZERO_USAGE,
+    usage: mapSdkUsage(msg.usage),
   }
 
   if (msg.subtype !== 'success') {

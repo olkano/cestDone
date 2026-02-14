@@ -1,7 +1,7 @@
 // src/director/director.ts
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { Phase, PhaseStatus, ResolvedConfig, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan, TokenUsage } from '../shared/types.js'
-import { WorkflowStep } from '../shared/types.js'
+import { WorkflowStep, mapSdkUsage, formatToolCall } from '../shared/types.js'
 import { CostTracker, formatTotals } from '../shared/cost-tracker.js'
 import type { UsageSnapshot } from '../shared/cost-tracker.js'
 import {
@@ -35,7 +35,6 @@ export interface DirectorDeps {
 
 const MAX_REJECTIONS = 3
 const MAX_CODER_RETRIES = 3
-const ZERO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
 
 export interface DirectorCallResult {
   response: DirectorResponse
@@ -309,6 +308,12 @@ function buildCoderOptions(params: {
   }
 }
 
+function getDirectorMaxTurns(step: WorkflowStep): number {
+  // Review step needs more turns: read files, run tests, start server, curl, git commit
+  if (step === WorkflowStep.Review) return 30
+  return 15
+}
+
 interface ExecuteDirectorParams {
   prompt: string
   step: WorkflowStep
@@ -321,8 +326,9 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   const { prompt, step, systemPromptText, config, logger } = params
   const model = selectModel(step, 'high')
   const tools = buildDirectorTools(step)
+  const maxTurns = getDirectorMaxTurns(step)
 
-  logger.log('Director', `Call starting (step: ${step}, model: ${model})`)
+  logger.log('Director', `Call starting (step: ${step}, model: ${model}, maxTurns: ${maxTurns})`)
   logger.logVerbose('Director', `Prompt:\n${prompt}`)
 
   const env = { ...process.env }
@@ -331,7 +337,7 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   const queryOptions: Record<string, unknown> = {
     model,
     cwd: config.targetRepoPath,
-    maxTurns: 15,
+    maxTurns,
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     tools,
@@ -352,22 +358,24 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   const q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
 
   for await (const message of q) {
-    const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string }> }; usage?: TokenUsage }
+    const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }; usage?: unknown }
 
     if (msg.type === 'assistant' && msg.message?.content) {
       for (const block of msg.message.content) {
         if (block.type === 'text' && block.text) {
           logger.log('Director', block.text.slice(0, 500))
+        } else if (block.type === 'tool_use' && block.name) {
+          logger.log('Director', `Tool: ${formatToolCall(block.name, block.input)}`)
         }
       }
     }
 
     if (msg.type === 'result') {
-      const usage = msg.usage ?? ZERO_USAGE
-      logger.log('Director', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns})`)
+      const usage = mapSdkUsage(msg.usage)
+      logger.log('Director', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns}, subtype: ${msg.subtype ?? 'unknown'})`)
       logger.log('Director', `Tokens: in:${usage.inputTokens} out:${usage.outputTokens} cache-r:${usage.cacheReadInputTokens} cache-w:${usage.cacheCreationInputTokens}`)
       callResult = {
-        response: extractDirectorResponse(msg),
+        response: extractDirectorResponse(msg, logger),
         costUsd: msg.total_cost_usd ?? 0,
         numTurns: msg.num_turns ?? 0,
         durationMs: msg.duration_ms ?? 0,
@@ -384,7 +392,7 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   return callResult
 }
 
-function extractDirectorResponse(msg: { structured_output?: unknown; result?: string }): DirectorResponse {
+function extractDirectorResponse(msg: { structured_output?: unknown; result?: string; subtype?: string }, logger: SessionLogger): DirectorResponse {
   if (msg.structured_output && typeof msg.structured_output === 'object') {
     return msg.structured_output as DirectorResponse
   }
@@ -402,5 +410,12 @@ function extractDirectorResponse(msg: { structured_output?: unknown; result?: st
     return { action: 'analyze', message: msg.result }
   }
 
-  throw new Error('Director produced no structured output')
+  // No structured output and no result text — likely hit max turns or other SDK error.
+  // Instead of crashing, return a safe default and let the workflow handle it.
+  const reason = msg.subtype ?? 'unknown'
+  logger.log('Director', `WARNING: No structured output produced (subtype: ${reason}). Defaulting to 'done'.`)
+  return {
+    action: 'done',
+    message: `Director review completed without structured response (reason: ${reason}). Proceeding based on Coder self-report.`,
+  }
 }

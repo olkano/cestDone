@@ -96,3 +96,39 @@ export interface Plan {
   houseRules: string
   phases: Phase[]
 }
+
+const ZERO_TOKEN_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
+
+/** Maps SDK snake_case usage to our camelCase TokenUsage. Handles both formats. */
+export function mapSdkUsage(raw: unknown): TokenUsage {
+  if (!raw || typeof raw !== 'object') return { ...ZERO_TOKEN_USAGE }
+  const r = raw as Record<string, unknown>
+  return {
+    inputTokens: (r.input_tokens ?? r.inputTokens ?? 0) as number,
+    outputTokens: (r.output_tokens ?? r.outputTokens ?? 0) as number,
+    cacheReadInputTokens: (r.cache_read_input_tokens ?? r.cacheReadInputTokens ?? 0) as number,
+    cacheCreationInputTokens: (r.cache_creation_input_tokens ?? r.cacheCreationInputTokens ?? 0) as number,
+  }
+}
+
+/** Formats a tool call for logging — shows meaningful details per tool type. */
+export function formatToolCall(name: string, input: unknown): string {
+  const params = input as Record<string, unknown> | undefined
+  if (!params) return name
+  switch (name) {
+    case 'Bash':
+      return `Bash: ${String(params.command ?? '').slice(0, 200)}`
+    case 'Read':
+      return `Read(${params.file_path ?? ''})`
+    case 'Write':
+      return `Write(${params.file_path ?? ''})`
+    case 'Edit':
+      return `Edit(${params.file_path ?? ''})`
+    case 'Glob':
+      return `Glob(${params.pattern ?? ''})`
+    case 'Grep':
+      return `Grep(${params.pattern ?? ''})`
+    default:
+      return `${name}(${Object.keys(params).join(', ')})`
+  }
+}
