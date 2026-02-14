@@ -53,25 +53,34 @@ export async function runPlanningFlow(
     logger,
   })
 
-  // Step 2: Clarify (if Director has questions)
+  // Step 2: Clarify (iterative — ask follow-ups until Director is satisfied)
   let clarificationsText = ''
-  if (analyzeResult.action === 'ask_human' && analyzeResult.questions?.length) {
-    logger.log('Director', `Planning: Asking ${analyzeResult.questions.length} questions`)
+  let pendingQuestions = analyzeResult.action === 'ask_human' ? (analyzeResult.questions ?? []) : []
+  const MAX_CLARIFY_ROUNDS = 3
+
+  for (let round = 0; round < MAX_CLARIFY_ROUNDS && pendingQuestions.length > 0; round++) {
+    logger.log('Director', `Planning: Clarify round ${round + 1} — ${pendingQuestions.length} questions`)
     const answers: string[] = []
-    for (const q of analyzeResult.questions) {
+    for (const q of pendingQuestions) {
       answers.push(await deps.askInput(`Director asks: ${q}\nYour answer: `))
     }
-    clarificationsText = analyzeResult.questions
-      .map((q, i) => `Q: ${q}\nA: ${answers[i]}`)
-      .join('\n\n')
+    clarificationsText += (clarificationsText ? '\n\n' : '') +
+      pendingQuestions.map((q, i) => `Q: ${q}\nA: ${answers[i]}`).join('\n\n')
 
-    await executeDirector({
-      prompt: buildClarifyPrompt(analyzeResult.questions, answers),
+    const clarifyResult = await executeDirector({
+      prompt: buildClarifyPrompt(pendingQuestions, answers),
       step: WorkflowStep.Clarify,
       systemPromptText,
       config,
       logger,
     })
+
+    // If Director has follow-up questions, loop; otherwise proceed
+    if (clarifyResult.action === 'ask_human' && clarifyResult.questions?.length) {
+      pendingQuestions = clarifyResult.questions
+    } else {
+      pendingQuestions = []
+    }
   }
 
   // Step 3: Create plan

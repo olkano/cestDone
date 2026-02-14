@@ -33,12 +33,18 @@ export function buildClarifyPrompt(questions: string[], answers: string[]): stri
     .join('\n\n')
 
   return [
-    'You asked these questions about the spec:',
+    'The human answered your questions:',
     '',
     clarifications,
     '',
-    'Based on these clarifications, are there any remaining ambiguities?',
-    'If clear, indicate ready to proceed.',
+    'Based on these answers, do any NEW questions arise that are essential for creating the plan?',
+    'For example, if the human said "yes, add polling", you may need to ask about polling interval.',
+    '',
+    'Rules:',
+    '- Only ask follow-up questions that are directly triggered by the answers above.',
+    '- Each question MUST include a recommendation.',
+    '- If no follow-up is needed, respond with action "approve" to proceed to plan creation.',
+    '- Do NOT repeat questions already answered.',
   ].join('\n')
 }
 
@@ -179,9 +185,19 @@ export function buildFreeFormAnalyzePrompt(spec: FreeFormSpec): string {
     'Explore the project using Read/Glob/Grep to understand existing code (if any).',
     '',
     '## Task',
-    'List clarifying questions about requirements, ambiguities, or assumptions.',
-    'The spec is free-form text — extract what you can and identify what\'s missing.',
-    'If the spec is clear enough to proceed, say so.',
+    'Analyze the spec and identify ONLY the essential questions — things that, if assumed wrong,',
+    'would lead to building the wrong thing or require significant rework.',
+    '',
+    'Guidelines for questions:',
+    '- Ask 2-5 questions maximum. Fewer is better. Do NOT pad with generic or obvious questions.',
+    '- Every question MUST include your recommended answer in parentheses, e.g.:',
+    '  "What database should we use? (Recommended: PostgreSQL, since the spec mentions relational data)"',
+    '- Focus on functionality assumptions: if the spec says "authentication" but doesn\'t say how,',
+    '  that\'s essential. If the spec says "use JWT", don\'t ask about JWT — it\'s already decided.',
+    '- Do NOT ask about things you can infer from the codebase or house rules.',
+    '- Do NOT ask about implementation details the Coder can figure out (file structure, naming, etc.).',
+    '',
+    'If the spec + codebase + house rules leave no critical ambiguities, say so and proceed.',
     'Do NOT make any file changes.',
   )
 

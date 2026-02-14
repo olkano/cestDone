@@ -557,6 +557,34 @@ describe('runPlanningFlow', () => {
     expect(result.plan.title).toBe('Test Project')
   })
 
+  // P2b: Director asks follow-up questions after initial clarification
+  it('handles follow-up questions triggered by answers', async () => {
+    setupDirectorResponses(
+      // Analyze: initial questions
+      { action: 'ask_human', message: 'Need info', questions: ['Want polling?'] },
+      // Clarify round 1: answer triggers follow-up
+      { action: 'ask_human', message: 'Follow-up needed', questions: ['Polling interval? (Recommended: 30s)'] },
+      // Clarify round 2: satisfied
+      { action: 'approve', message: 'All clear.' },
+      // CreatePlan
+      { action: 'done', message: VALID_PLAN_CONTENT },
+    )
+    const deps = createHappyPathDeps()
+    deps.askInput = vi.fn()
+      .mockResolvedValueOnce('Yes')       // round 1: Want polling?
+      .mockResolvedValueOnce('30 seconds') // round 2: Polling interval?
+      .mockResolvedValue('done')
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    // 2 rounds of questions answered
+    const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
+    expect(askInputCalls[0][0]).toContain('Want polling?')
+    expect(askInputCalls[1][0]).toContain('Polling interval?')
+    // 4 Director calls: analyze, clarify round 1, clarify round 2, createPlan
+    expect(mockQuery).toHaveBeenCalledTimes(4)
+  })
+
   // P3: Plan revision — human provides feedback, Director revises
   it('revises plan when human provides feedback', async () => {
     setupDirectorResponses(

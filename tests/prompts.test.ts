@@ -58,7 +58,15 @@ describe('buildClarifyPrompt', () => {
     expect(prompt).toContain('A: PostgreSQL')
     expect(prompt).toContain('Q: Auth method?')
     expect(prompt).toContain('A: JWT')
-    expect(prompt).toContain('remaining ambiguities')
+  })
+
+  it('instructs Director to ask follow-up questions or approve', () => {
+    const prompt = buildClarifyPrompt(['What DB?'], ['PostgreSQL'])
+
+    expect(prompt).toContain('NEW questions')
+    expect(prompt).toContain('recommendation')
+    expect(prompt).toContain('approve')
+    expect(prompt).toContain('Do NOT repeat')
   })
 })
 
@@ -202,7 +210,7 @@ describe('buildFreeFormAnalyzePrompt', () => {
     const prompt = buildFreeFormAnalyzePrompt(TEST_SPEC)
 
     expect(prompt).toContain('Build a web dashboard that scrapes metrics')
-    expect(prompt).toContain('clarifying questions')
+    expect(prompt).toContain('essential questions')
     expect(prompt).toContain('Do NOT make any file changes')
   })
 
@@ -210,6 +218,14 @@ describe('buildFreeFormAnalyzePrompt', () => {
     const prompt = buildFreeFormAnalyzePrompt(TEST_SPEC)
 
     expect(prompt).toContain('Use TDD')
+  })
+
+  it('limits question count and requires recommendations', () => {
+    const prompt = buildFreeFormAnalyzePrompt(TEST_SPEC)
+
+    expect(prompt).toContain('2-5 questions maximum')
+    expect(prompt).toContain('recommended answer')
+    expect(prompt).toContain('Do NOT pad')
   })
 })
 
