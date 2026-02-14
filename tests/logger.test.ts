@@ -1,54 +1,108 @@
 // tests/logger.test.ts
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import fs from 'node:fs'
+import { createSessionLogger } from '../src/shared/logger.js'
 
-vi.mock('pino', () => ({
-  default: vi.fn((opts: { level?: string }) => ({ level: opts?.level ?? 'info' }))
-}))
+vi.mock('node:fs')
 
-import pino from 'pino'
-import { createLogger } from '../src/shared/logger.js'
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.mocked(fs.mkdirSync).mockReturnValue(undefined as unknown as string)
+  vi.mocked(fs.appendFileSync).mockReturnValue(undefined)
+})
 
-describe('createLogger', () => {
-  it('returns a silent logger with no transport when level is silent', () => {
-    const logger = createLogger('silent')
+afterEach(() => {
+  delete process.env.VERBOSE_LOGGING
+})
 
-    expect(logger.level).toBe('silent')
-    expect(pino).toHaveBeenCalledWith({ level: 'silent' })
+describe('createSessionLogger', () => {
+  it('returns a silent logger when silent option is true', () => {
+    const logger = createSessionLogger({ silent: true })
+
+    logger.log('Test', 'message')
+    logger.logVerbose('Test', 'verbose message')
+
+    expect(fs.mkdirSync).not.toHaveBeenCalled()
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
   })
 
-  it('creates a file transport logger at debug level', () => {
-    vi.mocked(pino).mockClear()
+  it('creates logs directory on initialization', () => {
+    createSessionLogger()
 
-    createLogger('info')
-
-    expect(pino).toHaveBeenCalledWith(
-      expect.objectContaining({
-        level: 'debug',
-        transport: expect.objectContaining({
-          target: 'pino-roll',
-          options: expect.objectContaining({
-            file: expect.stringContaining('cestdone.log'),
-            size: '2m',
-            limit: { count: 3 },
-            mkdir: true,
-          })
-        })
-      })
+    expect(fs.mkdirSync).toHaveBeenCalledWith(
+      expect.stringContaining('logs'),
+      { recursive: true }
     )
   })
 
-  it('uses file transport for default level', () => {
-    vi.mocked(pino).mockClear()
+  it('log() writes to console and file', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const logger = createSessionLogger()
 
-    createLogger()
+    logger.log('Director', 'Step 1: Analyzing')
 
-    expect(pino).toHaveBeenCalledWith(
-      expect.objectContaining({
-        level: 'debug',
-        transport: expect.objectContaining({
-          target: 'pino-roll',
-        })
-      })
+    expect(consoleSpy).toHaveBeenCalledWith('Director: Step 1: Analyzing')
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      expect.stringMatching(/logs[\\/]\d{4}-\d{2}-\d{2}\.log$/),
+      expect.stringContaining('Director: Step 1: Analyzing'),
+      'utf-8'
     )
+    consoleSpy.mockRestore()
+  })
+
+  it('log() file output includes ISO timestamp', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const logger = createSessionLogger()
+
+    logger.log('Coder', 'Working')
+
+    const writtenLine = vi.mocked(fs.appendFileSync).mock.calls[0][1] as string
+    expect(writtenLine).toMatch(/^\[\d{4}-\d{2}-\d{2}T/)
+    consoleSpy.mockRestore()
+  })
+
+  it('logVerbose() is a no-op when VERBOSE_LOGGING is not set', () => {
+    delete process.env.VERBOSE_LOGGING
+    const logger = createSessionLogger()
+
+    logger.logVerbose('Coder', 'Full prompt here')
+
+    expect(fs.appendFileSync).not.toHaveBeenCalled()
+  })
+
+  it('logVerbose() writes to file when VERBOSE_LOGGING=true', () => {
+    process.env.VERBOSE_LOGGING = 'true'
+    const logger = createSessionLogger()
+
+    logger.logVerbose('Coder', 'Full prompt here')
+
+    expect(fs.appendFileSync).toHaveBeenCalledWith(
+      expect.stringMatching(/\.log$/),
+      expect.stringContaining('[VERBOSE] Coder: Full prompt here'),
+      'utf-8'
+    )
+  })
+
+  it('logVerbose() does not write to console', () => {
+    process.env.VERBOSE_LOGGING = 'true'
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const logger = createSessionLogger()
+
+    logger.logVerbose('Coder', 'Verbose data')
+
+    expect(consoleSpy).not.toHaveBeenCalled()
+    consoleSpy.mockRestore()
+  })
+
+  it('uses date-stamped filename', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const logger = createSessionLogger()
+
+    logger.log('Test', 'msg')
+
+    const filePath = vi.mocked(fs.appendFileSync).mock.calls[0][0] as string
+    const today = new Date().toISOString().slice(0, 10)
+    expect(filePath).toContain(today)
+    consoleSpy.mockRestore()
   })
 })

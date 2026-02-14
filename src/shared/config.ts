@@ -8,7 +8,6 @@ const CONFIG_FILENAME = '.cestdonerc.json'
 const DEFAULTS: Config = {
   defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '.',
-  logLevel: 'info',
   maxTurns: 100,
 }
 

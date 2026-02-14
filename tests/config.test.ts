@@ -17,13 +17,12 @@ describe('loadConfig', () => {
   // B1: Loads .cestdonerc.json from CWD, returns typed config
   it('loads .cestdonerc.json from the given directory', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
-    const config = { defaultModel: 'claude-sonnet-4-20250514', logLevel: 'debug' }
+    const config = { defaultModel: 'claude-sonnet-4-20250514' }
     fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
 
     const result = loadConfig(tmpDir)
 
     expect(result.defaultModel).toBe('claude-sonnet-4-20250514')
-    expect(result.logLevel).toBe('debug')
     expect(result.targetRepoPath).toBe('.')
   })
 
@@ -35,7 +34,6 @@ describe('loadConfig', () => {
 
     expect(result.defaultModel).toBe('claude-opus-4-20250514')
     expect(result.targetRepoPath).toBe('.')
-    expect(result.logLevel).toBe('info')
   })
 
   // M1: maxTurns defaults to 100 when not in .cestdonerc.json

@@ -2,9 +2,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ParsedSpec, Phase, PhaseStatus, SpecMetadata } from './types.js'
-import { createLogger } from './logger.js'
-
-const logger = createLogger()
 
 const VALID_STATUSES: PhaseStatus[] = ['pending', 'in-progress', 'done']
 
@@ -88,7 +85,7 @@ function extractMetadata(sections: Section[], targetDir?: string): SpecMetadata 
       if (fs.existsSync(rulesPath)) {
         houseRulesContent = fs.readFileSync(rulesPath, 'utf-8')
       } else {
-        logger.warn({ path: rulesPath }, 'House rules file not found, continuing without it')
+        console.warn(`Warning: House rules file not found at ${rulesPath}, continuing without it`)
       }
     }
   }

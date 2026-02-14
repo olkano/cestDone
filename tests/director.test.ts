@@ -51,7 +51,6 @@ const TEST_CONFIG: ResolvedConfig = {
   apiKey: 'sk-test',
   defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '/tmp/repo',
-  logLevel: 'silent',
   maxTurns: 100,
 }
 
@@ -96,6 +95,7 @@ function createHappyPathDeps(): DirectorDeps {
     writePhaseCompletion: vi.fn(),
     coderExecute: vi.fn().mockResolvedValue(makeCoderSuccess()),
     display: vi.fn(),
+    logger: { log: vi.fn(), logVerbose: vi.fn() },
   }
 }
 
@@ -359,7 +359,8 @@ describe('runPhase', () => {
     expect(opts.houseRulesContent).toBe('Use TDD.')
     expect(opts.maxTurns).toBe(100)
     expect(opts.apiKey).toBe('sk-test')
-    expect(opts.logLevel).toBe('silent')
+    expect(opts.logger).toBeDefined()
+    expect(typeof opts.logger.log).toBe('function')
   })
 
   // R8: Cost accumulation across retries

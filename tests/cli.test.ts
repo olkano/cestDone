@@ -10,6 +10,9 @@ vi.mock('../src/director/director.js')
 vi.mock('../src/cli/prompt.js')
 vi.mock('../src/coder/coder.js')
 vi.mock('../src/shared/git.js')
+vi.mock('../src/shared/logger.js', () => ({
+  createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn() }),
+}))
 
 import fs from 'node:fs'
 import { loadConfig, resolveConfig } from '../src/shared/config.js'
@@ -36,7 +39,6 @@ const DONE_PHASE: Phase = {
 const MOCK_RESOLVED: ResolvedConfig = {
   defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '.',
-  logLevel: 'info',
   apiKey: 'sk-test',
   maxTurns: 100,
 }
@@ -55,7 +57,6 @@ beforeEach(() => {
   vi.mocked(loadConfig).mockReturnValue({
     defaultModel: 'claude-opus-4-20250514',
     targetRepoPath: '.',
-    logLevel: 'info',
     maxTurns: 100,
   })
   vi.mocked(resolveConfig).mockReturnValue(MOCK_RESOLVED)

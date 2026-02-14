@@ -12,6 +12,9 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 vi.mock('../src/cli/prompt.js')
 vi.mock('../src/shared/config.js')
 vi.mock('../src/shared/git.js')
+vi.mock('../src/shared/logger.js', () => ({
+  createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn() }),
+}))
 
 import { ensureTTY, askApproval, askInput } from '../src/cli/prompt.js'
 import { loadConfig, resolveConfig } from '../src/shared/config.js'
@@ -81,13 +84,11 @@ beforeEach(() => {
   vi.mocked(loadConfig).mockReturnValue({
     defaultModel: 'claude-opus-4-20250514',
     targetRepoPath: '.',
-    logLevel: 'silent',
     maxTurns: 100,
   })
   vi.mocked(resolveConfig).mockReturnValue({
     defaultModel: 'claude-opus-4-20250514',
     targetRepoPath: '.',
-    logLevel: 'silent',
     maxTurns: 100,
     apiKey: 'sk-test-integration',
   })

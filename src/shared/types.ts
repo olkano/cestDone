@@ -1,4 +1,5 @@
 // src/shared/types.ts
+import type { SessionLogger } from './logger.js'
 
 export type PhaseStatus = 'pending' | 'in-progress' | 'done'
 
@@ -25,7 +26,6 @@ export interface ParsedSpec {
 export interface Config {
   defaultModel: string
   targetRepoPath: string
-  logLevel: string
   maxTurns: number
   maxBudgetUsd?: number
 }
@@ -83,6 +83,6 @@ export interface CoderOptions {
   maxTurns: number
   maxBudgetUsd?: number
   apiKey: string
-  logLevel: string
+  logger: SessionLogger
   completedSubPhases?: string[]
 }

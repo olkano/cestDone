@@ -14,8 +14,7 @@ import {
   DIRECTOR_RESPONSE_SCHEMA,
 } from './prompts.js'
 import { selectModel } from './model-selector.js'
-import { createLogger } from '../shared/logger.js'
-import type pino from 'pino'
+import type { SessionLogger } from '../shared/logger.js'
 
 export interface DirectorDeps {
   askApproval: () => Promise<{ approved: boolean; feedback?: string }>
@@ -25,6 +24,7 @@ export interface DirectorDeps {
   writePhaseCompletion: (filePath: string, phaseNumber: number, doneSummary: string) => void
   coderExecute: (options: CoderOptions) => Promise<CoderResult>
   display: (text: string) => void
+  logger: SessionLogger
 }
 
 const MAX_REJECTIONS = 3
@@ -37,14 +37,14 @@ export async function runPhase(
   specFilePath: string,
   deps: DirectorDeps
 ): Promise<void> {
-  const logger = createLogger(config.logLevel)
+  const { logger } = deps
   const completedPhases = parsedSpec.phases.filter(p => p.status === 'done')
   const specContent = phase.spec
 
   deps.updatePhaseStatus(specFilePath, phase.number, 'in-progress')
 
   // Step 1: Analyze
-  logger.info({ phase: phase.number }, 'Step 1: Analyzing phase spec')
+  logger.log('Director', `Step 1: Analyzing phase spec (Phase ${phase.number})`)
   const analyzeResult = await executeDirector({
     prompt: buildAnalyzePrompt(phase, specContent),
     step: WorkflowStep.Analyze,
@@ -59,7 +59,7 @@ export async function runPhase(
   let clarificationsText = ''
   if (analyzeResult.action === 'ask_human' && analyzeResult.questions?.length) {
     hadClarifications = true
-    logger.info({ questions: analyzeResult.questions }, 'Escalating to human')
+    logger.log('Director', `Escalating to human: ${analyzeResult.questions.join(', ')}`)
     const answers: string[] = []
     for (const q of analyzeResult.questions) {
       answers.push(await deps.askInput(`Director asks: ${q}\nYour answer: `))
@@ -80,7 +80,7 @@ export async function runPhase(
 
   // Step 3: Update spec (if there were clarifications)
   if (hadClarifications) {
-    logger.info('Step 3: Updating spec with clarifications')
+    logger.log('Director', 'Step 3: Updating spec with clarifications')
     const updateResult = await executeDirector({
       prompt: buildUpdateSpecPrompt(specContent, clarificationsText),
       step: WorkflowStep.UpdateSpec,
@@ -91,11 +91,11 @@ export async function runPhase(
     })
     deps.updatePhaseSpec(specFilePath, phase.number, updateResult.message)
   } else {
-    logger.info('Step 3: No clarifications — skipping spec update')
+    logger.log('Director', 'Step 3: No clarifications — skipping spec update')
   }
 
   // Step 4: Plan
-  logger.info('Step 4: Requesting implementation plan')
+  logger.log('Director', 'Step 4: Requesting implementation plan')
   const planResult = await executeDirector({
     prompt: buildPlanPrompt(phase, specContent),
     step: WorkflowStep.Plan,
@@ -111,12 +111,12 @@ export async function runPhase(
   while (true) {
     deps.display(`\n=== Director's Plan ===\n${currentPlan}\n======================`)
     const { approved, feedback } = await deps.askApproval()
-    logger.info({ approved, feedback }, 'Human approval result')
+    logger.log('Director', `Human approval: ${approved ? 'approved' : 'rejected'}${feedback ? ' — ' + feedback : ''}`)
     if (approved) break
 
     rejectionCount++
     if (rejectionCount >= MAX_REJECTIONS) {
-      logger.warn({ rejectionCount }, 'Escalating after repeated rejections')
+      logger.log('Director', `Escalating after ${rejectionCount} rejections`)
       const guidance = await deps.askInput(
         `I'm stuck after ${rejectionCount} plan rejections. Latest feedback: "${feedback}"\n` +
         'Please provide guidance on how to proceed: '
@@ -152,7 +152,7 @@ export async function runPhase(
 
   while (true) {
     // Step 6: Execute
-    logger.info({ attempt: coderRetries + 1, subPhase: completedSubPhases.length + 1 }, 'Step 6: Executing via Coder')
+    logger.log('Director', `Step 6: Executing via Coder (attempt ${coderRetries + 1}, sub-phase ${completedSubPhases.length + 1})`)
     const coderResult = await deps.coderExecute(buildCoderOptions({
       step: WorkflowStep.Execute,
       phase,
@@ -160,15 +160,16 @@ export async function runPhase(
       parsedSpec,
       instructions,
       completedSubPhases: [...completedSubPhases],
+      logger,
     }))
     totalCoderCost += coderResult.cost
 
     const summary = coderResult.report?.summary ?? coderResult.message
     deps.display(`\nCoder: ${summary} (cost: $${coderResult.cost.toFixed(2)})`)
-    logger.info({ status: coderResult.status, cost: coderResult.cost, totalCost: totalCoderCost }, 'Coder result')
+    logger.log('Director', `Coder result: ${coderResult.status} (cost: $${coderResult.cost.toFixed(2)}, total: $${totalCoderCost.toFixed(2)})`)
 
     // Step 7: Review — always runs, Director verifies and decides next action
-    logger.info('Step 7: Director reviewing Coder output')
+    logger.log('Director', 'Step 7: Reviewing Coder output')
     const reviewResult = await executeDirector({
       prompt: buildReviewPrompt(
         currentPlan,
@@ -184,7 +185,7 @@ export async function runPhase(
 
     if (reviewResult.action === 'done') {
       deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
-      logger.info({ totalCost: totalCoderCost, subPhasesCompleted: completedSubPhases.length + 1 }, 'All sub-phases complete')
+      logger.log('Director', `All sub-phases complete (total cost: $${totalCoderCost.toFixed(2)}, sub-phases: ${completedSubPhases.length + 1})`)
       break
     }
 
@@ -192,7 +193,7 @@ export async function runPhase(
       completedSubPhases.push(summary)
       coderRetries = 0
       instructions = reviewResult.message
-      logger.info({ subPhasesCompleted: completedSubPhases.length }, 'Sub-phase complete, moving to next')
+      logger.log('Director', `Sub-phase ${completedSubPhases.length} complete, continuing`)
       deps.display(`\nSub-phase ${completedSubPhases.length} complete. Continuing...`)
       continue
     }
@@ -200,7 +201,7 @@ export async function runPhase(
     // action === 'fix' (or any other) — retry with fix instructions
     coderRetries++
     if (coderRetries >= MAX_CODER_RETRIES) {
-      logger.warn({ coderRetries }, 'Escalating after repeated Coder failures')
+      logger.log('Director', `Escalating after ${coderRetries} Coder failures`)
       const guidance = await deps.askInput(
         `Coder has failed ${coderRetries} times. Latest error: "${coderResult.message}"\n` +
         'Please provide guidance on how to proceed: '
@@ -213,7 +214,7 @@ export async function runPhase(
   }
 
   // Step 8: Complete
-  logger.info('Step 8: Completing phase')
+  logger.log('Director', 'Step 8: Completing phase')
   const completeResult = await executeDirector({
     prompt: buildCompletePrompt(phase),
     step: WorkflowStep.Complete,
@@ -232,6 +233,7 @@ function buildCoderOptions(params: {
   parsedSpec: ParsedSpec
   instructions: string
   completedSubPhases?: string[]
+  logger: SessionLogger
 }): CoderOptions {
   return {
     step: params.step,
@@ -243,7 +245,7 @@ function buildCoderOptions(params: {
     maxTurns: params.config.maxTurns,
     maxBudgetUsd: params.config.maxBudgetUsd,
     apiKey: params.config.apiKey,
-    logLevel: params.config.logLevel,
+    logger: params.logger,
     completedSubPhases: params.completedSubPhases,
   }
 }
@@ -254,7 +256,7 @@ interface ExecuteDirectorParams {
   metadata: SpecMetadata
   completedPhases: Phase[]
   config: ResolvedConfig
-  logger: pino.Logger
+  logger: SessionLogger
 }
 
 export async function executeDirector(params: ExecuteDirectorParams): Promise<DirectorResponse> {
@@ -262,7 +264,8 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   const model = selectModel(step, 'high')
   const tools = buildDirectorTools(step)
 
-  logger.debug({ step, model, tools }, 'Director call starting')
+  logger.log('Director', `Call starting (step: ${step}, model: ${model})`)
+  logger.logVerbose('Director', `Prompt:\n${prompt}`)
 
   const env = { ...process.env }
   delete env.CLAUDECODE
@@ -291,13 +294,18 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   const q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
 
   for await (const message of q) {
-    const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; structured_output?: unknown; result?: string }
+    const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string }> } }
+
+    if (msg.type === 'assistant' && msg.message?.content) {
+      for (const block of msg.message.content) {
+        if (block.type === 'text' && block.text) {
+          logger.log('Director', block.text.slice(0, 500))
+        }
+      }
+    }
 
     if (msg.type === 'result') {
-      logger.info(
-        { subtype: msg.subtype, cost: msg.total_cost_usd, turns: msg.num_turns },
-        'Director call completed'
-      )
+      logger.log('Director', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns})`)
       response = extractDirectorResponse(msg)
     }
   }
@@ -306,7 +314,7 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
     throw new Error('Director session ended with no result')
   }
 
-  logger.debug({ action: response.action }, 'Director response')
+  logger.log('Director', `Response action: ${response.action}`)
   return response
 }
 

@@ -1,7 +1,6 @@
 // src/coder/coder.ts
 import path from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import { createLogger } from '../shared/logger.js'
 import { getTools } from './permissions.js'
 import { buildCoderPrompt } from './coder-prompt.js'
 import { parseResult, type SDKResultLike } from './result-parser.js'
@@ -27,13 +26,10 @@ export const CODER_REPORT_SCHEMA = {
 }
 
 export async function executeCoder(options: CoderOptions): Promise<CoderResult> {
-  const logger = createLogger(options.logLevel)
+  const { logger } = options
   const tools = getTools(options.step)
 
-  logger.info(
-    { step: options.step, model: options.model, phase: options.phase.number, tools },
-    'Coder call starting'
-  )
+  logger.log('Coder', `Call starting (step: ${options.step}, model: ${options.model}, phase: ${options.phase.number})`)
 
   const prompt = buildCoderPrompt({
     instructions: options.instructions,
@@ -41,6 +37,8 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
     step: options.step,
     completedSubPhases: options.completedSubPhases,
   })
+
+  logger.logVerbose('Coder', `Full prompt:\n${prompt}`)
 
   const env = { ...process.env }
   delete env.CLAUDECODE
@@ -78,19 +76,16 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
 
       switch (msg.type) {
         case 'system':
-          logger.debug(
-            { session_id: msg.session_id, model: msg.model, tools: msg.tools, cwd: msg.cwd },
-            'Coder session initialized'
-          )
+          logger.log('Coder', `Session initialized (model: ${msg.model})`)
           break
 
         case 'assistant':
           if (msg.message?.content) {
             for (const block of msg.message.content) {
               if (block.type === 'text' && block.text) {
-                logger.debug({ text: block.text.slice(0, 500) }, 'Coder text')
+                logger.log('Coder', block.text.slice(0, 500))
               } else if (block.type === 'tool_use' && block.name) {
-                logger.debug({ tool: block.name, inputKeys: block.input ? Object.keys(block.input as Record<string, unknown>) : [] }, 'Coder tool call')
+                logger.log('Coder', `Tool: ${block.name}(${block.input ? Object.keys(block.input as Record<string, unknown>).join(', ') : ''})`)
               }
             }
           }
@@ -98,16 +93,13 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
 
         case 'result':
           resultMessage = msg as unknown as SDKResultLike
-          logger.info(
-            { subtype: msg.subtype, cost: msg.total_cost_usd, turns: msg.num_turns, duration: msg.duration_ms },
-            'Coder call completed'
-          )
+          logger.log('Coder', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns}, duration: ${msg.duration_ms}ms)`)
           break
       }
     }
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err)
-    logger.error({ error: errorMessage }, 'Coder call failed with exception')
+    logger.log('Coder', `Call failed: ${errorMessage}`)
     return {
       status: 'failed',
       message: errorMessage,
@@ -119,7 +111,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
   }
 
   if (!resultMessage) {
-    logger.warn('Coder session ended with no result message')
+    logger.log('Coder', 'Session ended with no result message')
     return {
       status: 'failed',
       message: 'Coder session ended with no result message',
@@ -132,10 +124,8 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
 
   const result = parseResult(resultMessage)
 
-  logger.info(
-    { status: result.status, cost: result.cost, turns: result.numTurns },
-    'Coder result parsed'
-  )
+  logger.log('Coder', `Result: ${result.status} (cost: $${result.cost.toFixed(2)}, turns: ${result.numTurns})`)
+  logger.logVerbose('Coder', `Full result:\n${JSON.stringify(result, null, 2)}`)
 
   return result
 }

@@ -19,7 +19,7 @@ function makeOptions(overrides: Partial<CoderOptions> = {}): CoderOptions {
     instructions: 'Implement the feature.',
     maxTurns: 100,
     apiKey: 'sk-test',
-    logLevel: 'silent',
+    logger: { log: vi.fn(), logVerbose: vi.fn() },
     ...overrides,
   }
 }

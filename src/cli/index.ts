@@ -11,12 +11,14 @@ import { runPhase, type DirectorDeps } from '../director/director.js'
 import { askApproval, askInput, ensureTTY } from './prompt.js'
 import { executeCoder } from '../coder/coder.js'
 import { ensureGitRepo } from '../shared/git.js'
+import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
 
 export async function handleRun(
   specPath: string,
   options?: { target?: string }
 ): Promise<void> {
   ensureTTY()
+  const logger = createSessionLogger()
 
   const config = loadConfig()
   const resolved = resolveConfig(config)
@@ -42,11 +44,11 @@ export async function handleRun(
         console.log('No pending phases found.')
         return
       }
-      const deps = buildDeps()
+      const deps = buildDeps(logger)
       await runPhase(updatedSpec, pending, resolved, resolvedSpecPath, deps)
       return
     }
-    const deps = buildDeps()
+    const deps = buildDeps(logger)
     await runPhase(spec, inProgress, resolved, resolvedSpecPath, deps)
     return
   }
@@ -57,7 +59,7 @@ export async function handleRun(
     return
   }
 
-  const deps = buildDeps()
+  const deps = buildDeps(logger)
   await runPhase(spec, pending, resolved, resolvedSpecPath, deps)
 }
 
@@ -66,6 +68,7 @@ export async function handleResume(
   options?: { target?: string }
 ): Promise<void> {
   ensureTTY()
+  const logger = createSessionLogger()
 
   const config = loadConfig()
   const resolved = resolveConfig(config)
@@ -82,11 +85,11 @@ export async function handleResume(
     return
   }
 
-  const deps = buildDeps()
+  const deps = buildDeps(logger)
   await runPhase(spec, target, resolved, resolvedSpecPath, deps)
 }
 
-function buildDeps(): DirectorDeps {
+function buildDeps(logger: SessionLogger): DirectorDeps {
   return {
     askApproval,
     askInput,
@@ -95,6 +98,7 @@ function buildDeps(): DirectorDeps {
     writePhaseCompletion: (fp, pn, ds) => writePhaseCompletion(fp, pn, ds),
     coderExecute: executeCoder,
     display: (text: string) => console.log(text),
+    logger,
   }
 }
 
