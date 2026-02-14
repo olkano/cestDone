@@ -72,6 +72,10 @@ async function* generateMessages(result: Record<string, unknown>) {
   yield result
 }
 
+function createMockQuery(result: Record<string, unknown>) {
+  return Object.assign(generateMessages(result), { close: vi.fn() })
+}
+
 let queryCallIndex = 0
 
 let tmpDir: string
@@ -124,7 +128,7 @@ describe('integration', () => {
 
     mockQuery.mockImplementation(() => {
       const idx = queryCallIndex++
-      return generateMessages(responses[idx])
+      return createMockQuery(responses[idx])
     })
 
     const specPath = path.join(tmpDir, 'spec.md')
@@ -165,7 +169,7 @@ describe('integration', () => {
 
     mockQuery.mockImplementation(() => {
       const idx = queryCallIndex++
-      return generateMessages(responses[idx])
+      return createMockQuery(responses[idx])
     })
 
     const specPath = path.join(tmpDir, 'spec.md')
@@ -198,7 +202,7 @@ describe('integration', () => {
 
     mockQuery.mockImplementation(() => {
       const idx = queryCallIndex++
-      return generateMessages(responses[idx])
+      return createMockQuery(responses[idx])
     })
 
     await handleResume(specPath)
@@ -236,7 +240,7 @@ describe('integration', () => {
 
     await handleRun(specPath)
 
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('done'))
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('All phases complete'))
     expect(mockQuery).not.toHaveBeenCalled()
 
     consoleSpy.mockRestore()

@@ -68,9 +68,10 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
   }
 
   let resultMessage: SDKResultLike | null = null
+  let q: ReturnType<typeof query> | null = null
 
   try {
-    const q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
+    q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
 
     for await (const message of q) {
       const msg = message as { type: string; subtype?: string; session_id?: string; model?: string; tools?: string[]; cwd?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }; total_cost_usd?: number; num_turns?: number; duration_ms?: number }
@@ -99,8 +100,6 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
           break
       }
 
-      // Break after result — no meaningful messages follow, and lingering
-      // background processes (e.g. dev servers) can keep the stream open.
       if (resultMessage) break
     }
   } catch (err: unknown) {
@@ -116,6 +115,8 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
       usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
       report: { status: 'failed', summary: errorMessage },
     }
+  } finally {
+    if (q) q.close()
   }
 
   if (!resultMessage) {

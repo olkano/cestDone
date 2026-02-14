@@ -377,33 +377,37 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
 
   const q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
 
-  for await (const message of q) {
-    const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }; usage?: unknown }
+  try {
+    for await (const message of q) {
+      const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }; usage?: unknown }
 
-    if (msg.type === 'assistant' && msg.message?.content) {
-      for (const block of msg.message.content) {
-        if (block.type === 'text' && block.text) {
-          logger.log('Director', block.text.slice(0, 500))
-        } else if (block.type === 'tool_use' && block.name) {
-          logger.log('Director', `Tool: ${formatToolCall(block.name, block.input)}`)
+      if (msg.type === 'assistant' && msg.message?.content) {
+        for (const block of msg.message.content) {
+          if (block.type === 'text' && block.text) {
+            logger.log('Director', block.text.slice(0, 500))
+          } else if (block.type === 'tool_use' && block.name) {
+            logger.log('Director', `Tool: ${formatToolCall(block.name, block.input)}`)
+          }
         }
       }
-    }
 
-    if (msg.type === 'result') {
-      const usage = mapSdkUsage(msg.usage)
-      logger.log('Director', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns}, subtype: ${msg.subtype ?? 'unknown'})`)
-      logger.log('Director', `Tokens: in:${usage.inputTokens} out:${usage.outputTokens} cache-r:${usage.cacheReadInputTokens} cache-w:${usage.cacheCreationInputTokens}`)
-      callResult = {
-        response: extractDirectorResponse(msg, logger),
-        costUsd: msg.total_cost_usd ?? 0,
-        numTurns: msg.num_turns ?? 0,
-        durationMs: msg.duration_ms ?? 0,
-        usage,
+      if (msg.type === 'result') {
+        const usage = mapSdkUsage(msg.usage)
+        logger.log('Director', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns}, subtype: ${msg.subtype ?? 'unknown'})`)
+        logger.log('Director', `Tokens: in:${usage.inputTokens} out:${usage.outputTokens} cache-r:${usage.cacheReadInputTokens} cache-w:${usage.cacheCreationInputTokens}`)
+        callResult = {
+          response: extractDirectorResponse(msg, logger),
+          costUsd: msg.total_cost_usd ?? 0,
+          numTurns: msg.num_turns ?? 0,
+          durationMs: msg.duration_ms ?? 0,
+          usage,
+        }
+        logger.logVerbose('Director', 'Result received, breaking out of SDK stream')
+        break
       }
-      logger.logVerbose('Director', 'Result received, breaking out of SDK stream')
-      break
     }
+  } finally {
+    q.close()
   }
 
   logger.logVerbose('Director', 'SDK stream iteration ended')

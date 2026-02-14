@@ -68,11 +68,15 @@ beforeEach(() => {
 })
 
 describe('handleRun', () => {
-  // K1: When plan exists, parses it and runs first pending phase
+  // K1: When plan exists, parses it and runs all pending phases
   it('runs first pending phase from existing plan', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
     vi.mocked(fs.existsSync).mockReturnValue(true)
-    vi.mocked(parsePlan).mockReturnValue(plan)
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)     // handleRun initial read
+      .mockReturnValueOnce(plan)     // executeAllPhases loop 1 → finds pending
+      .mockReturnValueOnce(donePlan) // executeAllPhases loop 2 → exits
 
     await handleRun('spec.md')
 
@@ -92,14 +96,18 @@ describe('handleRun', () => {
     )
   })
 
-  // K2: When no plan exists, runs planning flow first, then executes first phase
+  // K2: When no plan exists, runs planning flow first, then executes all phases
   it('runs planning flow when no plan exists', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
     vi.mocked(fs.existsSync).mockReturnValue(false)
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
     })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)     // executeAllPhases loop 1 → finds pending
+      .mockReturnValueOnce(donePlan) // executeAllPhases loop 2 → exits
 
     await handleRun('spec.md')
 
@@ -123,6 +131,7 @@ describe('handleRun', () => {
   // K3: Loads house rules file when --house-rules provided
   it('loads house rules file into FreeFormSpec', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
     vi.mocked(fs.existsSync).mockReturnValue(false)
     vi.mocked(fs.readFileSync)
       .mockReturnValueOnce('Free form spec text')
@@ -131,6 +140,9 @@ describe('handleRun', () => {
       planPath: '/tmp/spec.plan.md',
       plan,
     })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
 
     await handleRun('spec.md', { houseRules: 'rules.md' })
 
@@ -143,11 +155,17 @@ describe('handleRun', () => {
     )
   })
 
-  // K4: Prompts about in-progress phase and continues on "continue"
+  // K4: Prompts about in-progress phase and continues it
   it('prompts about in-progress phase and continues it', async () => {
     const plan = makeMockPlan([IN_PROGRESS_PHASE, PENDING_PHASE])
+    const afterFirst = makeMockPlan([{ ...IN_PROGRESS_PHASE, status: 'done' as const, done: 'Done.' }, PENDING_PHASE])
+    const allDone = makeMockPlan([{ ...IN_PROGRESS_PHASE, status: 'done' as const, done: 'Done.' }, { ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
     vi.mocked(fs.existsSync).mockReturnValue(true)
-    vi.mocked(parsePlan).mockReturnValue(plan)
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)       // handleRun initial read
+      .mockReturnValueOnce(plan)       // executeAllPhases loop 1 → in-progress
+      .mockReturnValueOnce(afterFirst) // executeAllPhases loop 2 → pending
+      .mockReturnValueOnce(allDone)    // executeAllPhases loop 3 → exits
     vi.mocked(askInput).mockResolvedValue('continue')
 
     await handleRun('spec.md')
@@ -169,8 +187,11 @@ describe('handleResume', () => {
   // K5: Resume finds first non-done phase from existing plan
   it('finds first non-done phase from plan and calls runPhase', async () => {
     const plan = makeMockPlan([DONE_PHASE, IN_PROGRESS_PHASE])
+    const allDone = makeMockPlan([DONE_PHASE, { ...IN_PROGRESS_PHASE, status: 'done' as const, done: 'Done.' }])
     vi.mocked(fs.existsSync).mockReturnValue(true)
-    vi.mocked(parsePlan).mockReturnValue(plan)
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)    // executeAllPhases loop 1 → in-progress
+      .mockReturnValueOnce(allDone) // executeAllPhases loop 2 → exits
 
     await handleResume('spec.md')
 

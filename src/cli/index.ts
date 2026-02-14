@@ -13,7 +13,7 @@ import { executeCoder } from '../coder/coder.js'
 import { ensureGitRepo } from '../shared/git.js'
 import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
 import { CostTracker } from '../shared/cost-tracker.js'
-import type { FreeFormSpec } from '../shared/types.js'
+import type { FreeFormSpec, ResolvedConfig } from '../shared/types.js'
 
 export async function handleRun(
   specPath: string,
@@ -39,6 +39,7 @@ export async function handleRun(
   }
 
   const planPath = getPlanPath(resolvedSpecPath)
+  const deps = buildDeps(logger)
 
   // Check if plan already exists
   if (fs.existsSync(planPath)) {
@@ -53,30 +54,10 @@ export async function handleRun(
       )
       if (answer.trim().toLowerCase() === 'reset') {
         updatePhaseStatus(planPath, inProgress.number, 'pending')
-        const updated = fs.readFileSync(planPath, 'utf-8')
-        const updatedPlan = parsePlan(updated)
-        const pending = updatedPlan.phases.find(p => p.status === 'pending')
-        if (!pending) {
-          console.log('No pending phases found.')
-          return
-        }
-        const deps = buildDeps(logger)
-        await runPhase(updatedPlan, pending, resolved, planPath, deps)
-        return
       }
-      const deps = buildDeps(logger)
-      await runPhase(plan, inProgress, resolved, planPath, deps)
-      return
     }
 
-    const pending = plan.phases.find(p => p.status === 'pending')
-    if (!pending) {
-      console.log('All phases are done.')
-      return
-    }
-
-    const deps = buildDeps(logger)
-    await runPhase(plan, pending, resolved, planPath, deps)
+    await executeAllPhases(planPath, resolved, deps)
     return
   }
 
@@ -87,17 +68,8 @@ export async function handleRun(
     specFilePath: resolvedSpecPath,
   }
 
-  const deps = buildDeps(logger)
-  const { plan, planPath: createdPlanPath } = await runPlanningFlow(freeFormSpec, resolved, deps)
-
-  // Execute first pending phase
-  const pending = plan.phases.find(p => p.status === 'pending')
-  if (!pending) {
-    console.log('Plan created but no pending phases found.')
-    return
-  }
-
-  await runPhase(plan, pending, resolved, createdPlanPath, deps)
+  const { planPath: createdPlanPath } = await runPlanningFlow(freeFormSpec, resolved, deps)
+  await executeAllPhases(createdPlanPath, resolved, deps)
 }
 
 export async function handleResume(
@@ -120,17 +92,24 @@ export async function handleResume(
     throw new Error(`No plan file found at ${planPath}. Run 'cestdone run' first to create a plan.`)
   }
 
-  const planContent = fs.readFileSync(planPath, 'utf-8')
-  const plan = parsePlan(planContent)
-
-  const target = plan.phases.find(p => p.status !== 'done')
-  if (!target) {
-    console.log('All phases are done.')
-    return
-  }
-
   const deps = buildDeps(logger)
-  await runPhase(plan, target, resolved, planPath, deps)
+  await executeAllPhases(planPath, resolved, deps)
+}
+
+async function executeAllPhases(
+  planPath: string,
+  config: ResolvedConfig,
+  deps: DirectorDeps,
+): Promise<void> {
+  while (true) {
+    const planContent = fs.readFileSync(planPath, 'utf-8')
+    const plan = parsePlan(planContent)
+    const next = plan.phases.find(p => p.status === 'pending' || p.status === 'in-progress')
+    if (!next) break
+    deps.display(`\n=== Phase ${next.number}: ${next.name} ===`)
+    await runPhase(plan, next, config, planPath, deps)
+  }
+  deps.display('\nAll phases complete.')
 }
 
 function buildDeps(logger: SessionLogger, costTracker?: CostTracker): DirectorDeps {

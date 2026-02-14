@@ -93,6 +93,10 @@ async function* generateMessages(...messages: unknown[]) {
   }
 }
 
+function createMockQuery(...messages: unknown[]) {
+  return Object.assign(generateMessages(...messages), { close: vi.fn() })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -100,7 +104,7 @@ beforeEach(() => {
 describe('executeCoder', () => {
   // Q1: Calls query() with correct prompt, cwd, model, maxTurns
   it('calls query() with correct prompt, cwd, model, maxTurns', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -118,7 +122,7 @@ describe('executeCoder', () => {
 
   // Q2: Sets permissionMode and allowDangerouslySkipPermissions
   it('sets bypassPermissions and allowDangerouslySkipPermissions', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -132,7 +136,7 @@ describe('executeCoder', () => {
 
   // Q3: Sets tools from getTools(step) — actual restriction mechanism
   it('sets tools based on step', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -144,7 +148,7 @@ describe('executeCoder', () => {
   })
 
   it('sets full tools for Execute step', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -157,7 +161,7 @@ describe('executeCoder', () => {
 
   // Q4: Sets systemPrompt with preset and appended house-rules
   it('sets systemPrompt with claude_code preset and house-rules in append', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -174,7 +178,7 @@ describe('executeCoder', () => {
 
   // Q5: Sets outputFormat with CoderReport JSON schema
   it('sets outputFormat with JSON schema', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -197,7 +201,7 @@ describe('executeCoder', () => {
 
   // Q6: Sets maxBudgetUsd from config when defined
   it('sets maxBudgetUsd when defined', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -209,7 +213,7 @@ describe('executeCoder', () => {
   })
 
   it('omits maxBudgetUsd when undefined', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -222,7 +226,7 @@ describe('executeCoder', () => {
 
   // Q7: Iterates async generator, logs SDKSystemMessage at debug
   it('processes system init message from generator', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))
@@ -234,7 +238,7 @@ describe('executeCoder', () => {
 
   // Q8: Logs SDKAssistantMessage content blocks (text + tool calls)
   it('processes assistant messages with text and tool calls', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeAssistantMessage('I will implement the feature.'),
       makeToolCallMessage('Edit', { file: 'src/foo.ts' }),
@@ -248,7 +252,7 @@ describe('executeCoder', () => {
 
   // Q9: Logs SDKResultMessage at info (cost, turns, duration, subtype)
   it('extracts cost, turns, duration from result', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({
         structured_output: { status: 'success', summary: 'Done' },
@@ -268,7 +272,7 @@ describe('executeCoder', () => {
 
   // Q10: Returns parsed CoderResult from result-parser
   it('returns parsed structured report', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({
         structured_output: {
@@ -291,7 +295,7 @@ describe('executeCoder', () => {
 
   // Q11: Handles generator yielding no result message — returns failed
   it('returns failed when no result message is yielded', async () => {
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeAssistantMessage('Working on it...'),
     ))
@@ -310,6 +314,7 @@ describe('executeCoder', () => {
     mockQuery.mockReturnValue({
       async next() { throw new Error('Network connection failed') },
       [Symbol.asyncIterator]() { return this },
+      close: vi.fn(),
     })
 
     const result = await executeCoder(makeOptions())
@@ -339,7 +344,7 @@ describe('executeCoder', () => {
   // Q13: Strips CLAUDECODE env var before passing to query
   it('strips CLAUDECODE env var from query options', async () => {
     process.env.CLAUDECODE = '1'
-    mockQuery.mockReturnValue(generateMessages(
+    mockQuery.mockReturnValue(createMockQuery(
       makeSystemMessage(),
       makeResultMessage({ structured_output: { status: 'success', summary: 'Done' } }),
     ))

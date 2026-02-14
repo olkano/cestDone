@@ -35,6 +35,10 @@ async function* generateDirectorMessages(result: Record<string, unknown>) {
   yield result
 }
 
+function createMockQuery(result: Record<string, unknown>) {
+  return Object.assign(generateDirectorMessages(result), { close: vi.fn() })
+}
+
 const TEST_PHASE: Phase = {
   number: 1,
   name: 'Setup',
@@ -89,7 +93,7 @@ function setupDirectorResponses(...responses: Array<{ action: string; message: s
   mockQuery.mockImplementation(() => {
     const idx = directorCallCount++
     const r = responses[idx] ?? { action: 'done', message: 'fallback' }
-    return generateDirectorMessages(makeDirectorResult(r.action, r.message, r.questions))
+    return createMockQuery(makeDirectorResult(r.action, r.message, r.questions))
   })
 }
 

@@ -286,7 +286,7 @@ Run a spec:
 npx tsx --env-file=.env src/cli/index.ts run --spec ./my-spec.md --target /path/to/repo --house-rules house-rules.md
 ```
 
-Resume from last incomplete phase (requires existing `.plan.md`):
+Resume all remaining phases (requires existing `.plan.md`):
 ```bash
 npx tsx --env-file=.env src/cli/index.ts resume --spec ./my-spec.md --target /path/to/repo
 ```
@@ -325,6 +325,7 @@ src/
     ├── git.ts            # Git repo init + .gitignore
     ├── plan-parser.ts    # .plan.md parsing (getPlanPath, parsePlan)
     ├── spec-writer.ts    # Atomic plan file updates
+    ├── cost-tracker.ts   # Per-session cost accumulation
     └── logger.ts         # Pino file logging
 ```
 
@@ -332,13 +333,14 @@ src/
 
 - **Runtime:** Node.js + TypeScript (ESM)
 - **Agent SDK:** `@anthropic-ai/claude-agent-sdk` (both Director and Coder)
-- **Tests:** Vitest (164 tests across 15 files)
+- **Tests:** Vitest (179 tests across 16 files)
 - **Logging:** Pino with file rotation
 - **CLI:** Commander
 
 ## What's Been Built
 
 - Two-flow architecture: planning flow (spec → .plan.md) + phase execution (execute → review → complete)
+- Automatic sequential execution of all phases after plan approval (no human intervention needed)
 - Free-form spec input with optional house rules
 - Agent SDK integration for both Director (read-only) and Coder (full tools)
 - Structured JSON output for both agents
@@ -356,10 +358,8 @@ src/
 
 ## Planned Phases
 
-### Phase 2: Git Integration + Session Resilience
-- Commit with descriptive message after human approval
+### Phase 2: Git Branch Strategy
 - Branch-per-phase strategy (`cestdone/phase-N`)
-- Resume capability from any interruption point
 
 ### Phase 3: Visual Verification
 - Playwright screenshots of running web apps
