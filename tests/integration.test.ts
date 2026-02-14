@@ -111,11 +111,10 @@ describe('integration', () => {
   // I1: Full flow — no plan exists → planning flow → phase execution
   it('runs full workflow: planning → phase execution → completion', async () => {
     // Planning flow: Director(analyze), Director(createPlan)
-    // Phase execution: Director(sub-plan), Coder(execute), Director(review), Director(complete)
+    // Phase execution: Coder(execute), Director(review), Director(complete)
     const responses = [
       makeDirectorResult('analyze', 'Spec is clear. No questions.'),
       makeDirectorResult('done', VALID_PLAN_CONTENT),
-      makeDirectorResult('approve', 'Plan:\n1. Create files\n2. Write tests'),
       makeCoderResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Phase done. Created scaffold.'),
@@ -145,11 +144,11 @@ describe('integration', () => {
     const specContent = fs.readFileSync(specPath, 'utf-8')
     expect(specContent).toBe('Build a simple project with tests.')
 
-    // 6 query() calls: 2 planning + 4 execution
-    expect(mockQuery).toHaveBeenCalledTimes(6)
+    // 5 query() calls: 2 planning + 3 execution
+    expect(mockQuery).toHaveBeenCalledTimes(5)
 
-    // askApproval called twice: once for plan approval, once for sub-plan approval
-    expect(askApproval).toHaveBeenCalledTimes(2)
+    // askApproval called once: for plan approval only (no sub-plan approval)
+    expect(askApproval).toHaveBeenCalledTimes(1)
   })
 
   // I2: Coder receives correct tools for Execute step
@@ -157,7 +156,6 @@ describe('integration', () => {
     const responses = [
       makeDirectorResult('analyze', 'Spec is clear.'),
       makeDirectorResult('done', VALID_PLAN_CONTENT),
-      makeDirectorResult('approve', 'Plan:\n1. Create files'),
       makeCoderResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Done.'),
@@ -173,9 +171,9 @@ describe('integration', () => {
 
     await handleRun(specPath)
 
-    // The 4th query() call (index 3) is the Coder (execute step)
-    expect(mockQuery).toHaveBeenCalledTimes(6)
-    const coderParams = mockQuery.mock.calls[3][0]
+    // The 3rd query() call (index 2) is the Coder (execute step)
+    expect(mockQuery).toHaveBeenCalledTimes(5)
+    const coderParams = mockQuery.mock.calls[2][0]
     expect(coderParams.options.tools).toEqual(
       ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
     )
@@ -189,9 +187,8 @@ describe('integration', () => {
     fs.writeFileSync(specPath, 'Original spec.', 'utf-8')
     fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
 
-    // Phase execution only: Director(sub-plan), Coder(execute), Director(review), Director(complete)
+    // Phase execution only: Coder(execute), Director(review), Director(complete)
     const responses = [
-      makeDirectorResult('approve', 'Plan:\n1. Create files'),
       makeCoderResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Resumed and done.'),
@@ -204,8 +201,8 @@ describe('integration', () => {
 
     await handleResume(specPath)
 
-    // Only 4 calls — no planning flow
-    expect(mockQuery).toHaveBeenCalledTimes(4)
+    // Only 3 calls — no planning flow, no sub-plan
+    expect(mockQuery).toHaveBeenCalledTimes(3)
 
     // Plan file updated with completion
     const updated = fs.readFileSync(planPath, 'utf-8')

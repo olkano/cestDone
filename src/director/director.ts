@@ -5,7 +5,7 @@ import { WorkflowStep } from '../shared/types.js'
 import {
   buildDirectorTools,
   buildClarifyPrompt,
-  buildPlanPrompt,
+  buildInitialCoderInstructions,
   buildReviewPrompt,
   buildCompletePrompt,
   buildPlanningSystemPrompt,
@@ -162,57 +162,12 @@ export async function runPhase(
 
   deps.updatePhaseStatus(planFilePath, phase.number, 'in-progress')
 
-  // Step 4: Plan (per-phase sub-planning)
-  logger.log('Director', `Step 4: Requesting implementation plan (Phase ${phase.number})`)
-  const planResult = await executeDirector({
-    prompt: buildPlanPrompt(phase, phase.spec),
-    step: WorkflowStep.Plan,
-    systemPromptText,
-    config,
-    logger,
-  })
+  // Build initial instructions from phase spec + plan context
+  let instructions = buildInitialCoderInstructions(plan, phase, completedPhases)
 
-  // Step 5: Approve plan (with rejection loop)
-  let rejectionCount = 0
-  let currentPlan = planResult.message
-  while (true) {
-    deps.display(`\n=== Director's Plan ===\n${currentPlan}\n======================`)
-    const { approved, feedback } = await deps.askApproval()
-    logger.log('Director', `Human approval: ${approved ? 'approved' : 'rejected'}${feedback ? ' — ' + feedback : ''}`)
-    if (approved) break
-
-    rejectionCount++
-    if (rejectionCount >= MAX_REJECTIONS) {
-      logger.log('Director', `Escalating after ${rejectionCount} rejections`)
-      const guidance = await deps.askInput(
-        `I'm stuck after ${rejectionCount} plan rejections. Latest feedback: "${feedback}"\n` +
-        'Please provide guidance on how to proceed: '
-      )
-      rejectionCount = 0
-      const fixResult = await executeDirector({
-        prompt: `Human escalation. Guidance: ${guidance}\nPrevious plan:\n${currentPlan}\nPlease revise the plan.`,
-        step: WorkflowStep.ApprovePlan,
-        systemPromptText,
-        config,
-        logger,
-      })
-      currentPlan = fixResult.message
-    } else {
-      const fixResult = await executeDirector({
-        prompt: `Plan rejected. Feedback: ${feedback}\nPrevious plan:\n${currentPlan}\nPlease revise the plan.`,
-        step: WorkflowStep.ApprovePlan,
-        systemPromptText,
-        config,
-        logger,
-      })
-      currentPlan = fixResult.message
-    }
-  }
-
-  // Steps 6-7: Execute → Review loop (with sub-phase iteration)
+  // Execute → Review loop (with sub-phase iteration)
   let coderRetries = 0
   let totalCoderCost = 0
-  let instructions = currentPlan
   const completedSubPhases: string[] = []
 
   while (true) {
@@ -237,7 +192,7 @@ export async function runPhase(
     logger.log('Director', 'Step 7: Reviewing Coder output')
     const reviewResult = await executeDirector({
       prompt: buildReviewPrompt(
-        currentPlan,
+        phase.spec,
         JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
         completedSubPhases,
       ),

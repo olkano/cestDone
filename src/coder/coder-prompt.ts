@@ -9,7 +9,7 @@ export interface CoderPromptInput {
   completedSubPhases?: string[]
 }
 
-const READ_ONLY_STEPS = [WorkflowStep.Analyze, WorkflowStep.Plan]
+const READ_ONLY_STEPS = [WorkflowStep.Analyze]
 
 export function buildCoderPrompt(input: CoderPromptInput): string {
   const parts: string[] = []

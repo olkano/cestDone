@@ -1,4 +1,5 @@
 // src/director/prompts.ts
+import { WorkflowStep } from '../shared/types.js'
 import type { Phase, FreeFormSpec, Plan } from '../shared/types.js'
 
 export const DIRECTOR_RESPONSE_SCHEMA = {
@@ -14,12 +15,12 @@ export const DIRECTOR_RESPONSE_SCHEMA = {
   required: ['action', 'message'],
 }
 
-export function buildDirectorTools(step: number): string[] {
+export function buildDirectorTools(step: WorkflowStep): string[] {
   const READ_ONLY = ['Read', 'Glob', 'Grep']
   const READ_BASH = ['Read', 'Glob', 'Grep', 'Bash']
 
   switch (step) {
-    case 7: // Review — needs Bash for running tests
+    case WorkflowStep.Review:
       return READ_BASH
     default:
       return READ_ONLY
@@ -41,38 +42,40 @@ export function buildClarifyPrompt(questions: string[], answers: string[]): stri
   ].join('\n')
 }
 
-export function buildPlanPrompt(phase: Phase, updatedSpec: string): string {
-  return [
-    '## Updated Spec',
-    updatedSpec,
+export function buildInitialCoderInstructions(plan: Plan, phase: Phase, completedPhases: Phase[]): string {
+  const parts: string[] = [
+    '## Project: ' + plan.title,
     '',
-    `## Phase ${phase.number}: ${phase.name}`,
+    '## Context',
+    plan.context,
     '',
-    '## Current Codebase',
-    'Explore the project using Read/Glob/Grep to understand what already exists.',
+    '## Tech Stack',
+    plan.techStack,
+  ]
+
+  if (completedPhases.length > 0) {
+    parts.push('', '## Previously Completed Phases')
+    for (const p of completedPhases) {
+      parts.push(`### Phase ${p.number}: ${p.name}`, p.done)
+    }
+  }
+
+  parts.push(
     '',
-    '## Task',
-    'Produce a detailed implementation plan as a numbered list of tasks.',
-    "Consider existing code — don't plan work that's already done.",
-    'Include: file paths, function signatures, TDD sequence (which tests first), and a TODO checklist.',
+    '## Your Task',
+    `Implement Phase ${phase.number}: ${phase.name}`,
     '',
-    '## Sub-phase Chunking',
-    'If the plan is too large for a single Coder session (~15-25 turns), break it into sub-phases.',
-    'Each sub-phase should be a discrete, testable feature that:',
-    '- Can be implemented in 15-25 Coder turns',
-    '- Ends with all tests passing and a clean state',
-    '- Builds on previous sub-phases without breaking them',
-    'Label sub-phases clearly: **Sub-phase A**, **Sub-phase B**, etc.',
-    'If the plan fits in one session, a single sub-phase is fine.',
-    '',
-    'Do NOT write code yet.',
-  ].join('\n')
+    'Read the phase spec above, explore the codebase, determine implementation order, and execute.',
+    'If the work is large, implement incrementally and ensure tests pass at each step.',
+  )
+
+  return parts.join('\n')
 }
 
-export function buildReviewPrompt(plan: string, coderReport: string, completedSubPhases: string[] = []): string {
+export function buildReviewPrompt(phaseSpec: string, coderReport: string, completedSubPhases: string[] = []): string {
   const parts: string[] = [
-    '## Implementation Plan',
-    plan,
+    '## Phase Spec',
+    phaseSpec,
     '',
     '## Coder Report',
     coderReport,

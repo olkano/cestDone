@@ -18,18 +18,13 @@ describe('selectModel', () => {
     }
   })
 
-  // F1: Steps 1, 4 → Opus always
+  // F1: Step 1 → Opus always
   it('returns Opus for Analyze step regardless of complexity', () => {
     expect(selectModel(WorkflowStep.Analyze, 'low')).toBe(OPUS)
     expect(selectModel(WorkflowStep.Analyze, 'high')).toBe(OPUS)
   })
 
-  it('returns Opus for Plan step regardless of complexity', () => {
-    expect(selectModel(WorkflowStep.Plan, 'low')).toBe(OPUS)
-    expect(selectModel(WorkflowStep.Plan, 'high')).toBe(OPUS)
-  })
-
-  // F2: Steps 2, 3, 5 → Sonnet if low complexity, Opus if high
+  // F2: Steps 2, 4 → complexity-dependent (Clarify, Execute)
   it('returns Sonnet for Clarify step with low complexity', () => {
     expect(selectModel(WorkflowStep.Clarify, 'low')).toBe(SONNET)
   })
@@ -43,11 +38,7 @@ describe('selectModel', () => {
     expect(selectModel(WorkflowStep.CreatePlan, 'high')).toBe(OPUS)
   })
 
-  it('returns Opus for ApprovePlan step with high complexity', () => {
-    expect(selectModel(WorkflowStep.ApprovePlan, 'high')).toBe(OPUS)
-  })
-
-  // F3: Step 6 → Opus for high (full phase), Sonnet for low (small fix)
+  // F3: Execute → Opus for high (full phase), Sonnet for low (small fix)
   it('returns Opus for Execute step with high complexity', () => {
     expect(selectModel(WorkflowStep.Execute, 'high')).toBe(OPUS)
   })

@@ -82,16 +82,6 @@ describe('buildCoderPrompt', () => {
     expect(result).not.toContain('Do NOT modify any files')
   })
 
-  it('includes read-only constraint for Plan step', () => {
-    const result = buildCoderPrompt({
-      instructions: 'Create an implementation plan.',
-      phase: TEST_PHASE,
-      step: WorkflowStep.Plan,
-    })
-
-    expect(result).toContain('Do NOT modify any files')
-  })
-
   // O6: Includes completed sub-phases context
   it('includes completed sub-phases when provided', () => {
     const result = buildCoderPrompt({

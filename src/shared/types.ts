@@ -28,11 +28,9 @@ export enum WorkflowStep {
   Analyze = 1,
   Clarify = 2,
   CreatePlan = 3,
-  Plan = 4,
-  ApprovePlan = 5,
-  Execute = 6,
-  Review = 7,
-  Complete = 8,
+  Execute = 4,
+  Review = 5,
+  Complete = 6,
 }
 
 export type DirectorActionType = 'analyze' | 'ask_human' | 'approve' | 'fix' | 'continue' | 'done' | 'escalate'

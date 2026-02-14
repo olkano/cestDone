@@ -7,7 +7,6 @@ export const SONNET = 'claude-sonnet-4-20250514'
 const ALWAYS_OPUS: WorkflowStep[] = [
   WorkflowStep.Analyze,
   WorkflowStep.CreatePlan,
-  WorkflowStep.Plan,
   WorkflowStep.Review,
   WorkflowStep.Complete,
 ]
@@ -32,6 +31,6 @@ export function selectModel(step: WorkflowStep, complexity: Complexity): string 
   if (ALWAYS_OPUS.includes(step)) {
     return OPUS
   }
-  // Steps 2, 3, 5, 6: complexity-dependent
+  // Steps 2, 4: complexity-dependent (Clarify, Execute)
   return complexity === 'high' ? OPUS : SONNET
 }

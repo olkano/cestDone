@@ -7,7 +7,6 @@ const FULL_EDIT = ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
 export function getTools(step: WorkflowStep): string[] {
   switch (step) {
     case WorkflowStep.Analyze:
-    case WorkflowStep.Plan:
       return READ_ONLY
     case WorkflowStep.Execute:
       return FULL_EDIT

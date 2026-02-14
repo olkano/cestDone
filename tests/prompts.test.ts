@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildDirectorTools,
   buildClarifyPrompt,
-  buildPlanPrompt,
+  buildInitialCoderInstructions,
   buildReviewPrompt,
   buildCompletePrompt,
   buildPlanningSystemPrompt,
@@ -13,6 +13,7 @@ import {
   buildExecutionSystemPrompt,
   DIRECTOR_RESPONSE_SCHEMA,
 } from '../src/director/prompts.js'
+import { WorkflowStep } from '../src/shared/types.js'
 import type { Phase, FreeFormSpec, Plan } from '../src/shared/types.js'
 
 const CURRENT_PHASE: Phase = {
@@ -39,13 +40,13 @@ describe('DIRECTOR_RESPONSE_SCHEMA', () => {
 
 describe('buildDirectorTools', () => {
   it('returns read-only tools for most steps', () => {
-    expect(buildDirectorTools(1)).toEqual(['Read', 'Glob', 'Grep'])
-    expect(buildDirectorTools(4)).toEqual(['Read', 'Glob', 'Grep'])
-    expect(buildDirectorTools(8)).toEqual(['Read', 'Glob', 'Grep'])
+    expect(buildDirectorTools(WorkflowStep.Analyze)).toEqual(['Read', 'Glob', 'Grep'])
+    expect(buildDirectorTools(WorkflowStep.Execute)).toEqual(['Read', 'Glob', 'Grep'])
+    expect(buildDirectorTools(WorkflowStep.Complete)).toEqual(['Read', 'Glob', 'Grep'])
   })
 
   it('returns read + Bash tools for Review step', () => {
-    expect(buildDirectorTools(7)).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
+    expect(buildDirectorTools(WorkflowStep.Review)).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
   })
 })
 
@@ -61,31 +62,36 @@ describe('buildClarifyPrompt', () => {
   })
 })
 
-describe('buildPlanPrompt', () => {
-  it('includes phase info and planning instructions', () => {
-    const prompt = buildPlanPrompt(CURRENT_PHASE, 'Updated spec content')
+describe('buildInitialCoderInstructions', () => {
+  it('includes plan context and phase task', () => {
+    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[1], [])
 
-    expect(prompt).toContain('Updated spec content')
-    expect(prompt).toContain('Phase 1: Core features')
-    expect(prompt).toContain('implementation plan')
-    expect(prompt).toContain('TDD')
-    expect(prompt).toContain('Do NOT write code')
+    expect(prompt).toContain('Dashboard Project')
+    expect(prompt).toContain('Express, Cheerio, EJS')
+    expect(prompt).toContain('Phase 2: Dashboard')
   })
 
-  it('includes sub-phase chunking instructions', () => {
-    const prompt = buildPlanPrompt(CURRENT_PHASE, 'Updated spec')
+  it('includes completed phases when present', () => {
+    const completedPhases = [TEST_PLAN.phases[0]]
+    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[1], completedPhases)
 
-    expect(prompt).toContain('Sub-phase')
-    expect(prompt).toContain('15-25')
-    expect(prompt).toContain('testable feature')
+    expect(prompt).toContain('Previously Completed Phases')
+    expect(prompt).toContain('Phase 1: Scraper')
+    expect(prompt).toContain('Built scraper.')
+  })
+
+  it('omits completed phases section when none exist', () => {
+    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[0], [])
+
+    expect(prompt).not.toContain('Previously Completed Phases')
   })
 })
 
 describe('buildReviewPrompt', () => {
-  it('includes plan and coder report', () => {
-    const prompt = buildReviewPrompt('The plan', '{"status":"success"}')
+  it('includes phase spec and coder report', () => {
+    const prompt = buildReviewPrompt('The phase spec', '{"status":"success"}')
 
-    expect(prompt).toContain('The plan')
+    expect(prompt).toContain('The phase spec')
     expect(prompt).toContain('success')
     expect(prompt).toContain('npm test')
     expect(prompt).toContain('tsc --noEmit')
