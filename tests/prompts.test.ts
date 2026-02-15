@@ -199,11 +199,12 @@ describe('buildPlanningSystemPrompt', () => {
     expect(prompt).toContain('Use TDD. Update docs at the end.')
   })
 
-  it('describes Director planning role', () => {
+  it('describes Director full lifecycle role', () => {
     const prompt = buildPlanningSystemPrompt(TEST_SPEC)
 
     expect(prompt).toContain('Director')
-    expect(prompt).toContain('plan')
+    expect(prompt).toContain('full project lifecycle')
+    expect(prompt).toContain('continuous session')
   })
 
   it('omits house rules section when empty', () => {

@@ -63,7 +63,7 @@ beforeEach(() => {
   })
   vi.mocked(resolveConfig).mockReturnValue(MOCK_RESOLVED)
   vi.mocked(ensureTTY).mockReturnValue(undefined)
-  vi.mocked(runPhase).mockResolvedValue(undefined)
+  vi.mocked(runPhase).mockResolvedValue('sess-mock')
   vi.mocked(getPlanPath).mockReturnValue('/tmp/spec.plan.md')
 })
 
@@ -92,7 +92,8 @@ describe('handleRun', () => {
         askApproval: expect.any(Function),
         askInput: expect.any(Function),
         createPlanFile: expect.any(Function),
-      })
+      }),
+      undefined, // no sessionId — existing plan, no planning flow
     )
   })
 
@@ -104,6 +105,7 @@ describe('handleRun', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
+      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)     // executeAllPhases loop 1 → finds pending
@@ -124,7 +126,8 @@ describe('handleRun', () => {
       PENDING_PHASE,
       MOCK_RESOLVED,
       '/tmp/spec.plan.md',
-      expect.anything()
+      expect.anything(),
+      'sess-planning', // sessionId flows from planning to execution
     )
   })
 
@@ -139,6 +142,7 @@ describe('handleRun', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
+      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -178,7 +182,8 @@ describe('handleRun', () => {
       IN_PROGRESS_PHASE,
       expect.anything(),
       expect.anything(),
-      expect.anything()
+      expect.anything(),
+      undefined, // no sessionId — existing plan
     )
   })
 })
@@ -203,7 +208,8 @@ describe('handleResume', () => {
       '/tmp/spec.plan.md',
       expect.objectContaining({
         askApproval: expect.any(Function),
-      })
+      }),
+      undefined, // no sessionId — resume starts fresh
     )
     // No prompt about in-progress — resume doesn't ask
     expect(askInput).not.toHaveBeenCalled()

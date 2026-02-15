@@ -68,8 +68,8 @@ export async function handleRun(
     specFilePath: resolvedSpecPath,
   }
 
-  const { planPath: createdPlanPath } = await runPlanningFlow(freeFormSpec, resolved, deps)
-  await executeAllPhases(createdPlanPath, resolved, deps)
+  const { planPath: createdPlanPath, sessionId } = await runPlanningFlow(freeFormSpec, resolved, deps)
+  await executeAllPhases(createdPlanPath, resolved, deps, sessionId)
 }
 
 export async function handleResume(
@@ -100,14 +100,16 @@ async function executeAllPhases(
   planPath: string,
   config: ResolvedConfig,
   deps: DirectorDeps,
+  sessionId?: string,
 ): Promise<void> {
+  let currentSessionId = sessionId
   while (true) {
     const planContent = fs.readFileSync(planPath, 'utf-8')
     const plan = parsePlan(planContent)
     const next = plan.phases.find(p => p.status === 'pending' || p.status === 'in-progress')
     if (!next) break
     deps.display(`\n=== Phase ${next.number}: ${next.name} ===`)
-    await runPhase(plan, next, config, planPath, deps)
+    currentSessionId = await runPhase(plan, next, config, planPath, deps, currentSessionId)
   }
   deps.display('\nAll phases complete.')
 }

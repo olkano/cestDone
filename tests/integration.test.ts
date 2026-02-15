@@ -226,6 +226,77 @@ describe('integration', () => {
     await expect(handleRun(specPath)).rejects.toThrow('ANTHROPIC_API_KEY')
   })
 
+  // I4: Director session continuity — first call fresh, rest resume
+  it('uses continuous Director session across planning and execution', async () => {
+    const responses = [
+      makeDirectorResult('analyze', 'Spec is clear. No questions.'),
+      makeDirectorResult('done', VALID_PLAN_CONTENT),
+      makeCoderResult(),
+      makeDirectorResult('done', 'All verified.'),
+      makeDirectorResult('done', 'Phase done. Created scaffold.'),
+    ]
+
+    mockQuery.mockImplementation(() => {
+      const idx = queryCallIndex++
+      return createMockQuery(responses[idx])
+    })
+
+    const specPath = path.join(tmpDir, 'spec.md')
+    fs.writeFileSync(specPath, 'Build a simple project with tests.', 'utf-8')
+
+    await handleRun(specPath)
+
+    expect(mockQuery).toHaveBeenCalledTimes(5)
+
+    // Call 0 (Analyze): fresh session — no resume
+    expect(mockQuery.mock.calls[0][0].options.resume).toBeUndefined()
+    expect(mockQuery.mock.calls[0][0].options.systemPrompt).toBeDefined()
+
+    // Call 1 (CreatePlan): resumes from Analyze session
+    expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-1')
+    expect(mockQuery.mock.calls[1][0].options.systemPrompt).toBeUndefined()
+
+    // Call 2 (Coder): fresh session — Coder never resumes
+    // (Coder doesn't use Director session)
+
+    // Call 3 (Review): resumes Director session
+    expect(mockQuery.mock.calls[3][0].options.resume).toBeDefined()
+    expect(mockQuery.mock.calls[3][0].options.systemPrompt).toBeUndefined()
+
+    // Call 4 (Complete): resumes Director session
+    expect(mockQuery.mock.calls[4][0].options.resume).toBeDefined()
+    expect(mockQuery.mock.calls[4][0].options.systemPrompt).toBeUndefined()
+  })
+
+  // I5: Resume starts a fresh Director session (no planning history)
+  it('resume starts fresh Director session without planning history', async () => {
+    const specPath = path.join(tmpDir, 'spec.md')
+    const planPath = specPath.replace('.md', '.plan.md')
+    fs.writeFileSync(specPath, 'Original spec.', 'utf-8')
+    fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
+
+    const responses = [
+      makeCoderResult(),
+      makeDirectorResult('done', 'All verified.'),
+      makeDirectorResult('done', 'Resumed and done.'),
+    ]
+
+    mockQuery.mockImplementation(() => {
+      const idx = queryCallIndex++
+      return createMockQuery(responses[idx])
+    })
+
+    await handleResume(specPath)
+
+    // Call 0 (Coder): fresh session (Coder always fresh)
+    // Call 1 (Review): fresh Director session — no resume (first Director call in resume flow)
+    expect(mockQuery.mock.calls[1][0].options.resume).toBeUndefined()
+    expect(mockQuery.mock.calls[1][0].options.systemPrompt).toBeDefined()
+
+    // Call 2 (Complete): resumes from Review session
+    expect(mockQuery.mock.calls[2][0].options.resume).toBe('sess-1')
+  })
+
   it('exits cleanly when all phases are done in existing plan', async () => {
     const donePlan = VALID_PLAN_CONTENT
       .replace('### Status: pending', '### Status: done')

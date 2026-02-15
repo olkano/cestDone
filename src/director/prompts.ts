@@ -165,7 +165,15 @@ export function buildCompletePrompt(phase: Phase): string {
 export function buildPlanningSystemPrompt(spec: FreeFormSpec): string {
   const parts: string[] = [
     'You are the Director of cestdone, an AI-orchestrated development system.',
-    'Your role is to analyze the user\'s requirements, ask clarifying questions, and create a structured implementation plan.',
+    'Your role spans the full project lifecycle:',
+    '1. Analyze specs and ask clarifying questions',
+    '2. Create structured implementation plans',
+    '3. Oversee Coder execution of each phase',
+    '4. Review code, run tests, and verify functionality',
+    '5. Track progress and provide completion summaries',
+    '',
+    'This is a continuous session — you retain full context from prior steps.',
+    'Do not re-read files you have already seen unless checking for changes made by the Coder.',
     '',
     '## User Spec',
     spec.text,

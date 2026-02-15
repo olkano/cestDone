@@ -196,3 +196,108 @@ The orchestrator's value proposition should emerge with:
 The orchestrator **works** — it delivered a functional, well-tested project from a 3-sentence spec. But the overhead model (Director reviews, completion summaries, stateless re-exploration) is designed for large, high-stakes projects. On a small task like this, it's like using a crane to move a couch.
 
 **Next step:** Implement recommendations #1-3, re-run the same spec, and compare. Target: under 20 minutes and under $3.
+
+# Independent code analysis
+## Code Quality Rating: **6.5 / 10** 
+
+It's a solid foundation — functional, well-structured, and tests pass. But there are real bugs, security issues, and engineering gaps that pull the score down.
+
+---
+
+### What's Good
+
+- **Clean architecture**: Factory-based `createApp()`, service layer separation, typed interfaces, utilities in their own modules
+- **Graceful degradation**: `Promise.allSettled()` ensures one failing metric doesn't crash the whole response
+- **Strong TypeScript config**: `strict: true`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` — all on
+- **Solid test coverage**: Unit, integration, resilience, and performance tests (35 passing)
+- **Proper signal handling** in [server.ts](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/src/server.ts) (SIGTERM/SIGINT)
+- **Structured logging** with pino
+
+---
+
+### Bugs Found
+
+**1. XSS Vulnerability (Critical)** — [index.html:564-568](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/public/index.html#L564-L568)
+
+HTTP header names and values from the target site are injected directly into the DOM via `innerHTML` without sanitization:
+
+```js
+`<div class="header-item"><span class="header-name">${name}:</span> ${value}</div>`
+```
+
+If the scraped site returns a header with malicious content (e.g., `<img onerror=alert(1)>`), it executes in the user's browser. Same issue for SEO metadata at lines [581-631](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/public/index.html#L581-L631) and security header errors at [530](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/public/index.html#L530).
+
+**2. Regex Bug in HTML Parser** — [html-parser.ts:51](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/src/utils/html-parser.ts#L51)
+
+```ts
+const regex = new RegExp(`<meta[^>]+name=['"](${name})['"][^>]+content=['"]([^'"]*)['"[^>]*>`, 'i');
+```
+
+The character class `['"` has an unescaped bracket — `['"[^>]*>` at the end is broken. It won't match meta tags where `content` comes before `name` (the attribute order is not guaranteed in HTML). This silently fails to extract metadata on many real-world pages.
+
+**3. Duplicate HTTP Requests** — [metrics-collector.ts:37-43](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/src/services/metrics-collector.ts#L37-L43)
+
+`collectSiteAvailability()`, `collectPageLoadPerformance()`, and `collectSeoMetaData()` all separately `axios.get()` the same URL. That's **3 redundant full-page fetches** per API call. This wastes bandwidth, slows response times, and could trigger rate limiting.
+
+**4. `MetricsCollector` instantiated on every request** — [app.ts:32](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/src/app.ts#L32)
+
+```ts
+const collector = new MetricsCollector(config.targetUrl);
+```
+
+A new instance is created per request with no caching/debouncing. Concurrent dashboard visitors will hammer the target site.
+
+**5. Unsafe type assertion** — [metrics-collector.ts:147](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/src/services/metrics-collector.ts#L147)
+
+```ts
+headers: headers as Record<string, string>,
+```
+
+Axios headers can contain `string | string[]` (e.g., `set-cookie`), not just `string`. This lie to the type system can cause runtime issues downstream.
+
+**6. `createErrorMetric` returns `any`** — [metrics-collector.ts:209](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/src/services/metrics-collector.ts#L209)
+
+Defeats TypeScript's strict mode entirely. The switch statement duplicates error shapes already defined in each collector's catch block.
+
+---
+
+### Missing Engineering Practices
+
+|Area|Issue|
+|---|---|
+|**Rate limiting**|No rate limiting on `/api/metrics`. Anyone can DoS the target site through your server|
+|**Caching**|No response caching — stale-while-revalidate would prevent redundant scraping|
+|**CORS**|No CORS headers configured. If the dashboard is served from a different origin, API calls fail|
+|**Security headers**|Express leaks `X-Powered-By: Express`. No helmet middleware|
+|**Input validation**|`TARGET_URL` from env is trusted blindly — a malformed URL crashes at `new URL()` in `collectAllMetrics`|
+|**Static file path**|`express.static('public')` uses a relative path — breaks if the working directory changes at runtime|
+|**Graceful shutdown**|No timeout on `server.close()` — if connections hang, shutdown hangs forever|
+|**IPv6 DNS**|Only `dns.resolve4()` is called — IPv6 (`AAAA`) records are silently ignored|
+|**SSL validation**|`isValid` only checks expiry, not whether the certificate chain is trusted|
+|**No linting**|No ESLint config in the project|
+
+---
+
+### Test Gaps
+
+- **No test for the SSL utility** ([ssl.ts](vscode-webview://0cgpkke84s920joksuujsheg7v63bnbongrfj43qntvuajvmt30i/src/utils/ssl.ts)) — the most complex piece with TLS sockets
+- Integration tests hit **real network endpoints** (itmplatform.com, httpstat.us) — these are flaky by nature and will fail in CI without network access
+- The `config.test.ts` mutates `process.env` directly, which can leak between tests in parallel mode
+- No test for malformed `TARGET_URL` crashing the app
+- No test coverage reporting configured in CI scripts
+
+---
+
+### Summary
+
+|Category|Score|Notes|
+|---|---|---|
+|Architecture|8/10|Clean separation, good patterns|
+|Type Safety|6/10|Strict config but undermined by `any` and unsafe casts|
+|Security|4/10|XSS in dashboard, no rate limiting, no helmet|
+|Error Handling|7/10|Good degradation, but URL validation gap|
+|Test Quality|6/10|Good breadth, but flaky integration tests and missing SSL coverage|
+|Performance|5/10|3 redundant HTTP requests, no caching|
+|Production Readiness|5/10|Missing caching, rate limiting, CORS, security headers|
+
+**Overall: 6.5/10** — Competent prototype-level code. The structure is right but it needs hardening for the XSS bug, redundant requests, and missing production safeguards before it's deployable.

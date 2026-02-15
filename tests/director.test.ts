@@ -1,6 +1,6 @@
 // tests/director.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { runPhase, runPlanningFlow } from '../src/director/director.js'
+import { runPhase, runPlanningFlow, executeDirector } from '../src/director/director.js'
 import type { DirectorDeps } from '../src/director/director.js'
 import { WorkflowStep } from '../src/shared/types.js'
 import type { ResolvedConfig, Phase, CoderResult, CoderOptions, FreeFormSpec, Plan } from '../src/shared/types.js'
@@ -496,6 +496,52 @@ describe('runPhase', () => {
     expect(firstOpts.systemPrompt.append).toContain('A test project.')
     expect(firstOpts.systemPrompt.append).toContain('TypeScript, Node.js')
   })
+
+  // J19: runPhase resumes Director session when sessionId provided
+  it('resumes Director session when sessionId is provided', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps, 'sess-existing')
+
+    // First Director call resumes from provided sessionId
+    expect(mockQuery).toHaveBeenCalledTimes(2)
+    expect(mockQuery.mock.calls[0][0].options.resume).toBe('sess-existing')
+    // Subsequent calls use sessionId from SDK response (mock returns 'sess-dir')
+    expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-dir')
+  })
+
+  // J20: runPhase creates fresh session when no sessionId provided
+  it('creates fresh Director session when no sessionId provided', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
+
+    // First call should be fresh (no resume)
+    expect(mockQuery.mock.calls[0][0].options.resume).toBeUndefined()
+    // Second call should resume from first call's session
+    expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-dir')
+  })
+
+  // J21: runPhase returns sessionId for cross-phase continuity
+  it('returns sessionId for cross-phase continuity', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    const returnedSessionId = await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps, 'sess-existing')
+
+    expect(returnedSessionId).toBe('sess-dir')
+  })
 })
 
 // === runPlanningFlow tests ===
@@ -699,5 +745,128 @@ describe('runPlanningFlow', () => {
 
     expect(result.planPath).toBe('/project/my-spec.plan.md')
     expect(deps.createPlanFile).toHaveBeenCalledWith('/project/my-spec.plan.md', VALID_PLAN_CONTENT)
+  })
+
+  // P9: First Director call has no resume, subsequent calls resume session
+  it('uses continuous session — first call fresh, subsequent calls resume', async () => {
+    setupDirectorResponses(
+      { action: 'ask_human', message: 'Need info', questions: ['What DB?'] },
+      { action: 'approve', message: 'Understood.' },
+      { action: 'done', message: VALID_PLAN_CONTENT },
+    )
+    const deps = createHappyPathDeps()
+    deps.askInput = vi.fn().mockResolvedValueOnce('PostgreSQL').mockResolvedValue('done')
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    // 3 calls: analyze, clarify, createPlan
+    expect(mockQuery).toHaveBeenCalledTimes(3)
+    // First call: no resume
+    expect(mockQuery.mock.calls[0][0].options.resume).toBeUndefined()
+    // Second call: resumes from first session
+    expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-dir')
+    // Third call: also resumes
+    expect(mockQuery.mock.calls[2][0].options.resume).toBe('sess-dir')
+  })
+
+  // P10: Returns sessionId for execution flow to continue
+  it('returns sessionId for execution flow to continue', async () => {
+    setupDirectorResponses(
+      { action: 'analyze', message: 'Spec is clear.' },
+      { action: 'done', message: VALID_PLAN_CONTENT },
+    )
+    const deps = createHappyPathDeps()
+
+    const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    expect(result.sessionId).toBe('sess-dir')
+  })
+})
+
+// === executeDirector session tracking tests ===
+
+describe('executeDirector', () => {
+  const mockLogger = { log: vi.fn(), logVerbose: vi.fn() }
+
+  // S1: Captures session_id from system init message
+  it('captures session_id from system init message', async () => {
+    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+
+    const result = await executeDirector({
+      prompt: 'test',
+      step: WorkflowStep.Analyze,
+      systemPromptText: 'system prompt',
+      config: TEST_CONFIG,
+      logger: mockLogger,
+    })
+
+    expect(result.sessionId).toBe('sess-dir')
+  })
+
+  // S2: Passes resume option to query when provided
+  it('passes resume option to query when provided', async () => {
+    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+
+    await executeDirector({
+      prompt: 'test',
+      step: WorkflowStep.Analyze,
+      systemPromptText: 'system prompt',
+      config: TEST_CONFIG,
+      logger: mockLogger,
+      resume: 'sess-123',
+    })
+
+    const opts = mockQuery.mock.calls[0][0].options
+    expect(opts.resume).toBe('sess-123')
+  })
+
+  // S3: Does not include resume option when not provided
+  it('does not include resume option when not provided', async () => {
+    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+
+    await executeDirector({
+      prompt: 'test',
+      step: WorkflowStep.Analyze,
+      systemPromptText: 'system prompt',
+      config: TEST_CONFIG,
+      logger: mockLogger,
+    })
+
+    const opts = mockQuery.mock.calls[0][0].options
+    expect(opts.resume).toBeUndefined()
+  })
+
+  // S4: Omits systemPrompt when resuming (session retains original)
+  it('omits systemPrompt when resuming', async () => {
+    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+
+    await executeDirector({
+      prompt: 'test',
+      step: WorkflowStep.Analyze,
+      systemPromptText: 'system prompt',
+      config: TEST_CONFIG,
+      logger: mockLogger,
+      resume: 'sess-123',
+    })
+
+    const opts = mockQuery.mock.calls[0][0].options
+    expect(opts.systemPrompt).toBeUndefined()
+  })
+
+  // S5: Includes systemPrompt on fresh session (no resume)
+  it('includes systemPrompt on fresh session', async () => {
+    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+
+    await executeDirector({
+      prompt: 'test',
+      step: WorkflowStep.Analyze,
+      systemPromptText: 'my system prompt',
+      config: TEST_CONFIG,
+      logger: mockLogger,
+    })
+
+    const opts = mockQuery.mock.calls[0][0].options
+    expect(opts.systemPrompt).toBeDefined()
+    expect(opts.systemPrompt.append).toBe('my system prompt')
   })
 })

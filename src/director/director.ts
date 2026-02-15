@@ -42,6 +42,7 @@ export interface DirectorCallResult {
   numTurns: number
   durationMs: number
   usage: TokenUsage
+  sessionId: string
 }
 
 function recordDirectorCall(deps: DirectorDeps, result: DirectorCallResult): DirectorResponse {
@@ -62,19 +63,21 @@ export async function runPlanningFlow(
   spec: FreeFormSpec,
   config: ResolvedConfig,
   deps: DirectorDeps
-): Promise<{ planPath: string; plan: Plan }> {
+): Promise<{ planPath: string; plan: Plan; sessionId: string }> {
   const { logger } = deps
   const systemPromptText = buildPlanningSystemPrompt(spec)
 
-  // Step 1: Analyze free-form spec
+  // Step 1: Analyze free-form spec — first call creates the Director session
   logger.log('Director', 'Planning: Analyzing free-form spec')
-  const analyzeResult = recordDirectorCall(deps, await executeDirector({
+  const analyzeCallResult = await executeDirector({
     prompt: buildFreeFormAnalyzePrompt(spec),
     step: WorkflowStep.Analyze,
     systemPromptText,
     config,
     logger,
-  }))
+  })
+  const analyzeResult = recordDirectorCall(deps, analyzeCallResult)
+  let sessionId = analyzeCallResult.sessionId
 
   // Step 2: Clarify (iterative — ask follow-ups until Director is satisfied)
   let clarificationsText = ''
@@ -90,13 +93,16 @@ export async function runPlanningFlow(
     clarificationsText += (clarificationsText ? '\n\n' : '') +
       pendingQuestions.map((q, i) => `Q: ${q}\nA: ${answers[i]}`).join('\n\n')
 
-    const clarifyResult = recordDirectorCall(deps, await executeDirector({
+    const clarifyCallResult = await executeDirector({
       prompt: buildClarifyPrompt(pendingQuestions, answers),
       step: WorkflowStep.Clarify,
       systemPromptText,
       config,
       logger,
-    }))
+      resume: sessionId,
+    })
+    const clarifyResult = recordDirectorCall(deps, clarifyCallResult)
+    sessionId = clarifyCallResult.sessionId || sessionId
 
     // If Director has follow-up questions, loop; otherwise proceed
     if (clarifyResult.action === 'ask_human' && clarifyResult.questions?.length) {
@@ -108,13 +114,16 @@ export async function runPlanningFlow(
 
   // Step 3: Create plan
   logger.log('Director', 'Planning: Creating structured plan')
-  const createResult = recordDirectorCall(deps, await executeDirector({
+  const createCallResult = await executeDirector({
     prompt: buildCreatePlanPrompt(spec, clarificationsText),
     step: WorkflowStep.CreatePlan,
     systemPromptText,
     config,
     logger,
-  }))
+    resume: sessionId,
+  })
+  const createResult = recordDirectorCall(deps, createCallResult)
+  sessionId = createCallResult.sessionId || sessionId
 
   // Validate + approve loop
   let rejectionCount = 0
@@ -126,13 +135,16 @@ export async function runPlanningFlow(
       parsePlan(currentPlanContent)
     } catch (err) {
       logger.log('Director', `Plan format invalid: ${(err as Error).message}. Asking Director to fix.`)
-      const fixResult = recordDirectorCall(deps, await executeDirector({
+      const fixCallResult = await executeDirector({
         prompt: `The plan you produced has a format error: ${(err as Error).message}\n\nPlease fix it and return the corrected plan in your message field.\n\nOriginal plan:\n${currentPlanContent}`,
         step: WorkflowStep.CreatePlan,
         systemPromptText,
         config,
         logger,
-      }))
+        resume: sessionId,
+      })
+      const fixResult = recordDirectorCall(deps, fixCallResult)
+      sessionId = fixCallResult.sessionId || sessionId
       currentPlanContent = fixResult.message
       continue
     }
@@ -150,23 +162,29 @@ export async function runPlanningFlow(
         'Please provide guidance on how to proceed: '
       )
       rejectionCount = 0
-      const fixResult = recordDirectorCall(deps, await executeDirector({
+      const escCallResult = await executeDirector({
         prompt: `Human escalation. Guidance: ${guidance}\nPrevious plan:\n${currentPlanContent}\nPlease revise the plan.`,
         step: WorkflowStep.CreatePlan,
         systemPromptText,
         config,
         logger,
-      }))
-      currentPlanContent = fixResult.message
+        resume: sessionId,
+      })
+      const escResult = recordDirectorCall(deps, escCallResult)
+      sessionId = escCallResult.sessionId || sessionId
+      currentPlanContent = escResult.message
     } else {
-      const fixResult = recordDirectorCall(deps, await executeDirector({
+      const revCallResult = await executeDirector({
         prompt: buildRevisePlanPrompt(currentPlanContent, feedback ?? ''),
         step: WorkflowStep.CreatePlan,
         systemPromptText,
         config,
         logger,
-      }))
-      currentPlanContent = fixResult.message
+        resume: sessionId,
+      })
+      const revResult = recordDirectorCall(deps, revCallResult)
+      sessionId = revCallResult.sessionId || sessionId
+      currentPlanContent = revResult.message
     }
   }
 
@@ -176,7 +194,7 @@ export async function runPlanningFlow(
   const plan = parsePlan(currentPlanContent)
   logger.log('Director', `Plan written to ${planPath} with ${plan.phases.length} phases`)
 
-  return { planPath, plan }
+  return { planPath, plan, sessionId }
 }
 
 // === Phase execution flow ===
@@ -186,8 +204,9 @@ export async function runPhase(
   phase: Phase,
   config: ResolvedConfig,
   planFilePath: string,
-  deps: DirectorDeps
-): Promise<void> {
+  deps: DirectorDeps,
+  sessionId?: string
+): Promise<string> {
   const { logger } = deps
   const completedPhases = plan.phases.filter(p => p.status === 'done')
   const systemPromptText = buildExecutionSystemPrompt(plan, completedPhases)
@@ -243,13 +262,16 @@ export async function runPhase(
 
     let reviewResult: DirectorResponse
     try {
-      reviewResult = recordDirectorCall(deps, await executeDirector({
+      const reviewCallResult = await executeDirector({
         prompt: reviewPrompt,
         step: WorkflowStep.Review,
         systemPromptText,
         config,
         logger,
-      }))
+        resume: sessionId,
+      })
+      reviewResult = recordDirectorCall(deps, reviewCallResult)
+      sessionId = reviewCallResult.sessionId || sessionId
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       logger.log('Director', `Review call crashed: ${errorMessage}`)
@@ -294,14 +316,19 @@ export async function runPhase(
 
   // Step 8: Complete
   logger.log('Director', 'Step 8: Completing phase')
-  const completeResult = recordDirectorCall(deps, await executeDirector({
+  const completeCallResult = await executeDirector({
     prompt: buildCompletePrompt(phase),
     step: WorkflowStep.Complete,
     systemPromptText,
     config,
     logger,
-  }))
+    resume: sessionId,
+  })
+  const completeResult = recordDirectorCall(deps, completeCallResult)
+  sessionId = completeCallResult.sessionId || sessionId
   deps.writePhaseCompletion(planFilePath, phase.number, completeResult.message)
+
+  return sessionId!
 }
 
 function buildCoderOptions(params: {
@@ -340,6 +367,7 @@ interface ExecuteDirectorParams {
   systemPromptText: string
   config: ResolvedConfig
   logger: SessionLogger
+  resume?: string
 }
 
 export async function executeDirector(params: ExecuteDirectorParams): Promise<DirectorCallResult> {
@@ -361,11 +389,6 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     tools,
-    systemPrompt: {
-      type: 'preset',
-      preset: 'claude_code',
-      append: systemPromptText,
-    },
     outputFormat: {
       type: 'json_schema',
       schema: DIRECTOR_RESPONSE_SCHEMA,
@@ -373,13 +396,28 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
     env,
   }
 
+  if (params.resume) {
+    queryOptions.resume = params.resume
+  } else {
+    queryOptions.systemPrompt = {
+      type: 'preset',
+      preset: 'claude_code',
+      append: systemPromptText,
+    }
+  }
+
   let callResult: DirectorCallResult | null = null
+  let capturedSessionId = ''
 
   const q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
 
   try {
     for await (const message of q) {
-      const msg = message as { type: string; subtype?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }; usage?: unknown }
+      const msg = message as { type: string; subtype?: string; session_id?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }; usage?: unknown }
+
+      if (msg.type === 'system' && msg.session_id) {
+        capturedSessionId = msg.session_id
+      }
 
       if (msg.type === 'assistant' && msg.message?.content) {
         for (const block of msg.message.content) {
@@ -401,6 +439,7 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
           numTurns: msg.num_turns ?? 0,
           durationMs: msg.duration_ms ?? 0,
           usage,
+          sessionId: capturedSessionId,
         }
         logger.logVerbose('Director', 'Result received, breaking out of SDK stream')
         break
