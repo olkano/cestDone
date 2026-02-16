@@ -18,7 +18,6 @@ function makeOptions(overrides: Partial<CoderOptions> = {}): CoderOptions {
     houseRulesContent: 'Use TDD.',
     instructions: 'Implement the feature.',
     maxTurns: 100,
-    apiKey: 'sk-test',
     logger: { log: vi.fn(), logVerbose: vi.fn() },
     ...overrides,
   }

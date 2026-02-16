@@ -1,6 +1,6 @@
 // tests/cli.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Phase, Plan, ResolvedConfig, FreeFormSpec } from '../src/shared/types.js'
+import type { Phase, Plan, Config, FreeFormSpec } from '../src/shared/types.js'
 
 vi.mock('node:fs')
 vi.mock('../src/shared/config.js')
@@ -15,7 +15,7 @@ vi.mock('../src/shared/logger.js', () => ({
 }))
 
 import fs from 'node:fs'
-import { loadConfig, resolveConfig } from '../src/shared/config.js'
+import { loadConfig } from '../src/shared/config.js'
 import { parsePlan, getPlanPath } from '../src/shared/plan-parser.js'
 import { runPhase, runPlanningFlow } from '../src/director/director.js'
 import { ensureTTY, askInput } from '../src/cli/prompt.js'
@@ -36,10 +36,9 @@ const DONE_PHASE: Phase = {
   spec: '_See Done._', applicableRules: '', done: 'Done.',
 }
 
-const MOCK_RESOLVED: ResolvedConfig = {
+const MOCK_CONFIG: Config = {
   defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '.',
-  apiKey: 'sk-test',
   maxTurns: 100,
 }
 
@@ -56,12 +55,7 @@ function makeMockPlan(phases: Phase[]): Plan {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(fs.readFileSync).mockReturnValue('Free form spec text')
-  vi.mocked(loadConfig).mockReturnValue({
-    defaultModel: 'claude-opus-4-20250514',
-    targetRepoPath: '.',
-    maxTurns: 100,
-  })
-  vi.mocked(resolveConfig).mockReturnValue(MOCK_RESOLVED)
+  vi.mocked(loadConfig).mockReturnValue(MOCK_CONFIG)
   vi.mocked(ensureTTY).mockReturnValue(undefined)
   vi.mocked(runPhase).mockResolvedValue('sess-mock')
   vi.mocked(getPlanPath).mockReturnValue('/tmp/spec.plan.md')
@@ -86,7 +80,7 @@ describe('handleRun', () => {
     expect(runPhase).toHaveBeenCalledWith(
       plan,
       PENDING_PHASE,
-      MOCK_RESOLVED,
+      MOCK_CONFIG,
       '/tmp/spec.plan.md',
       expect.objectContaining({
         askApproval: expect.any(Function),
@@ -118,13 +112,13 @@ describe('handleRun', () => {
         text: 'Free form spec text',
         houseRulesContent: '',
       }),
-      MOCK_RESOLVED,
+      MOCK_CONFIG,
       expect.anything()
     )
     expect(runPhase).toHaveBeenCalledWith(
       plan,
       PENDING_PHASE,
-      MOCK_RESOLVED,
+      MOCK_CONFIG,
       '/tmp/spec.plan.md',
       expect.anything(),
       'sess-planning', // sessionId flows from planning to execution
@@ -154,7 +148,7 @@ describe('handleRun', () => {
       expect.objectContaining({
         houseRulesContent: 'Always use TDD.',
       }),
-      MOCK_RESOLVED,
+      MOCK_CONFIG,
       expect.anything()
     )
   })
@@ -204,7 +198,7 @@ describe('handleResume', () => {
     expect(runPhase).toHaveBeenCalledWith(
       plan,
       IN_PROGRESS_PHASE,
-      MOCK_RESOLVED,
+      MOCK_CONFIG,
       '/tmp/spec.plan.md',
       expect.objectContaining({
         askApproval: expect.any(Function),

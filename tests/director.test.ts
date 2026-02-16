@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { runPhase, runPlanningFlow, executeDirector } from '../src/director/director.js'
 import type { DirectorDeps } from '../src/director/director.js'
 import { WorkflowStep } from '../src/shared/types.js'
-import type { ResolvedConfig, Phase, CoderResult, CoderOptions, FreeFormSpec, Plan } from '../src/shared/types.js'
+import type { Config, Phase, CoderResult, CoderOptions, FreeFormSpec, Plan } from '../src/shared/types.js'
 import { CostTracker } from '../src/shared/cost-tracker.js'
 
 const mockQuery = vi.fn()
@@ -58,8 +58,7 @@ const TEST_PLAN: Plan = {
   phases: [TEST_PHASE],
 }
 
-const TEST_CONFIG: ResolvedConfig = {
-  apiKey: 'sk-test',
+const TEST_CONFIG: Config = {
   defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '/tmp/repo',
   maxTurns: 100,
@@ -261,7 +260,6 @@ describe('runPhase', () => {
     expect(opts.targetRepoPath).toBe('/tmp/repo')
     expect(opts.houseRulesContent).toBe('Use TDD.')
     expect(opts.maxTurns).toBe(100)
-    expect(opts.apiKey).toBe('sk-test')
     expect(opts.logger).toBeDefined()
     expect(typeof opts.logger.log).toBe('function')
   })

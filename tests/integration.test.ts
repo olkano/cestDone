@@ -17,7 +17,7 @@ vi.mock('../src/shared/logger.js', () => ({
 }))
 
 import { ensureTTY, askApproval, askInput } from '../src/cli/prompt.js'
-import { loadConfig, resolveConfig } from '../src/shared/config.js'
+import { loadConfig } from '../src/shared/config.js'
 import { handleRun, handleResume } from '../src/cli/index.js'
 
 const VALID_PLAN_CONTENT = [
@@ -79,14 +79,11 @@ function createMockQuery(result: Record<string, unknown>) {
 let queryCallIndex = 0
 
 let tmpDir: string
-let savedApiKey: string | undefined
 
 beforeEach(() => {
   queryCallIndex = 0
   vi.clearAllMocks()
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-integ-'))
-  savedApiKey = process.env.ANTHROPIC_API_KEY
-  process.env.ANTHROPIC_API_KEY = 'sk-test-integration'
   process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-20250514'
   process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5-20251001'
 
@@ -98,21 +95,10 @@ beforeEach(() => {
     targetRepoPath: '.',
     maxTurns: 100,
   })
-  vi.mocked(resolveConfig).mockReturnValue({
-    defaultModel: 'claude-opus-4-20250514',
-    targetRepoPath: '.',
-    maxTurns: 100,
-    apiKey: 'sk-test-integration',
-  })
 })
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true })
-  if (savedApiKey !== undefined) {
-    process.env.ANTHROPIC_API_KEY = savedApiKey
-  } else {
-    delete process.env.ANTHROPIC_API_KEY
-  }
 })
 
 describe('integration', () => {
@@ -216,16 +202,6 @@ describe('integration', () => {
     const updated = fs.readFileSync(planPath, 'utf-8')
     expect(updated).toContain('### Status: done')
     expect(updated).toContain('Resumed and done.')
-  })
-
-  it('throws when ANTHROPIC_API_KEY is not set', async () => {
-    vi.mocked(resolveConfig).mockImplementation(() => {
-      throw new Error('ANTHROPIC_API_KEY environment variable is required.')
-    })
-    const specPath = path.join(tmpDir, 'spec.md')
-    fs.writeFileSync(specPath, 'Some spec.', 'utf-8')
-
-    await expect(handleRun(specPath)).rejects.toThrow('ANTHROPIC_API_KEY')
   })
 
   // I4: Director session continuity — first call fresh, rest resume

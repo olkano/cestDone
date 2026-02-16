@@ -1,6 +1,6 @@
 // tests/config.test.ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { loadConfig, resolveConfig } from '../src/shared/config.js'
+import { loadConfig } from '../src/shared/config.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -67,33 +67,3 @@ describe('loadConfig', () => {
   })
 })
 
-describe('resolveConfig', () => {
-  const originalKey = process.env.ANTHROPIC_API_KEY
-
-  afterEach(() => {
-    if (originalKey !== undefined) {
-      process.env.ANTHROPIC_API_KEY = originalKey
-    } else {
-      delete process.env.ANTHROPIC_API_KEY
-    }
-  })
-
-  // B3: Reads ANTHROPIC_API_KEY from process.env
-  it('reads ANTHROPIC_API_KEY from process.env', () => {
-    process.env.ANTHROPIC_API_KEY = 'sk-test-key-123'
-    const config = loadConfig(os.tmpdir())
-
-    const resolved = resolveConfig(config)
-
-    expect(resolved.apiKey).toBe('sk-test-key-123')
-    expect(resolved.defaultModel).toBe(config.defaultModel)
-  })
-
-  // B4: Throws clear error when ANTHROPIC_API_KEY is missing
-  it('throws clear error when ANTHROPIC_API_KEY is not set', () => {
-    delete process.env.ANTHROPIC_API_KEY
-    const config = loadConfig(os.tmpdir())
-
-    expect(() => resolveConfig(config)).toThrow('ANTHROPIC_API_KEY')
-  })
-})

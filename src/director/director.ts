@@ -1,6 +1,6 @@
 // src/director/director.ts
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import type { Phase, PhaseStatus, ResolvedConfig, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan, TokenUsage } from '../shared/types.js'
+import type { Phase, PhaseStatus, Config, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan, TokenUsage } from '../shared/types.js'
 import { WorkflowStep, mapSdkUsage, formatToolCall } from '../shared/types.js'
 import { CostTracker, formatTotals } from '../shared/cost-tracker.js'
 import {
@@ -61,7 +61,7 @@ function recordDirectorCall(deps: DirectorDeps, result: DirectorCallResult): Dir
 
 export async function runPlanningFlow(
   spec: FreeFormSpec,
-  config: ResolvedConfig,
+  config: Config,
   deps: DirectorDeps
 ): Promise<{ planPath: string; plan: Plan; sessionId: string }> {
   const { logger } = deps
@@ -203,7 +203,7 @@ export async function runPlanningFlow(
 export async function runPhase(
   plan: Plan,
   phase: Phase,
-  config: ResolvedConfig,
+  config: Config,
   planFilePath: string,
   deps: DirectorDeps,
   sessionId?: string
@@ -336,7 +336,7 @@ export async function runPhase(
 function buildCoderOptions(params: {
   step: WorkflowStep
   phase: Phase
-  config: ResolvedConfig
+  config: Config
   houseRulesContent: string
   instructions: string
   completedSubPhases?: string[]
@@ -351,7 +351,6 @@ function buildCoderOptions(params: {
     instructions: params.instructions,
     maxTurns: params.config.maxTurns,
     maxBudgetUsd: params.config.maxBudgetUsd,
-    apiKey: params.config.apiKey,
     logger: params.logger,
     completedSubPhases: params.completedSubPhases,
   }
@@ -367,7 +366,7 @@ interface ExecuteDirectorParams {
   prompt: string
   step: WorkflowStep
   systemPromptText: string
-  config: ResolvedConfig
+  config: Config
   logger: SessionLogger
   resume?: string
 }

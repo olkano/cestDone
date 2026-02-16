@@ -20,9 +20,6 @@ export interface Config {
   maxBudgetUsd?: number
 }
 
-export interface ResolvedConfig extends Config {
-  apiKey: string
-}
 
 export enum WorkflowStep {
   Analyze = 1,
@@ -78,7 +75,6 @@ export interface CoderOptions {
   instructions: string
   maxTurns: number
   maxBudgetUsd?: number
-  apiKey: string
   logger: SessionLogger
   completedSubPhases?: string[]
 }

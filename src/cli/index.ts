@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Command } from 'commander'
-import { loadConfig, resolveConfig } from '../shared/config.js'
+import { loadConfig } from '../shared/config.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
 import { createPlanFile, updatePhaseStatus, writePhaseCompletion } from '../shared/spec-writer.js'
 import { runPlanningFlow, runPhase, type DirectorDeps } from '../director/director.js'
@@ -13,7 +13,7 @@ import { executeCoder } from '../coder/coder.js'
 import { ensureGitRepo } from '../shared/git.js'
 import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
 import { CostTracker, formatFinalSummary } from '../shared/cost-tracker.js'
-import type { FreeFormSpec, ResolvedConfig } from '../shared/types.js'
+import type { FreeFormSpec, Config } from '../shared/types.js'
 
 export async function handleRun(
   specPath: string,
@@ -25,9 +25,8 @@ export async function handleRun(
   const logger = createSessionLogger({ specName })
 
   const config = loadConfig()
-  const resolved = resolveConfig(config)
-  const targetDir = path.resolve(options?.target ?? resolved.targetRepoPath)
-  resolved.targetRepoPath = targetDir
+  const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
+  config.targetRepoPath = targetDir
   ensureGitRepo(targetDir)
 
   const resolvedSpecPath = path.resolve(specPath)
@@ -60,7 +59,7 @@ export async function handleRun(
       }
     }
 
-    await executeAllPhases(planPath, resolved, deps)
+    await executeAllPhases(planPath, config, deps)
   } else {
     // No plan exists — run planning flow
     const freeFormSpec: FreeFormSpec = {
@@ -69,8 +68,8 @@ export async function handleRun(
       specFilePath: resolvedSpecPath,
     }
 
-    const { planPath: createdPlanPath, sessionId } = await runPlanningFlow(freeFormSpec, resolved, deps)
-    await executeAllPhases(createdPlanPath, resolved, deps, sessionId)
+    const { planPath: createdPlanPath, sessionId } = await runPlanningFlow(freeFormSpec, config, deps)
+    await executeAllPhases(createdPlanPath, config, deps, sessionId)
   }
 
   logFinalSummary(logger, costTracker, startTime, targetDir)
@@ -86,9 +85,8 @@ export async function handleResume(
   const logger = createSessionLogger({ specName })
 
   const config = loadConfig()
-  const resolved = resolveConfig(config)
-  const targetDir = path.resolve(options?.target ?? resolved.targetRepoPath)
-  resolved.targetRepoPath = targetDir
+  const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
+  config.targetRepoPath = targetDir
   ensureGitRepo(targetDir)
 
   const resolvedSpecPath = path.resolve(specPath)
@@ -100,13 +98,13 @@ export async function handleResume(
 
   const costTracker = new CostTracker()
   const deps = buildDeps(logger, costTracker)
-  await executeAllPhases(planPath, resolved, deps)
+  await executeAllPhases(planPath, config, deps)
   logFinalSummary(logger, costTracker, startTime, targetDir)
 }
 
 async function executeAllPhases(
   planPath: string,
-  config: ResolvedConfig,
+  config: Config,
   deps: DirectorDeps,
   sessionId?: string,
 ): Promise<void> {

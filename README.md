@@ -280,10 +280,16 @@ Status transitions: `pending` → `in-progress` → `done`. The original spec fi
 npm install
 ```
 
-Set your API key in a `.env` file (Node 22+ loads it via `--env-file`):
+### Authentication
+
+cestdone uses the [Claude Agent SDK](https://docs.anthropic.com/en/docs/agent-sdk), which requires `ANTHROPIC_API_KEY` in the environment. The SDK reads it automatically — cestdone does not manage the key itself.
+
+Set it in a `.env` file (Node 22+ loads it via `--env-file`):
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+> **Note:** The Agent SDK requires an API key. Claude Max/Pro subscriptions cannot be used — Anthropic explicitly prohibits third-party tools from using subscription-based authentication. API billing is separate from your Claude subscription.
 
 Run a spec:
 ```bash
