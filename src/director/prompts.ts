@@ -1,6 +1,7 @@
 // src/director/prompts.ts
 import { WorkflowStep } from '../shared/types.js'
 import type { Phase, FreeFormSpec, Plan } from '../shared/types.js'
+import type { EnvironmentInfo } from '../shared/environment.js'
 
 export const DIRECTOR_RESPONSE_SCHEMA = {
   type: 'object' as const,
@@ -48,7 +49,7 @@ export function buildClarifyPrompt(questions: string[], answers: string[]): stri
   ].join('\n')
 }
 
-export function buildInitialCoderInstructions(plan: Plan, phase: Phase, completedPhases: Phase[]): string {
+export function buildInitialCoderInstructions(plan: Plan, phase: Phase, completedPhases: Phase[], env?: EnvironmentInfo): string {
   const parts: string[] = [
     '## Project: ' + plan.title,
     '',
@@ -58,6 +59,10 @@ export function buildInitialCoderInstructions(plan: Plan, phase: Phase, complete
     '## Tech Stack',
     plan.techStack,
   ]
+
+  if (env) {
+    parts.push('', '## Environment', env.summary)
+  }
 
   if (completedPhases.length > 0) {
     parts.push('', '## Previously Completed Phases')
@@ -73,6 +78,7 @@ export function buildInitialCoderInstructions(plan: Plan, phase: Phase, complete
     '',
     'Read the phase spec above, explore the codebase, determine implementation order, and execute.',
     'If the work is large, implement incrementally and ensure tests pass at each step.',
+    'Run tests in non-interactive mode (no watch mode). Kill any servers or background processes when done.',
   )
 
   return parts.join('\n')
@@ -99,54 +105,44 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
   parts.push(
     '',
     '## Task',
-    'Review the code AND verify it works. You are a code reviewer, not just a test runner.',
+    'Review the Coder\'s work. The Coder already ran tests and type checks — do NOT re-run them.',
+    'Focus on what the Coder cannot self-verify: code quality, spec compliance, and integration.',
     '',
-    '### 1. Code Review (mandatory — do this FIRST)',
-    'Read every file the Coder changed or created. For each file, assess:',
-    '- **Correctness**: Does the logic actually implement what the phase spec requires?',
-    '- **Completeness**: Are there missing edge cases, unhandled errors, or TODO stubs left behind?',
-    '- **Quality**: Is the code clean, well-structured, and consistent with the existing codebase?',
-    '- **Security**: Are there obvious vulnerabilities (injection, hardcoded secrets, etc.)?',
+    '### 1. Code Review (mandatory)',
+    'Read the diff (`cestdone-diff.txt`) or changed files. Assess:',
+    '- **Correctness**: Does the logic implement what the phase spec requires?',
+    '- **Completeness**: Missing edge cases, TODO stubs, or unhandled errors?',
+    '- **Quality**: Clean, well-structured, consistent with existing codebase?',
+    '- **Security**: Obvious vulnerabilities (injection, hardcoded secrets, etc.)?',
     '',
-    '### 2. Run Tests & Type Checks',
-    '- Run `npm test` (or the project\'s test command) via Bash',
-    '- Run `tsc --noEmit` if TypeScript',
+    '### 2. Functional Verification (only when needed)',
+    'Only do this when the phase delivers user-visible behavior that unit tests cannot cover,',
+    'such as a web endpoint, CLI command, or UI interaction.',
+    'If you determine functional testing is needed:',
+    '- Start any required servers or processes',
+    '- Verify the behavior works as specified',
+    '- **IMPORTANT: Kill all servers and background processes when done**',
     '',
-    '### 3. Functional Verification (when applicable)',
-    'Act like a human tester — actually verify the result works, not just that code looks right.',
-    'Based on the project type, use Bash to:',
-    '- **Web app/API**: Start the dev server, curl endpoints, check responses match expectations',
-    '- **CLI tool**: Run the CLI with sample inputs, verify output is correct',
-    '- **Library**: Write and run a small script that imports and exercises the new functionality',
-    '- **Build/config changes**: Run the build, verify artifacts are produced correctly',
+    'Skip this step entirely if the Coder\'s test results already cover the functionality.',
     '',
-    'If the phase spec describes user-visible behavior, you MUST verify it by actually running it.',
-    'Do not skip this step just because tests pass — tests may not cover the actual integration.',
-    'If starting a long-running server, remember to kill it when done.',
-    '',
-    '### 4. Requirements Check',
-    'Compare the delivered code against the phase spec point by point.',
-    'Flag anything that was specified but not implemented, or implemented differently than specified.',
-    '',
-    "Report: what works, what's broken, what's missing, and any code quality concerns.",
+    '### 3. Requirements Check',
+    'Compare delivered code against the phase spec. Flag anything missing or divergent.',
     '',
     '## Git Commits',
-    'If tests pass and the work is correct, commit the changes before responding:',
+    'If the work is correct, commit before responding:',
     '```',
     'git add -A',
     'git commit -m "cestdone: <concise description of what was built>"',
     '```',
-    'Do NOT commit if tests fail, types have errors, or the implementation is incomplete.',
+    'Do NOT commit if the Coder reported test failures or the implementation is incomplete.',
     '',
     '## Response Actions',
     `Your scope is ONLY Phase ${phaseNumber} (${phaseName}). Do NOT plan or include work for subsequent phases.`,
     '',
-    '- **fix**: Issues found in this phase. Do NOT commit. Return specific fix instructions for the Coder.',
-    '- **continue**: This phase was split into sub-phases, and the current sub-phase is correct and committed,',
-    '  but more sub-phases WITHIN THIS SAME PHASE remain. Include the next sub-phase instructions.',
+    '- **fix**: Issues found. Do NOT commit. Return specific fix instructions for the Coder.',
+    '- **continue**: Current sub-phase correct and committed, but more sub-phases remain WITHIN THIS PHASE.',
     '  Do NOT use "continue" to advance to the next plan phase — that is handled automatically.',
-    `- **done**: Phase ${phaseNumber} is complete — all deliverables verified and committed. Use this when`,
-    '  the phase spec requirements are fully met, even if other plan phases exist after this one.',
+    `- **done**: Phase ${phaseNumber} is complete — all deliverables verified and committed.`,
   )
 
   return parts.join('\n')
@@ -162,22 +158,25 @@ export function buildCompletePrompt(phase: Phase): string {
 
 // === Planning flow prompts ===
 
-export function buildPlanningSystemPrompt(spec: FreeFormSpec): string {
+export function buildPlanningSystemPrompt(spec: FreeFormSpec, env?: EnvironmentInfo): string {
   const parts: string[] = [
     'You are the Director of cestdone, an AI-orchestrated development system.',
     'Your role spans the full project lifecycle:',
     '1. Analyze specs and ask clarifying questions',
     '2. Create structured implementation plans',
     '3. Oversee Coder execution of each phase',
-    '4. Review code, run tests, and verify functionality',
+    '4. Review code quality and verify functionality',
     '5. Track progress and provide completion summaries',
     '',
     'This is a continuous session — you retain full context from prior steps.',
     'Do not re-read files you have already seen unless checking for changes made by the Coder.',
-    '',
-    '## User Spec',
-    spec.text,
   ]
+
+  if (env) {
+    parts.push('', '## Environment', env.summary)
+  }
+
+  parts.push('', '## User Spec', spec.text)
 
   if (spec.houseRulesContent) {
     parts.push('', '## House Rules', spec.houseRulesContent)
@@ -294,10 +293,17 @@ export function buildRevisePlanPrompt(currentPlan: string, feedback: string): st
   ].join('\n')
 }
 
-export function buildExecutionSystemPrompt(plan: Plan, completedPhases: Phase[]): string {
+export function buildExecutionSystemPrompt(plan: Plan, completedPhases: Phase[], env?: EnvironmentInfo): string {
   const parts: string[] = [
     'You are the Director of cestdone, an AI-orchestrated development system.',
-    'Your role is to analyze specs, create plans, and guide implementation.',
+    'Your role is to review code quality, verify functionality, and guide implementation.',
+  ]
+
+  if (env) {
+    parts.push('', '## Environment', env.summary)
+  }
+
+  parts.push(
     '',
     '## Project: ' + plan.title,
     '',
@@ -306,7 +312,7 @@ export function buildExecutionSystemPrompt(plan: Plan, completedPhases: Phase[])
     '',
     '## Tech Stack',
     plan.techStack,
-  ]
+  )
 
   if (plan.houseRules) {
     parts.push('', '## House Rules', plan.houseRules)

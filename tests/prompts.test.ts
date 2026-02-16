@@ -15,6 +15,16 @@ import {
 } from '../src/director/prompts.js'
 import { WorkflowStep } from '../src/shared/types.js'
 import type { Phase, FreeFormSpec, Plan } from '../src/shared/types.js'
+import type { EnvironmentInfo } from '../src/shared/environment.js'
+
+const TEST_ENV: EnvironmentInfo = {
+  os: 'Linux',
+  shell: '/bin/bash',
+  killCommand: 'kill -9 <pid>',
+  packageManager: 'npm',
+  dependencies: ['express', 'vitest'],
+  summary: 'OS: Linux\nShell: /bin/bash\nKill command: kill -9 <pid>\nPackage manager: npm\nDependencies: express, vitest',
+}
 
 const CURRENT_PHASE: Phase = {
   number: 1,
@@ -93,6 +103,22 @@ describe('buildInitialCoderInstructions', () => {
 
     expect(prompt).not.toContain('Previously Completed Phases')
   })
+
+  it('includes environment info when provided', () => {
+    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[1], [], TEST_ENV)
+
+    expect(prompt).toContain('## Environment')
+    expect(prompt).toContain('OS: Linux')
+    expect(prompt).toContain('kill -9 <pid>')
+  })
+
+  it('includes non-interactive test and kill instructions', () => {
+    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[0], [])
+
+    expect(prompt).toContain('non-interactive mode')
+    expect(prompt).toContain('no watch mode')
+    expect(prompt).toContain('Kill any servers or background processes')
+  })
 })
 
 describe('buildReviewPrompt', () => {
@@ -103,20 +129,34 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('Setup')
     expect(prompt).toContain('The phase spec')
     expect(prompt).toContain('success')
-    expect(prompt).toContain('npm test')
-    expect(prompt).toContain('tsc --noEmit')
   })
 
-  it('instructs Director to review code, not just run tests', () => {
+  it('does NOT instruct Director to re-run tests (Coder already did)', () => {
+    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
+
+    expect(prompt).not.toContain('npm test')
+    expect(prompt).not.toContain('tsc --noEmit')
+    expect(prompt).toContain('do NOT re-run them')
+  })
+
+  it('instructs Director to review code quality from diff', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
 
     expect(prompt).toContain('Code Review (mandatory')
-    expect(prompt).toContain('Read every file the Coder changed')
+    expect(prompt).toContain('cestdone-diff.txt')
     expect(prompt).toContain('Correctness')
     expect(prompt).toContain('Completeness')
     expect(prompt).toContain('Quality')
     expect(prompt).toContain('Security')
     expect(prompt).toContain('Requirements Check')
+  })
+
+  it('limits functional testing to when unit tests cannot cover it', () => {
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}')
+
+    expect(prompt).toContain('only when needed')
+    expect(prompt).toContain('unit tests cannot cover')
+    expect(prompt).toContain('Kill all servers and background processes when done')
   })
 
   it('includes response action instructions for continue/done/fix', () => {
@@ -154,12 +194,12 @@ describe('buildReviewPrompt', () => {
     expect(prompt).not.toContain('Previously Completed Sub-phases')
   })
 
-  it('includes git commit instructions for verified work', () => {
+  it('includes git commit instructions', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}')
 
     expect(prompt).toContain('git add -A')
     expect(prompt).toContain('git commit')
-    expect(prompt).toContain('Do NOT commit if tests fail')
+    expect(prompt).toContain('Do NOT commit if the Coder reported test failures')
   })
 })
 
@@ -213,6 +253,21 @@ describe('buildPlanningSystemPrompt', () => {
     const prompt = buildPlanningSystemPrompt(noRules)
 
     expect(prompt).not.toContain('House Rules')
+  })
+
+  it('includes environment info when provided', () => {
+    const prompt = buildPlanningSystemPrompt(TEST_SPEC, TEST_ENV)
+
+    expect(prompt).toContain('## Environment')
+    expect(prompt).toContain('OS: Linux')
+    expect(prompt).toContain('kill -9 <pid>')
+    expect(prompt).toContain('npm')
+  })
+
+  it('omits environment section when not provided', () => {
+    const prompt = buildPlanningSystemPrompt(TEST_SPEC)
+
+    expect(prompt).not.toContain('## Environment')
   })
 })
 
@@ -312,5 +367,19 @@ describe('buildExecutionSystemPrompt', () => {
 
     expect(prompt).toContain('Output Format')
     expect(prompt).toContain('JSON')
+  })
+
+  it('includes environment info when provided', () => {
+    const prompt = buildExecutionSystemPrompt(TEST_PLAN, [], TEST_ENV)
+
+    expect(prompt).toContain('## Environment')
+    expect(prompt).toContain('OS: Linux')
+    expect(prompt).toContain('kill -9 <pid>')
+  })
+
+  it('omits environment section when not provided', () => {
+    const prompt = buildExecutionSystemPrompt(TEST_PLAN, [])
+
+    expect(prompt).not.toContain('## Environment')
   })
 })

@@ -40,10 +40,15 @@ export function buildCoderPrompt(input: CoderPromptInput): string {
   parts.push(input.instructions)
   parts.push('')
 
+  parts.push('### Testing')
+  parts.push('Run tests in non-interactive mode (no watch mode). Run type checks if applicable.')
+  parts.push('If tests require starting a server or background process, kill it when tests are done.')
+  parts.push('')
+
   parts.push('### Reporting')
   parts.push('After modifications, write the diff to `cestdone-diff.txt` in the repo root:')
   parts.push('`git --no-pager diff > cestdone-diff.txt`')
-  parts.push('Also report: test results (raw output from test runner), `tsc --noEmit` output, and a list of files changed.')
+  parts.push('Also report: test results (raw output from test runner), type check output (if applicable), and a list of files changed.')
 
   return parts.join('\n')
 }

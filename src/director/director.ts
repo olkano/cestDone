@@ -3,7 +3,6 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { Phase, PhaseStatus, ResolvedConfig, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan, TokenUsage } from '../shared/types.js'
 import { WorkflowStep, mapSdkUsage, formatToolCall } from '../shared/types.js'
 import { CostTracker, formatTotals } from '../shared/cost-tracker.js'
-import type { UsageSnapshot } from '../shared/cost-tracker.js'
 import {
   buildDirectorTools,
   buildClarifyPrompt,
@@ -19,6 +18,7 @@ import {
 } from './prompts.js'
 import { selectModel } from './model-selector.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
+import { detectEnvironment } from '../shared/environment.js'
 import type { SessionLogger } from '../shared/logger.js'
 
 export interface DirectorDeps {
@@ -65,7 +65,8 @@ export async function runPlanningFlow(
   deps: DirectorDeps
 ): Promise<{ planPath: string; plan: Plan; sessionId: string }> {
   const { logger } = deps
-  const systemPromptText = buildPlanningSystemPrompt(spec)
+  const env = detectEnvironment(config.targetRepoPath)
+  const systemPromptText = buildPlanningSystemPrompt(spec, env)
 
   // Step 1: Analyze free-form spec — first call creates the Director session
   logger.log('Director', 'Planning: Analyzing free-form spec')
@@ -209,12 +210,13 @@ export async function runPhase(
 ): Promise<string> {
   const { logger } = deps
   const completedPhases = plan.phases.filter(p => p.status === 'done')
-  const systemPromptText = buildExecutionSystemPrompt(plan, completedPhases)
+  const env = detectEnvironment(config.targetRepoPath)
+  const systemPromptText = buildExecutionSystemPrompt(plan, completedPhases, env)
 
   deps.updatePhaseStatus(planFilePath, phase.number, 'in-progress')
 
   // Build initial instructions from phase spec + plan context
-  let instructions = buildInitialCoderInstructions(plan, phase, completedPhases)
+  let instructions = buildInitialCoderInstructions(plan, phase, completedPhases, env)
 
   // Execute → Review loop (with sub-phase iteration)
   let coderRetries = 0
@@ -356,8 +358,8 @@ function buildCoderOptions(params: {
 }
 
 function getDirectorMaxTurns(step: WorkflowStep): number {
-  // Review step needs more turns: read files, run tests, start server, curl, git commit
-  if (step === WorkflowStep.Review) return 30
+  // Review: read diff, optional functional testing, git commit
+  if (step === WorkflowStep.Review) return 20
   return 15
 }
 

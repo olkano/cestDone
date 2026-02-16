@@ -40,10 +40,10 @@ Director overhead:         22.2 min  (37%)
 
 ## 3. What Went Wrong (Waste Analysis)
 
-### 3.1 Director Reviews: The #1 Cost Center
+### 3.1 Director Reviews: The #1 Cost Center — PARTIALLY SOLVED (session resumption)
 
 Each Director review (step 5) is a **full independent `query()` session** that must:
-1. Re-read every file the Coder touched (no memory from prior calls)
+1. ~~Re-read every file the Coder touched (no memory from prior calls)~~ **SOLVED** — Director now uses `resume: sessionId` for a continuous conversation. Files read in prior steps are remembered.
 2. Run `npm test` again (Coder already verified)
 3. Run `tsc --noEmit` again (Coder already verified)
 4. Start a server and curl endpoints (functional verification)
@@ -64,19 +64,21 @@ Both Coder and Director try to start dev servers on port 3333:
 
 Neither agent reliably cleans up background processes. Windows makes this worse (`taskkill` syntax vs Unix `kill`).
 
-### 3.3 Redundant File Reading
+### 3.3 Redundant File Reading — SOLVED (session resumption)
 
-Due to no message accumulation (each Director call is fresh):
-- **32 redundant Director file reads** — the same files read over and over
-- The "Complete" step (step 8) reads the entire project again just to produce a 10-line summary
-- Director reads `test-spec.plan.md` ~8 times, `app.ts` ~6 times, `package.json` ~5 times
+~~Due to no message accumulation (each Director call is fresh):~~
+~~- **32 redundant Director file reads** — the same files read over and over~~
+~~- The "Complete" step (step 8) reads the entire project again just to produce a 10-line summary~~
+~~- Director reads `test-spec.plan.md` ~8 times, `app.ts` ~6 times, `package.json` ~5 times~~
 
-### 3.4 Completion Summaries (Step 8): Low-Value Work
+**SOLVED:** Director now maintains a continuous session via `resume: sessionId`. Files read once are remembered. The system prompt instructs the Director: "Do not re-read files you have already seen unless checking for changes made by the Coder."
+
+### 3.4 Completion Summaries (Step 8): Low-Value Work — PARTIALLY SOLVED (session resumption)
 
 After each phase, a Director call writes a "Done summary" into the plan file. This:
 - Costs ~$0.08 per phase ($0.32 total)
 - Takes ~2 minutes per phase (~8 minutes total)
-- Re-reads the entire codebase to generate a paragraph
+- ~~Re-reads the entire codebase to generate a paragraph~~ **SOLVED** — Director remembers what it reviewed
 - Adds no value for the Coder (which gets the summary in its next prompt anyway)
 
 ### 3.5 Test Runner Left in Watch Mode
@@ -174,9 +176,9 @@ The orchestrator's value proposition should emerge with:
    - Add `process.exit()` cleanup to dev server
    - Or skip functional verification entirely (see #1)
 
-5. **Pass Coder report to Director review as context**
-   - Avoids Director re-reading every file from scratch
-   - Could include a file manifest with checksums
+5. **Pass Coder report to Director review as context** — SOLVED (session resumption)
+   - ~~Avoids Director re-reading every file from scratch~~
+   - Director now remembers all prior context via continuous session
 
 6. **Merge small phases**
    - Phase 3 (Dashboard) found that `/api/metrics` was already built in Phase 2
@@ -185,8 +187,9 @@ The orchestrator's value proposition should emerge with:
 
 ### Lower Impact
 
-7. **Cache Director's project understanding between calls**
-   - Pass a condensed project state (file tree + key contents) instead of letting Director re-explore
+7. **Cache Director's project understanding between calls** — SOLVED (session resumption)
+   - ~~Pass a condensed project state (file tree + key contents) instead of letting Director re-explore~~
+   - Director retains full conversation history via `resume: sessionId`
 
 8. **Use Haiku for completion summaries**
    - If we keep step 8, use a cheaper/faster model for summary generation

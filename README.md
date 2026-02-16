@@ -14,7 +14,7 @@ The bottleneck in AI-assisted development is the human sitting between the AI pl
 │  src/cli/index.ts → src/director/director.ts                        │
 │                                                                      │
 │  Two-flow architecture: planning + phase execution.                 │
-│  the AIs are called per-step via Agent SDK query().                  │
+│  Director: continuous session (resume). Coder: fresh per phase.     │
 └──────────┬────────────────────────────┬──────────────────────────────┘
            │                            │
            ▼                            ▼
@@ -36,7 +36,11 @@ The bottleneck in AI-assisted development is the human sitting between the AI pl
 └─────────────────────┘     └─────────────────────────┘
 ```
 
-Both agents use `@anthropic-ai/claude-agent-sdk` with `outputFormat` for structured JSON responses. Each call is a fresh `query()` session — no message accumulation across steps.
+Both agents use `@anthropic-ai/claude-agent-sdk` with `outputFormat` for structured JSON responses.
+
+**Session strategy:**
+- **Director**: Single continuous session per process run. The first `query()` call creates the session; all subsequent calls pass `resume: sessionId` to continue the conversation. The Director remembers what it read, what clarifications were given, and what each Coder phase reported — no redundant re-exploration.
+- **Coder**: Fresh `query()` session per phase. Clean context prevents cross-phase pollution.
 
 ## Workflow
 
@@ -333,7 +337,7 @@ src/
 
 - **Runtime:** Node.js + TypeScript (ESM)
 - **Agent SDK:** `@anthropic-ai/claude-agent-sdk` (both Director and Coder)
-- **Tests:** Vitest (179 tests across 16 files)
+- **Tests:** Vitest (191 tests across 16 files)
 - **Logging:** Pino with file rotation
 - **CLI:** Commander
 
@@ -343,6 +347,7 @@ src/
 - Automatic sequential execution of all phases after plan approval (no human intervention needed)
 - Free-form spec input with optional house rules
 - Agent SDK integration for both Director (read-only) and Coder (full tools)
+- Director session resumption — single continuous conversation across planning + all phases (eliminates redundant file reads)
 - Structured JSON output for both agents
 - Per-step tool restrictions enforced via `tools` parameter
 - Plan file parsing, status tracking, and atomic updates
