@@ -16,6 +16,8 @@ let directorCallCount = 0
 beforeEach(() => {
   directorCallCount = 0
   vi.clearAllMocks()
+  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-20250514'
+  process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5-20251001'
 })
 
 function makeDirectorResult(action: string, message: string, questions?: string[]) {
@@ -149,8 +151,8 @@ describe('runPhase', () => {
     expect(opts.step).toBe(WorkflowStep.Execute)
   })
 
-  // R2: Passes correct model from selectModel()
-  it('passes model from selectModel() to coderExecute (R2)', async () => {
+  // R2: Passes coder model from getCoderModel()
+  it('passes coder model from getCoderModel() to coderExecute (R2)', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },

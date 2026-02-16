@@ -345,7 +345,7 @@ function buildCoderOptions(params: {
   return {
     step: params.step,
     phase: params.phase,
-    model: selectModel(params.step, 'high'),
+    model: getCoderModel(),
     targetRepoPath: params.config.targetRepoPath,
     houseRulesContent: params.houseRulesContent,
     instructions: params.instructions,
@@ -374,7 +374,7 @@ interface ExecuteDirectorParams {
 
 export async function executeDirector(params: ExecuteDirectorParams): Promise<DirectorCallResult> {
   const { prompt, step, systemPromptText, config, logger } = params
-  const model = selectModel(step, 'high')
+  const model = getDirectorModel()
   const tools = buildDirectorTools(step)
   const maxTurns = getDirectorMaxTurns(step)
 

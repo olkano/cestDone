@@ -87,6 +87,8 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-integ-'))
   savedApiKey = process.env.ANTHROPIC_API_KEY
   process.env.ANTHROPIC_API_KEY = 'sk-test-integration'
+  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-20250514'
+  process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5-20251001'
 
   vi.mocked(ensureTTY).mockReturnValue(undefined)
   vi.mocked(askApproval).mockResolvedValue({ approved: true })

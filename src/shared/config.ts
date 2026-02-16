@@ -6,7 +6,7 @@ import type { Config, ResolvedConfig } from './types.js'
 const CONFIG_FILENAME = '.cestdonerc.json'
 
 const DEFAULTS: Config = {
-  defaultModel: process.env.CESTDONE_MODEL || 'claude-opus-4-20250514',
+  defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '.',
   maxTurns: 100,
 }

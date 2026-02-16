@@ -7,20 +7,10 @@ import os from 'node:os'
 
 describe('loadConfig', () => {
   let tmpDir: string
-  const origModel = process.env.CESTDONE_MODEL
-
-  beforeEach(() => {
-    delete process.env.CESTDONE_MODEL
-  })
 
   afterEach(() => {
     if (tmpDir) {
       fs.rmSync(tmpDir, { recursive: true, force: true })
-    }
-    if (origModel !== undefined) {
-      process.env.CESTDONE_MODEL = origModel
-    } else {
-      delete process.env.CESTDONE_MODEL
     }
   })
 
