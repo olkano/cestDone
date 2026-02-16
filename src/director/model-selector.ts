@@ -1,36 +1,32 @@
 // src/director/model-selector.ts
-import { WorkflowStep, type Complexity } from '../shared/types.js'
 
-export const OPUS = 'claude-opus-4-20250514'
 export const SONNET = 'claude-sonnet-4-20250514'
-
-const ALWAYS_OPUS: WorkflowStep[] = [
-  WorkflowStep.Analyze,
-  WorkflowStep.CreatePlan,
-  WorkflowStep.Review,
-  WorkflowStep.Complete,
-]
+export const HAIKU = 'claude-haiku-4-5-20251001'
 
 /**
- * Returns the model to use for a given workflow step.
- *
- * If `CESTDONE_MODEL` env var is set, it overrides ALL selection logic
- * and that model is used for every call (Director + Coder).
- *
- * TODO: Split into separate env vars for finer control:
- *   - CESTDONE_DIRECTOR_MODEL — model for Director reasoning calls
- *   - CESTDONE_CODER_MODEL    — model for Coder execution calls
- *   - Let Director pick model per-phase based on complexity
+ * Returns the model for Director calls.
+ * Reads from CESTDONE_DIRECTOR_MODEL env var. Throws if not set.
  */
-export function selectModel(step: WorkflowStep, complexity: Complexity): string {
-  const override = process.env.CESTDONE_MODEL
-  if (override) {
-    return override
+export function getDirectorModel(): string {
+  const model = process.env.CESTDONE_DIRECTOR_MODEL
+  if (!model) {
+    throw new Error(
+      'CESTDONE_DIRECTOR_MODEL environment variable is required. Set it in .env before running cestdone.'
+    )
   }
+  return model
+}
 
-  if (ALWAYS_OPUS.includes(step)) {
-    return OPUS
+/**
+ * Returns the model for Coder calls.
+ * Reads from CESTDONE_CODER_MODEL env var. Throws if not set.
+ */
+export function getCoderModel(): string {
+  const model = process.env.CESTDONE_CODER_MODEL
+  if (!model) {
+    throw new Error(
+      'CESTDONE_CODER_MODEL environment variable is required. Set it in .env before running cestdone.'
+    )
   }
-  // Steps 2, 4: complexity-dependent (Clarify, Execute)
-  return complexity === 'high' ? OPUS : SONNET
+  return model
 }

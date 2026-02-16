@@ -38,11 +38,10 @@ export function buildClarifyPrompt(questions: string[], answers: string[]): stri
     '',
     clarifications,
     '',
-    'Based on these answers, do any NEW questions arise that are essential for creating the plan?',
+    'Based on these answers, do any NEW questions arise that are essential for creating the plan and implement it?',
     'For example, if the human said "yes, add polling", you may need to ask about polling interval.',
     '',
     'Rules:',
-    '- Only ask follow-up questions that are directly triggered by the answers above.',
     '- Each question MUST include a recommendation.',
     '- If no follow-up is needed, respond with action "approve" to proceed to plan creation.',
     '- Do NOT repeat questions already answered.',
@@ -132,7 +131,7 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     'If the work is correct, commit before responding:',
     '```',
     'git add -A',
-    'git commit -m "cestdone: <concise description of what was built>"',
+    'git commit -m "cestDone: <concise description of what was built>"',
     '```',
     'Do NOT commit if the Coder reported test failures or the implementation is incomplete.',
     '',
@@ -160,7 +159,7 @@ export function buildCompletePrompt(phase: Phase): string {
 
 export function buildPlanningSystemPrompt(spec: FreeFormSpec, env?: EnvironmentInfo): string {
   const parts: string[] = [
-    'You are the Director of cestdone, an AI-orchestrated development system.',
+    'You are the Director of cestDone, an AI-orchestrated development system.',
     'Your role spans the full project lifecycle:',
     '1. Analyze specs and ask clarifying questions',
     '2. Create structured implementation plans',
@@ -210,11 +209,11 @@ export function buildFreeFormAnalyzePrompt(spec: FreeFormSpec): string {
     'Explore the project using Read/Glob/Grep to understand existing code (if any).',
     '',
     '## Task',
-    'Analyze the spec and identify ONLY the essential questions — things that, if assumed wrong,',
+    'Analyze the spec and identify essential questions — things that, if assumed wrong,',
     'would lead to building the wrong thing or require significant rework.',
     '',
     'Guidelines for questions:',
-    '- Ask 2-5 questions maximum. Fewer is better. Do NOT pad with generic or obvious questions.',
+    '- Do NOT pad with generic or obvious questions.',
     '- Every question MUST include your recommended answer in parentheses, e.g.:',
     '  "What database should we use? (Recommended: PostgreSQL, since the spec mentions relational data)"',
     '- Focus on functionality assumptions: if the spec says "authentication" but doesn\'t say how,',
@@ -295,7 +294,7 @@ export function buildRevisePlanPrompt(currentPlan: string, feedback: string): st
 
 export function buildExecutionSystemPrompt(plan: Plan, completedPhases: Phase[], env?: EnvironmentInfo): string {
   const parts: string[] = [
-    'You are the Director of cestdone, an AI-orchestrated development system.',
+    'You are the Director of cestDone, an AI-orchestrated development system.',
     'Your role is to review code quality, verify functionality, and guide implementation.',
   ]
 

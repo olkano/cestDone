@@ -16,7 +16,7 @@ import {
   buildExecutionSystemPrompt,
   DIRECTOR_RESPONSE_SCHEMA,
 } from './prompts.js'
-import { selectModel } from './model-selector.js'
+import { getDirectorModel, getCoderModel } from './model-selector.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
 import { detectEnvironment } from '../shared/environment.js'
 import type { SessionLogger } from '../shared/logger.js'
