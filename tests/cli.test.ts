@@ -11,7 +11,7 @@ vi.mock('../src/cli/prompt.js')
 vi.mock('../src/coder/coder.js')
 vi.mock('../src/shared/git.js')
 vi.mock('../src/shared/logger.js', () => ({
-  createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn() }),
+  createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' }),
 }))
 
 import fs from 'node:fs'

@@ -59,3 +59,25 @@ export function formatTotals(tracker: CostTracker): string {
   const g = tracker.getGrandTotal()
   return `Totals — Director: $${d.costUsd.toFixed(2)} (in:${fmtTokens(d.inputTokens)} out:${fmtTokens(d.outputTokens)}) | Coder: $${c.costUsd.toFixed(2)} (in:${fmtTokens(c.inputTokens)} out:${fmtTokens(c.outputTokens)}) | Total: $${g.costUsd.toFixed(2)}`
 }
+
+function formatDuration(ms: number): string {
+  const secs = Math.floor(ms / 1000)
+  const mins = Math.floor(secs / 60)
+  const hrs = Math.floor(mins / 60)
+  if (hrs > 0) return `${hrs}h ${mins % 60}m ${secs % 60}s`
+  if (mins > 0) return `${mins}m ${secs % 60}s`
+  return `${secs}s`
+}
+
+export function formatFinalSummary(tracker: CostTracker, elapsedMs: number): string {
+  const d = tracker.getDirectorTotal()
+  const c = tracker.getCoderTotal()
+  const g = tracker.getGrandTotal()
+  return [
+    '=== Final Summary ===',
+    `Total time: ${formatDuration(elapsedMs)}`,
+    `Director — $${d.costUsd.toFixed(2)} | tokens: ${fmtTokens(d.inputTokens)} in, ${fmtTokens(d.outputTokens)} out, ${fmtTokens(d.cacheReadInputTokens)} cache-read`,
+    `Coder    — $${c.costUsd.toFixed(2)} | tokens: ${fmtTokens(c.inputTokens)} in, ${fmtTokens(c.outputTokens)} out, ${fmtTokens(c.cacheReadInputTokens)} cache-read`,
+    `Grand total: $${g.costUsd.toFixed(2)}`,
+  ].join('\n')
+}

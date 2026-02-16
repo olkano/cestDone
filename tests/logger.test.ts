@@ -22,6 +22,7 @@ describe('createSessionLogger', () => {
     logger.log('Test', 'message')
     logger.logVerbose('Test', 'verbose message')
 
+    expect(logger.logFilePath).toBe('')
     expect(fs.mkdirSync).not.toHaveBeenCalled()
     expect(fs.appendFileSync).not.toHaveBeenCalled()
   })
@@ -43,7 +44,7 @@ describe('createSessionLogger', () => {
 
     expect(consoleSpy).toHaveBeenCalledWith('Director: Step 1: Analyzing')
     expect(fs.appendFileSync).toHaveBeenCalledWith(
-      expect.stringMatching(/logs[\\/]\d{4}-\d{2}-\d{2}\.log$/),
+      expect.stringMatching(/logs[\\/]\d{4}-\d{2}-\d{2}_\d{6}\.log$/),
       expect.stringContaining('Director: Step 1: Analyzing'),
       'utf-8'
     )
@@ -94,7 +95,7 @@ describe('createSessionLogger', () => {
     consoleSpy.mockRestore()
   })
 
-  it('uses date-stamped filename', () => {
+  it('uses date-and-time-stamped filename', () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const logger = createSessionLogger()
 
@@ -103,6 +104,34 @@ describe('createSessionLogger', () => {
     const filePath = vi.mocked(fs.appendFileSync).mock.calls[0][0] as string
     const today = new Date().toISOString().slice(0, 10)
     expect(filePath).toContain(today)
+    expect(filePath).toMatch(/\d{4}-\d{2}-\d{2}_\d{6}\.log$/)
     consoleSpy.mockRestore()
+  })
+
+  it('includes specName prefix in filename when provided', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const logger = createSessionLogger({ specName: 'my-feature' })
+
+    logger.log('Test', 'msg')
+
+    const filePath = vi.mocked(fs.appendFileSync).mock.calls[0][0] as string
+    expect(filePath).toMatch(/my-feature_\d{4}-\d{2}-\d{2}_\d{6}\.log$/)
+    consoleSpy.mockRestore()
+  })
+
+  it('sanitizes specName to remove unsafe characters', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const logger = createSessionLogger({ specName: 'my feature/spec' })
+
+    logger.log('Test', 'msg')
+
+    const filePath = vi.mocked(fs.appendFileSync).mock.calls[0][0] as string
+    expect(filePath).toMatch(/my-feature-spec_\d{4}-\d{2}-\d{2}_\d{6}\.log$/)
+    consoleSpy.mockRestore()
+  })
+
+  it('exposes logFilePath', () => {
+    const logger = createSessionLogger({ specName: 'test' })
+    expect(logger.logFilePath).toMatch(/test_\d{4}-\d{2}-\d{2}_\d{6}\.log$/)
   })
 })

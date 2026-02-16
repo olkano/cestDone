@@ -1,6 +1,6 @@
 // tests/cost-tracker.test.ts
 import { describe, it, expect } from 'vitest'
-import { CostTracker, formatUsage, formatTotals } from '../src/shared/cost-tracker.js'
+import { CostTracker, formatUsage, formatTotals, formatFinalSummary } from '../src/shared/cost-tracker.js'
 
 describe('CostTracker', () => {
   it('starts with all zeros', () => {
@@ -101,5 +101,34 @@ describe('formatTotals', () => {
     expect(line).toContain('Director: $0.00')
     expect(line).toContain('Coder: $0.00')
     expect(line).toContain('Total: $0.00')
+  })
+})
+
+describe('formatFinalSummary', () => {
+  it('includes time, costs, and token breakdown', () => {
+    const tracker = new CostTracker()
+    tracker.recordDirector({ costUsd: 1.38, inputTokens: 125300, outputTokens: 4200, cacheReadInputTokens: 89100, cacheCreationInputTokens: 1000 })
+    tracker.recordCoder({ costUsd: 1.65, inputTokens: 200500, outputTokens: 12100, cacheReadInputTokens: 156200, cacheCreationInputTokens: 2000 })
+
+    const summary = formatFinalSummary(tracker, 24 * 60 * 1000 + 37 * 1000) // 24m 37s
+    expect(summary).toContain('=== Final Summary ===')
+    expect(summary).toContain('24m 37s')
+    expect(summary).toContain('Director')
+    expect(summary).toContain('$1.38')
+    expect(summary).toContain('Coder')
+    expect(summary).toContain('$1.65')
+    expect(summary).toContain('Grand total: $3.03')
+  })
+
+  it('formats hours when elapsed > 60 minutes', () => {
+    const tracker = new CostTracker()
+    const summary = formatFinalSummary(tracker, 2 * 3600 * 1000 + 15 * 60 * 1000 + 30 * 1000)
+    expect(summary).toContain('2h 15m 30s')
+  })
+
+  it('formats seconds only when elapsed < 60 seconds', () => {
+    const tracker = new CostTracker()
+    const summary = formatFinalSummary(tracker, 45 * 1000)
+    expect(summary).toContain('45s')
   })
 })

@@ -12,7 +12,7 @@ import { askApproval, askInput, ensureTTY } from './prompt.js'
 import { executeCoder } from '../coder/coder.js'
 import { ensureGitRepo } from '../shared/git.js'
 import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
-import { CostTracker } from '../shared/cost-tracker.js'
+import { CostTracker, formatFinalSummary } from '../shared/cost-tracker.js'
 import type { FreeFormSpec, ResolvedConfig } from '../shared/types.js'
 
 export async function handleRun(
@@ -20,7 +20,9 @@ export async function handleRun(
   options?: { target?: string; houseRules?: string }
 ): Promise<void> {
   ensureTTY()
-  const logger = createSessionLogger()
+  const startTime = Date.now()
+  const specName = path.basename(specPath, path.extname(specPath))
+  const logger = createSessionLogger({ specName })
 
   const config = loadConfig()
   const resolved = resolveConfig(config)
@@ -39,7 +41,8 @@ export async function handleRun(
   }
 
   const planPath = getPlanPath(resolvedSpecPath)
-  const deps = buildDeps(logger)
+  const costTracker = new CostTracker()
+  const deps = buildDeps(logger, costTracker)
 
   // Check if plan already exists
   if (fs.existsSync(planPath)) {
@@ -58,18 +61,19 @@ export async function handleRun(
     }
 
     await executeAllPhases(planPath, resolved, deps)
-    return
+  } else {
+    // No plan exists — run planning flow
+    const freeFormSpec: FreeFormSpec = {
+      text: specText,
+      houseRulesContent,
+      specFilePath: resolvedSpecPath,
+    }
+
+    const { planPath: createdPlanPath, sessionId } = await runPlanningFlow(freeFormSpec, resolved, deps)
+    await executeAllPhases(createdPlanPath, resolved, deps, sessionId)
   }
 
-  // No plan exists — run planning flow
-  const freeFormSpec: FreeFormSpec = {
-    text: specText,
-    houseRulesContent,
-    specFilePath: resolvedSpecPath,
-  }
-
-  const { planPath: createdPlanPath, sessionId } = await runPlanningFlow(freeFormSpec, resolved, deps)
-  await executeAllPhases(createdPlanPath, resolved, deps, sessionId)
+  logFinalSummary(logger, costTracker, startTime, targetDir)
 }
 
 export async function handleResume(
@@ -77,7 +81,9 @@ export async function handleResume(
   options?: { target?: string }
 ): Promise<void> {
   ensureTTY()
-  const logger = createSessionLogger()
+  const startTime = Date.now()
+  const specName = path.basename(specPath, path.extname(specPath))
+  const logger = createSessionLogger({ specName })
 
   const config = loadConfig()
   const resolved = resolveConfig(config)
@@ -92,8 +98,10 @@ export async function handleResume(
     throw new Error(`No plan file found at ${planPath}. Run 'cestdone run' first to create a plan.`)
   }
 
-  const deps = buildDeps(logger)
+  const costTracker = new CostTracker()
+  const deps = buildDeps(logger, costTracker)
   await executeAllPhases(planPath, resolved, deps)
+  logFinalSummary(logger, costTracker, startTime, targetDir)
 }
 
 async function executeAllPhases(
@@ -125,6 +133,26 @@ function buildDeps(logger: SessionLogger, costTracker?: CostTracker): DirectorDe
     display: (text: string) => console.log(text),
     logger,
     costTracker: costTracker ?? new CostTracker(),
+  }
+}
+
+function logFinalSummary(
+  logger: SessionLogger,
+  costTracker: CostTracker,
+  startTime: number,
+  targetDir: string,
+): void {
+  const elapsed = Date.now() - startTime
+  const summary = formatFinalSummary(costTracker, elapsed)
+  logger.log('Session', summary)
+
+  // Copy log to destination project
+  if (logger.logFilePath) {
+    const destDir = path.join(targetDir, '.cestdone')
+    fs.mkdirSync(destDir, { recursive: true })
+    const destPath = path.join(destDir, path.basename(logger.logFilePath))
+    fs.copyFileSync(logger.logFilePath, destPath)
+    logger.log('Session', `Log copied to ${destPath}`)
   }
 }
 
