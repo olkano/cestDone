@@ -65,5 +65,55 @@ describe('loadConfig', () => {
     expect(result.maxTurns).toBe(50)
     expect(result.maxBudgetUsd).toBe(5.0)
   })
+
+  // C1: New parameter fields default to undefined when not in .cestdonerc.json
+  it('defaults new parameter fields to undefined', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.directorModel).toBeUndefined()
+    expect(result.coderModel).toBeUndefined()
+    expect(result.withCoder).toBeUndefined()
+    expect(result.withReviews).toBeUndefined()
+    expect(result.withBashReviews).toBeUndefined()
+    expect(result.withHumanValidation).toBeUndefined()
+  })
+
+  // C2: Reads all new fields from .cestdonerc.json
+  it('reads parameter fields from .cestdonerc.json', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const config = {
+      directorModel: 'opus',
+      coderModel: 'sonnet',
+      withCoder: true,
+      withReviews: true,
+      withBashReviews: false,
+      withHumanValidation: true,
+    }
+    fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.directorModel).toBe('opus')
+    expect(result.coderModel).toBe('sonnet')
+    expect(result.withCoder).toBe(true)
+    expect(result.withReviews).toBe(true)
+    expect(result.withBashReviews).toBe(false)
+    expect(result.withHumanValidation).toBe(true)
+  })
+
+  // C3: Existing fields still merge correctly alongside new fields
+  it('existing config fields work alongside new fields', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const config = { maxTurns: 50, directorModel: 'haiku' }
+    fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.maxTurns).toBe(50)
+    expect(result.directorModel).toBe('haiku')
+    expect(result.withCoder).toBeUndefined()
+  })
 })
 

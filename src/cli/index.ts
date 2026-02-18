@@ -15,9 +15,50 @@ import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
 import { CostTracker, formatFinalSummary } from '../shared/cost-tracker.js'
 import type { FreeFormSpec, Config } from '../shared/types.js'
 
+export interface RunOptions {
+  target?: string
+  houseRules?: string
+  directorModel?: string
+  coderModel?: string
+  withCoder?: boolean
+  withReviews?: boolean
+  withBashReviews?: boolean
+  withHumanValidation?: boolean
+}
+
+export interface ResumeOptions {
+  target?: string
+  directorModel?: string
+  coderModel?: string
+  withCoder?: boolean
+  withReviews?: boolean
+  withBashReviews?: boolean
+  withHumanValidation?: boolean
+}
+
+function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void {
+  if (options?.directorModel) config.directorModel = options.directorModel
+  if (options?.coderModel) config.coderModel = options.coderModel
+
+  config.withCoder = options?.withCoder ?? false
+  config.withReviews = options?.withReviews ?? false
+  config.withBashReviews = options?.withBashReviews ?? false
+  config.withHumanValidation = options?.withHumanValidation ?? false
+
+  // --with-bash-reviews implies --with-reviews
+  if (config.withBashReviews) config.withReviews = true
+
+  // --with-reviews without --with-coder is invalid
+  if (config.withReviews && !config.withCoder) {
+    console.warn('Warning: --with-reviews requires --with-coder. Reviews will be ignored.')
+    config.withReviews = false
+    config.withBashReviews = false
+  }
+}
+
 export async function handleRun(
   specPath: string,
-  options?: { target?: string; houseRules?: string }
+  options?: RunOptions
 ): Promise<void> {
   ensureTTY()
   const startTime = Date.now()
@@ -27,6 +68,7 @@ export async function handleRun(
   const config = loadConfig()
   const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
   config.targetRepoPath = targetDir
+  applyFlags(config, options)
   ensureGitRepo(targetDir)
 
   const resolvedSpecPath = path.resolve(specPath)
@@ -77,7 +119,7 @@ export async function handleRun(
 
 export async function handleResume(
   specPath: string,
-  options?: { target?: string }
+  options?: ResumeOptions
 ): Promise<void> {
   ensureTTY()
   const startTime = Date.now()
@@ -87,6 +129,7 @@ export async function handleResume(
   const config = loadConfig()
   const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
   config.targetRepoPath = targetDir
+  applyFlags(config, options)
   ensureGitRepo(targetDir)
 
   const resolvedSpecPath = path.resolve(specPath)
@@ -158,21 +201,55 @@ function logFinalSummary(
 const __filename = fileURLToPath(import.meta.url)
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   const program = new Command()
-  program.name('cestdone').description('AI-orchestrated development CLI')
+  program
+    .name('cestdone')
+    .description('AI-orchestrated development CLI')
+    .showHelpAfterError(true)
 
   program.command('run')
+    .description('Create a plan from a spec and execute all phases')
     .requiredOption('--spec <path>', 'Path to spec file (free-form text)')
     .option('--target <path>', 'Target repository path')
     .option('--house-rules <path>', 'Path to house rules file')
-    .action(async (opts: { spec: string; target?: string; houseRules?: string }) => {
-      await handleRun(opts.spec, { target: opts.target, houseRules: opts.houseRules })
+    .option('--director-model <model>', 'Director model (haiku/sonnet/opus)')
+    .option('--coder-model <model>', 'Coder model (haiku/sonnet/opus)')
+    .option('--with-coder', 'Enable two-agent mode (Director + Coder)')
+    .option('--with-reviews', 'Enable Director reviews after Coder execution')
+    .option('--with-bash-reviews', 'Enable Bash in Director reviews (implies --with-reviews)')
+    .option('--with-human-validation', 'Require human approval of plan before execution')
+    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; coderModel?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean }) => {
+      await handleRun(opts.spec, {
+        target: opts.target,
+        houseRules: opts.houseRules,
+        directorModel: opts.directorModel,
+        coderModel: opts.coderModel,
+        withCoder: opts.withCoder,
+        withReviews: opts.withReviews,
+        withBashReviews: opts.withBashReviews,
+        withHumanValidation: opts.withHumanValidation,
+      })
     })
 
   program.command('resume')
+    .description('Resume execution from an existing .plan.md file')
     .requiredOption('--spec <path>', 'Path to spec file')
     .option('--target <path>', 'Target repository path')
-    .action(async (opts: { spec: string; target?: string }) => {
-      await handleResume(opts.spec, { target: opts.target })
+    .option('--director-model <model>', 'Director model (haiku/sonnet/opus)')
+    .option('--coder-model <model>', 'Coder model (haiku/sonnet/opus)')
+    .option('--with-coder', 'Enable two-agent mode (Director + Coder)')
+    .option('--with-reviews', 'Enable Director reviews after Coder execution')
+    .option('--with-bash-reviews', 'Enable Bash in Director reviews (implies --with-reviews)')
+    .option('--with-human-validation', 'Require human approval of plan before execution')
+    .action(async (opts: { spec: string; target?: string; directorModel?: string; coderModel?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean }) => {
+      await handleResume(opts.spec, {
+        target: opts.target,
+        directorModel: opts.directorModel,
+        coderModel: opts.coderModel,
+        withCoder: opts.withCoder,
+        withReviews: opts.withReviews,
+        withBashReviews: opts.withBashReviews,
+        withHumanValidation: opts.withHumanValidation,
+      })
     })
 
   program.parseAsync().catch((err: Error) => {

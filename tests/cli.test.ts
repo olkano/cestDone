@@ -215,4 +215,115 @@ describe('handleResume', () => {
 
     await expect(handleResume('spec.md')).rejects.toThrow('No plan file found')
   })
+
+  // KF1: Resume passes flags to config
+  it('passes flags from options to config', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleResume('spec.md', {
+      directorModel: 'opus',
+      withCoder: true,
+      withReviews: true,
+    })
+
+    const configPassed = vi.mocked(runPhase).mock.calls[0][2]
+    expect(configPassed.directorModel).toBe('opus')
+    expect(configPassed.withCoder).toBe(true)
+    expect(configPassed.withReviews).toBe(true)
+  })
+})
+
+describe('CLI flag wiring', () => {
+  // KF2: handleRun applies CLI flag defaults
+  it('applies CLI default flags to config', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+      sessionId: 'sess-planning',
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', {})
+
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.withCoder).toBe(false)
+    expect(configPassed.withReviews).toBe(false)
+    expect(configPassed.withBashReviews).toBe(false)
+    expect(configPassed.withHumanValidation).toBe(false)
+  })
+
+  // KF3: handleRun passes model overrides
+  it('passes model overrides to config', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+      sessionId: 'sess-planning',
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', { directorModel: 'opus', coderModel: 'sonnet' })
+
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.directorModel).toBe('opus')
+    expect(configPassed.coderModel).toBe('sonnet')
+  })
+
+  // KF4: --with-bash-reviews implies --with-reviews
+  it('withBashReviews implies withReviews', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+      sessionId: 'sess-planning',
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', { withCoder: true, withBashReviews: true })
+
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.withReviews).toBe(true)
+    expect(configPassed.withBashReviews).toBe(true)
+  })
+
+  // KF5: --with-reviews without --with-coder warns and disables reviews
+  it('warns when withReviews is set without withCoder', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+      sessionId: 'sess-planning',
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await handleRun('spec.md', { withReviews: true })
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--with-reviews'))
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.withReviews).toBe(false)
+    consoleSpy.mockRestore()
+  })
 })

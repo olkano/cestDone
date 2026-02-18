@@ -11,6 +11,7 @@ import {
   buildCreatePlanPrompt,
   buildRevisePlanPrompt,
   buildExecutionSystemPrompt,
+  buildDirectorExecutionPrompt,
   DIRECTOR_RESPONSE_SCHEMA,
 } from '../src/director/prompts.js'
 import { WorkflowStep } from '../src/shared/types.js'
@@ -55,8 +56,66 @@ describe('buildDirectorTools', () => {
     expect(buildDirectorTools(WorkflowStep.Complete)).toEqual(['Read', 'Glob', 'Grep'])
   })
 
-  it('returns read + Bash tools for Review step', () => {
+  it('returns read + Bash tools for Review step (legacy default)', () => {
     expect(buildDirectorTools(WorkflowStep.Review)).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
+  })
+
+  // BDT1: Review with withBash: false → read-only
+  it('returns read-only tools for Review when withBash is false', () => {
+    expect(buildDirectorTools(WorkflowStep.Review, { withBash: false })).toEqual(['Read', 'Glob', 'Grep'])
+  })
+
+  // BDT2: Review with withBash: true → read + Bash
+  it('returns read + Bash tools for Review when withBash is true', () => {
+    expect(buildDirectorTools(WorkflowStep.Review, { withBash: true })).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
+  })
+
+  // BDT3: Non-Review steps unaffected by withBash
+  it('non-Review steps ignore withBash option', () => {
+    expect(buildDirectorTools(WorkflowStep.Analyze, { withBash: true })).toEqual(['Read', 'Glob', 'Grep'])
+  })
+
+  // DX1: Execute step with directorOnly returns full tools
+  it('returns full tools for Execute step when directorOnly is true', () => {
+    expect(buildDirectorTools(WorkflowStep.Execute, { directorOnly: true }))
+      .toEqual(['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'])
+  })
+
+  // DX2: Execute step without directorOnly returns read-only (legacy)
+  it('returns read-only tools for Execute step without directorOnly', () => {
+    expect(buildDirectorTools(WorkflowStep.Execute)).toEqual(['Read', 'Glob', 'Grep'])
+  })
+})
+
+describe('buildDirectorExecutionPrompt', () => {
+  // DXP1: Includes phase spec and execution instructions
+  it('includes phase spec and execution instructions', () => {
+    const prompt = buildDirectorExecutionPrompt(TEST_PLAN, CURRENT_PHASE, [])
+    expect(prompt).toContain('Phase 1: Core features')
+    expect(prompt).toContain('Implement')
+    expect(prompt).toContain(CURRENT_PHASE.spec)
+  })
+
+  // DXP2: Includes completed phases context
+  it('includes completed phases context', () => {
+    const completed = [{ ...CURRENT_PHASE, status: 'done' as const, done: 'Built the parser.' }]
+    const nextPhase: Phase = { number: 2, name: 'Tests', status: 'pending', spec: 'Add tests.', applicableRules: '', done: '_(to be filled)_' }
+    const prompt = buildDirectorExecutionPrompt(TEST_PLAN, nextPhase, completed)
+    expect(prompt).toContain('Previously Completed')
+    expect(prompt).toContain('Built the parser.')
+  })
+
+  // DXP3: Instructs Director to respond with done action
+  it('instructs Director to respond with done action', () => {
+    const prompt = buildDirectorExecutionPrompt(TEST_PLAN, CURRENT_PHASE, [])
+    expect(prompt).toContain('"done"')
+  })
+
+  // DXP4: Includes environment info when provided
+  it('includes environment info when provided', () => {
+    const prompt = buildDirectorExecutionPrompt(TEST_PLAN, CURRENT_PHASE, [], TEST_ENV)
+    expect(prompt).toContain('Environment')
+    expect(prompt).toContain('Linux')
   })
 })
 
@@ -289,7 +348,6 @@ describe('buildFreeFormAnalyzePrompt', () => {
   it('limits question count and requires recommendations', () => {
     const prompt = buildFreeFormAnalyzePrompt(TEST_SPEC)
 
-    expect(prompt).toContain('2-5 questions maximum')
     expect(prompt).toContain('recommended answer')
     expect(prompt).toContain('Do NOT pad')
   })

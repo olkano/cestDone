@@ -542,6 +542,225 @@ describe('runPhase', () => {
 
     expect(returnedSessionId).toBe('sess-dir')
   })
+
+  // RV1: Skips review when config.withReviews is false
+  it('skips review when config.withReviews is false', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withReviews: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    expect(deps.coderExecute).toHaveBeenCalledTimes(1)
+    // Only 1 Director call: complete (no review)
+    expect(mockQuery).toHaveBeenCalledTimes(1)
+    expect(deps.writePhaseCompletion).toHaveBeenCalled()
+  })
+
+  // RV2: Review runs when config.withReviews is undefined (legacy)
+  it('runs review when config.withReviews is undefined (legacy)', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
+
+    // 2 Director calls: review + complete
+    expect(mockQuery).toHaveBeenCalledTimes(2)
+  })
+
+  // RV3: Review runs when config.withReviews is true
+  it('runs review when config.withReviews is true', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withReviews: true }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    expect(mockQuery).toHaveBeenCalledTimes(2)
+  })
+
+  // RV4: Without reviews, Coder runs exactly once (no retry loop)
+  it('without reviews, Coder runs exactly once per phase', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+    deps.coderExecute = vi.fn().mockResolvedValueOnce(makeCoderError())
+    const config = { ...TEST_CONFIG, withReviews: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    expect(deps.coderExecute).toHaveBeenCalledTimes(1)
+  })
+
+  // RV5: Review tools exclude Bash when withBashReviews is false
+  it('review uses read-only tools when withBashReviews is false', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withReviews: true, withBashReviews: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    const reviewOpts = mockQuery.mock.calls[0][0].options
+    expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep'])
+  })
+
+  // RV6: Review tools include Bash when withBashReviews is true
+  it('review includes Bash when withBashReviews is true', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withReviews: true, withBashReviews: true }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    const reviewOpts = mockQuery.mock.calls[0][0].options
+    expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
+  })
+
+  // RV7: Review includes Bash when withBashReviews is undefined (legacy)
+  it('review includes Bash when withBashReviews is undefined (legacy)', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
+
+    const reviewOpts = mockQuery.mock.calls[0][0].options
+    expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
+  })
+
+  // DO1: Director-only mode does NOT call coderExecute
+  it('does not call coderExecute when withCoder is false', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'Phase executed and complete.' },
+      { action: 'done', message: 'Summary.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withCoder: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    expect(deps.coderExecute).not.toHaveBeenCalled()
+  })
+
+  // DO2: Director gets full tools in director-only mode
+  it('gives Director full tools in director-only mode', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'Done.' },
+      { action: 'done', message: 'Summary.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withCoder: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    const execOpts = mockQuery.mock.calls[0][0].options
+    expect(execOpts.tools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'])
+  })
+
+  // DO3: Director-only uses execution prompt (not review)
+  it('uses execution prompt for Director-only mode', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'Implemented everything.' },
+      { action: 'done', message: 'Summary.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withCoder: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    const execPrompt = mockQuery.mock.calls[0][0].prompt
+    expect(execPrompt).toContain('Phase 1')
+    expect(execPrompt).toContain('Setup')
+    expect(execPrompt).not.toContain('Coder Report')
+  })
+
+  // DO4: No review step in director-only mode (2 calls: execute + complete)
+  it('skips review in director-only mode', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All done.' },
+      { action: 'done', message: 'Summary.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withCoder: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    expect(mockQuery).toHaveBeenCalledTimes(2)
+  })
+
+  // DO5: Director-only completes phase with summary
+  it('completes phase when Director returns done', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'Implementation complete.' },
+      { action: 'done', message: 'Built the scaffold.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withCoder: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    expect(deps.writePhaseCompletion).toHaveBeenCalledWith('plan.md', 1, 'Built the scaffold.')
+  })
+
+  // DO6: withCoder undefined (legacy) uses Coder
+  it('uses Coder when withCoder is undefined (legacy)', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
+
+    expect(deps.coderExecute).toHaveBeenCalledTimes(1)
+  })
+
+  // DO7: Director-only uses director model for execution
+  it('uses director model (not coder model) in director-only mode', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'Done.' },
+      { action: 'done', message: 'Summary.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withCoder: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    const execOpts = mockQuery.mock.calls[0][0].options
+    expect(execOpts.model).toBe('claude-sonnet-4-20250514')
+  })
+
+  // DO8: Director-only gets generous maxTurns for execution
+  it('uses higher maxTurns for Director execution step', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'Done.' },
+      { action: 'done', message: 'Summary.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withCoder: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    const execOpts = mockQuery.mock.calls[0][0].options
+    expect(execOpts.maxTurns).toBeGreaterThanOrEqual(50)
+  })
 })
 
 // === runPlanningFlow tests ===
@@ -781,6 +1000,72 @@ describe('runPlanningFlow', () => {
 
     expect(result.sessionId).toBe('sess-dir')
   })
+
+  // PV1: Auto-approves plan when withHumanValidation is false
+  it('auto-approves plan when config.withHumanValidation is false', async () => {
+    setupDirectorResponses(
+      { action: 'analyze', message: 'Spec is clear.' },
+      { action: 'done', message: VALID_PLAN_CONTENT },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withHumanValidation: false }
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
+
+    expect(deps.askApproval).not.toHaveBeenCalled()
+    expect(deps.createPlanFile).toHaveBeenCalledWith('/tmp/spec.plan.md', VALID_PLAN_CONTENT)
+  })
+
+  // PV2: Asks for approval when withHumanValidation is true
+  it('asks for plan approval when config.withHumanValidation is true', async () => {
+    setupDirectorResponses(
+      { action: 'analyze', message: 'Spec is clear.' },
+      { action: 'done', message: VALID_PLAN_CONTENT },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withHumanValidation: true }
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
+
+    expect(deps.askApproval).toHaveBeenCalledTimes(1)
+    expect(deps.display).toHaveBeenCalledWith(expect.stringContaining('Test Project'))
+  })
+
+  // PV3: Still fixes invalid plan format even without human validation
+  it('fixes invalid plan format even when withHumanValidation is false', async () => {
+    setupDirectorResponses(
+      { action: 'analyze', message: 'Spec is clear.' },
+      { action: 'done', message: 'Not a valid plan' },
+      { action: 'done', message: VALID_PLAN_CONTENT },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withHumanValidation: false }
+
+    const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
+
+    expect(deps.askApproval).not.toHaveBeenCalled()
+    expect(result.plan.title).toBe('Test Project')
+    // 3 calls: analyze, createPlan(invalid), fix
+    expect(mockQuery).toHaveBeenCalledTimes(3)
+  })
+
+  // PV4: Plan revision loop works when withHumanValidation is true
+  it('handles plan revision when withHumanValidation is true', async () => {
+    setupDirectorResponses(
+      { action: 'analyze', message: 'Spec is clear.' },
+      { action: 'done', message: VALID_PLAN_CONTENT },
+      { action: 'done', message: VALID_PLAN_CONTENT },
+    )
+    const deps = createHappyPathDeps()
+    deps.askApproval = vi.fn()
+      .mockResolvedValueOnce({ approved: false, feedback: 'Add tests' })
+      .mockResolvedValueOnce({ approved: true })
+    const config = { ...TEST_CONFIG, withHumanValidation: true }
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
+
+    expect(deps.askApproval).toHaveBeenCalledTimes(2)
+  })
 })
 
 // === executeDirector session tracking tests ===
@@ -868,5 +1153,54 @@ describe('executeDirector', () => {
     const opts = mockQuery.mock.calls[0][0].options
     expect(opts.systemPrompt).toBeDefined()
     expect(opts.systemPrompt.append).toBe('my system prompt')
+  })
+
+  // MO1: Uses config.directorModel override when set
+  it('uses directorModel from config when set', async () => {
+    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+    const config = { ...TEST_CONFIG, directorModel: 'opus' }
+
+    await executeDirector({
+      prompt: 'test',
+      step: WorkflowStep.Analyze,
+      systemPromptText: 'system',
+      config,
+      logger: mockLogger,
+    })
+
+    const opts = mockQuery.mock.calls[0][0].options
+    expect(opts.model).toBe('claude-opus-4-20250514')
+  })
+
+  // MO2: Falls back to env var when no directorModel override
+  it('falls back to env var when directorModel not in config', async () => {
+    process.env.CESTDONE_DIRECTOR_MODEL = 'claude-haiku-4-5-20251001'
+    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+
+    await executeDirector({
+      prompt: 'test',
+      step: WorkflowStep.Analyze,
+      systemPromptText: 'system',
+      config: TEST_CONFIG,
+      logger: mockLogger,
+    })
+
+    const opts = mockQuery.mock.calls[0][0].options
+    expect(opts.model).toBe('claude-haiku-4-5-20251001')
+  })
+
+  // MO3: buildCoderOptions uses config.coderModel override
+  it('passes coderModel from config to Coder', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Done.' },
+    )
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, coderModel: 'sonnet' }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+
+    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    expect(opts.model).toBe('claude-sonnet-4-20250514')
   })
 })

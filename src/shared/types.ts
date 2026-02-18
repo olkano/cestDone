@@ -18,6 +18,12 @@ export interface Config {
   targetRepoPath: string
   maxTurns: number
   maxBudgetUsd?: number
+  directorModel?: string
+  coderModel?: string
+  withCoder?: boolean
+  withReviews?: boolean
+  withBashReviews?: boolean
+  withHumanValidation?: boolean
 }
 
 

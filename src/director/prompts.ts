@@ -16,13 +16,25 @@ export const DIRECTOR_RESPONSE_SCHEMA = {
   required: ['action', 'message'],
 }
 
-export function buildDirectorTools(step: WorkflowStep): string[] {
+export interface DirectorToolOptions {
+  withBash?: boolean
+  directorOnly?: boolean
+}
+
+export function buildDirectorTools(step: WorkflowStep, options?: DirectorToolOptions): string[] {
   const READ_ONLY = ['Read', 'Glob', 'Grep']
+  const FULL_TOOLS = ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
   const READ_BASH = ['Read', 'Glob', 'Grep', 'Bash']
 
+  if (step === WorkflowStep.Execute && options?.directorOnly) {
+    return FULL_TOOLS
+  }
+
   switch (step) {
-    case WorkflowStep.Review:
-      return READ_BASH
+    case WorkflowStep.Review: {
+      const includeBash = options?.withBash !== false // undefined (legacy) = true
+      return includeBash ? READ_BASH : READ_ONLY
+    }
     default:
       return READ_ONLY
   }
@@ -142,6 +154,46 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     '- **continue**: Current sub-phase correct and committed, but more sub-phases remain WITHIN THIS PHASE.',
     '  Do NOT use "continue" to advance to the next plan phase — that is handled automatically.',
     `- **done**: Phase ${phaseNumber} is complete — all deliverables verified and committed.`,
+  )
+
+  return parts.join('\n')
+}
+
+export function buildDirectorExecutionPrompt(plan: Plan, phase: Phase, completedPhases: Phase[], env?: EnvironmentInfo): string {
+  const parts: string[] = [
+    '## Project: ' + plan.title,
+    '',
+    '## Context',
+    plan.context,
+    '',
+    '## Tech Stack',
+    plan.techStack,
+  ]
+
+  if (env) {
+    parts.push('', '## Environment', env.summary)
+  }
+
+  if (completedPhases.length > 0) {
+    parts.push('', '## Previously Completed Phases')
+    for (const p of completedPhases) {
+      parts.push(`### Phase ${p.number}: ${p.name}`, p.done)
+    }
+  }
+
+  parts.push(
+    '',
+    `## Execute Phase ${phase.number}: ${phase.name}`,
+    '',
+    '### Phase Spec',
+    phase.spec,
+    '',
+    'Implement this phase directly. Use your full tools to read the codebase, write code, run tests, and verify.',
+    'Run tests in non-interactive mode. Kill any servers or background processes when done.',
+    '',
+    '### Response',
+    'When complete, respond with action "done" and a summary of what was implemented.',
+    'If you encounter blocking issues you cannot resolve, respond with action "escalate".',
   )
 
   return parts.join('\n')

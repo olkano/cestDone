@@ -9,6 +9,7 @@ import {
   buildInitialCoderInstructions,
   buildReviewPrompt,
   buildCompletePrompt,
+  buildDirectorExecutionPrompt,
   buildPlanningSystemPrompt,
   buildFreeFormAnalyzePrompt,
   buildCreatePlanPrompt,
@@ -126,12 +127,13 @@ export async function runPlanningFlow(
   const createResult = recordDirectorCall(deps, createCallResult)
   sessionId = createCallResult.sessionId || sessionId
 
-  // Validate + approve loop
+  // Validate plan format + optional human approval
+  const needsApproval = config.withHumanValidation !== false
   let rejectionCount = 0
   let currentPlanContent = createResult.message
 
   while (true) {
-    // Validate plan parses correctly
+    // Validate plan parses correctly (always — even without human validation)
     try {
       parsePlan(currentPlanContent)
     } catch (err) {
@@ -149,6 +151,9 @@ export async function runPlanningFlow(
       currentPlanContent = fixResult.message
       continue
     }
+
+    // Plan format is valid — skip human approval if not requested
+    if (!needsApproval) break
 
     deps.display(`\n=== Director's Plan ===\n${currentPlanContent}\n======================`)
     const { approved, feedback } = await deps.askApproval()
@@ -215,17 +220,46 @@ export async function runPhase(
 
   deps.updatePhaseStatus(planFilePath, phase.number, 'in-progress')
 
-  // Build initial instructions from phase spec + plan context
-  let instructions = buildInitialCoderInstructions(plan, phase, completedPhases, env)
+  const usesCoder = config.withCoder !== false // undefined (legacy) = true
 
-  // Execute → Review loop (with sub-phase iteration)
+  if (usesCoder) {
+    sessionId = await executeTwoAgentPhase(plan, phase, config, systemPromptText, env, deps, completedPhases, sessionId)
+  } else {
+    sessionId = await executeDirectorOnlyPhase(plan, phase, config, systemPromptText, env, deps, completedPhases, sessionId)
+  }
+
+  // Step 8: Complete
+  logger.log('Director', 'Step 8: Completing phase')
+  const completeCallResult = await executeDirector({
+    prompt: buildCompletePrompt(phase),
+    step: WorkflowStep.Complete,
+    systemPromptText,
+    config,
+    logger,
+    resume: sessionId,
+  })
+  const completeResult = recordDirectorCall(deps, completeCallResult)
+  sessionId = completeCallResult.sessionId || sessionId
+  deps.writePhaseCompletion(planFilePath, phase.number, completeResult.message)
+
+  return sessionId!
+}
+
+async function executeTwoAgentPhase(
+  plan: Plan, phase: Phase, config: Config, systemPromptText: string,
+  env: ReturnType<typeof detectEnvironment>, deps: DirectorDeps,
+  completedPhases: Phase[], sessionId?: string,
+): Promise<string> {
+  const { logger } = deps
+  const shouldReview = config.withReviews !== false
+  const reviewTools = buildDirectorTools(WorkflowStep.Review, { withBash: config.withBashReviews !== false })
+  let instructions = buildInitialCoderInstructions(plan, phase, completedPhases, env)
   let coderRetries = 0
   let totalCoderCost = 0
   const completedSubPhases: string[] = []
 
   while (true) {
-    // Step 6: Execute
-    logger.log('Director', `Step 6: Executing via Coder (attempt ${coderRetries + 1}, sub-phase ${completedSubPhases.length + 1})`)
+    logger.log('Director', `Executing via Coder (attempt ${coderRetries + 1}, sub-phase ${completedSubPhases.length + 1})`)
     const coderResult = await deps.coderExecute(buildCoderOptions({
       step: WorkflowStep.Execute,
       phase,
@@ -250,17 +284,18 @@ export async function runPhase(
     logger.log('Director', `Coder result: ${coderResult.status} (cost: $${coderResult.cost.toFixed(2)}, total: $${totalCoderCost.toFixed(2)})`)
     logger.logVerbose('Director', `Coder report: ${JSON.stringify(coderResult.report)}`)
 
-    // Step 7: Review — always runs, Director verifies and decides next action
-    logger.log('Director', `Step 7: Reviewing Coder output for Phase ${phase.number} (${phase.name})`)
+    if (!shouldReview) {
+      deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
+      break
+    }
+
+    logger.log('Director', `Reviewing Coder output for Phase ${phase.number} (${phase.name})`)
     logger.logVerbose('Director', `Review state: completedSubPhases=${completedSubPhases.length}, coderRetries=${coderRetries}`)
     const reviewPrompt = buildReviewPrompt(
-      phase.number,
-      phase.name,
-      phase.spec,
+      phase.number, phase.name, phase.spec,
       JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
       completedSubPhases,
     )
-    logger.logVerbose('Director', `Review prompt length: ${reviewPrompt.length} chars`)
 
     let reviewResult: DirectorResponse
     try {
@@ -271,18 +306,17 @@ export async function runPhase(
         config,
         logger,
         resume: sessionId,
+        toolsOverride: reviewTools,
       })
       reviewResult = recordDirectorCall(deps, reviewCallResult)
       sessionId = reviewCallResult.sessionId || sessionId
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       logger.log('Director', `Review call crashed: ${errorMessage}`)
-      logger.logVerbose('Director', `Review crash stack: ${err instanceof Error ? err.stack : 'N/A'}`)
       throw err
     }
 
-    logger.log('Director', `Review decision: action=${reviewResult.action}, message length=${reviewResult.message.length}`)
-    logger.logVerbose('Director', `Review message: ${reviewResult.message.slice(0, 1000)}`)
+    logger.log('Director', `Review decision: action=${reviewResult.action}`)
 
     if (reviewResult.action === 'done') {
       deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
@@ -295,12 +329,10 @@ export async function runPhase(
       coderRetries = 0
       instructions = reviewResult.message
       logger.log('Director', `Sub-phase ${completedSubPhases.length} complete within Phase ${phase.number}, continuing`)
-      logger.logVerbose('Director', `Next sub-phase instructions: ${instructions.slice(0, 500)}`)
       deps.display(`\nSub-phase ${completedSubPhases.length} complete. Continuing...`)
       continue
     }
 
-    // action === 'fix' (or any other) — retry with fix instructions
     logger.log('Director', `Review returned '${reviewResult.action}' — treating as fix (retry ${coderRetries + 1}/${MAX_CODER_RETRIES})`)
     coderRetries++
     if (coderRetries >= MAX_CODER_RETRIES) {
@@ -316,19 +348,32 @@ export async function runPhase(
     }
   }
 
-  // Step 8: Complete
-  logger.log('Director', 'Step 8: Completing phase')
-  const completeCallResult = await executeDirector({
-    prompt: buildCompletePrompt(phase),
-    step: WorkflowStep.Complete,
+  return sessionId!
+}
+
+async function executeDirectorOnlyPhase(
+  plan: Plan, phase: Phase, config: Config, systemPromptText: string,
+  env: ReturnType<typeof detectEnvironment>, deps: DirectorDeps,
+  completedPhases: Phase[], sessionId?: string,
+): Promise<string> {
+  const { logger } = deps
+  const execPrompt = buildDirectorExecutionPrompt(plan, phase, completedPhases, env)
+  const execTools = buildDirectorTools(WorkflowStep.Execute, { directorOnly: true })
+
+  logger.log('Director', `Executing Phase ${phase.number} directly (director-only mode)`)
+  const execResult = await executeDirector({
+    prompt: execPrompt,
+    step: WorkflowStep.Execute,
     systemPromptText,
     config,
     logger,
     resume: sessionId,
+    toolsOverride: execTools,
+    maxTurnsOverride: config.maxTurns,
   })
-  const completeResult = recordDirectorCall(deps, completeCallResult)
-  sessionId = completeCallResult.sessionId || sessionId
-  deps.writePhaseCompletion(planFilePath, phase.number, completeResult.message)
+  const directorResult = recordDirectorCall(deps, execResult)
+  sessionId = execResult.sessionId || sessionId
+  deps.display(`\nDirector: ${directorResult.message.slice(0, 200)}`)
 
   return sessionId!
 }
@@ -345,7 +390,7 @@ function buildCoderOptions(params: {
   return {
     step: params.step,
     phase: params.phase,
-    model: getCoderModel(),
+    model: getCoderModel(params.config.coderModel),
     targetRepoPath: params.config.targetRepoPath,
     houseRulesContent: params.houseRulesContent,
     instructions: params.instructions,
@@ -369,13 +414,15 @@ interface ExecuteDirectorParams {
   config: Config
   logger: SessionLogger
   resume?: string
+  toolsOverride?: string[]
+  maxTurnsOverride?: number
 }
 
 export async function executeDirector(params: ExecuteDirectorParams): Promise<DirectorCallResult> {
   const { prompt, step, systemPromptText, config, logger } = params
-  const model = getDirectorModel()
-  const tools = buildDirectorTools(step)
-  const maxTurns = getDirectorMaxTurns(step)
+  const model = getDirectorModel(config.directorModel)
+  const tools = params.toolsOverride ?? buildDirectorTools(step)
+  const maxTurns = params.maxTurnsOverride ?? getDirectorMaxTurns(step)
 
   logger.log('Director', `Call starting (step: ${step}, model: ${model}, maxTurns: ${maxTurns})`)
   logger.logVerbose('Director', `Prompt:\n${prompt}`)

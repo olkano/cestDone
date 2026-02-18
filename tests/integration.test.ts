@@ -122,7 +122,7 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build a simple project with tests.', 'utf-8')
 
-    await handleRun(specPath)
+    await handleRun(specPath, { withCoder: true, withReviews: true, withHumanValidation: true })
 
     // Plan file created
     const planPath = specPath.replace('.md', '.plan.md')
@@ -163,7 +163,7 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build something.', 'utf-8')
 
-    await handleRun(specPath)
+    await handleRun(specPath, { withCoder: true, withReviews: true })
 
     // The 3rd query() call (index 2) is the Coder (execute step)
     expect(mockQuery).toHaveBeenCalledTimes(5)
@@ -193,7 +193,7 @@ describe('integration', () => {
       return createMockQuery(responses[idx])
     })
 
-    await handleResume(specPath)
+    await handleResume(specPath, { withCoder: true, withReviews: true })
 
     // Only 3 calls — no planning flow, no sub-plan
     expect(mockQuery).toHaveBeenCalledTimes(3)
@@ -222,7 +222,7 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build a simple project with tests.', 'utf-8')
 
-    await handleRun(specPath)
+    await handleRun(specPath, { withCoder: true, withReviews: true, withHumanValidation: true })
 
     expect(mockQuery).toHaveBeenCalledTimes(5)
 
@@ -264,7 +264,7 @@ describe('integration', () => {
       return createMockQuery(responses[idx])
     })
 
-    await handleResume(specPath)
+    await handleResume(specPath, { withCoder: true, withReviews: true })
 
     // Call 0 (Coder): fresh session (Coder always fresh)
     // Call 1 (Review): fresh Director session — no resume (first Director call in resume flow)
