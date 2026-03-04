@@ -1,14 +1,14 @@
-# cestdone
+# cestDone
 
 AI-orchestrated development CLI. A Director AI plans and executes — or delegates to a Coder AI for two-agent mode.
 
 ## Why
 
-The bottleneck in AI-assisted development is the human sitting between the AI planner and the AI coder. **cestdone** removes that bottleneck by having a Director AI orchestrate the entire workflow, with the human intervening only when explicitly opted in.
+The bottleneck in AI-assisted development is the human sitting between the AI planner and the AI coder. **cestDone** removes that bottleneck by having a Director AI orchestrate the entire workflow, with the human intervening only when explicitly opted in.
 
 ## Architecture
 
-cestdone supports two execution modes:
+cestDone supports two execution modes:
 
 **Director-only mode** (default) — the Director plans and executes everything directly:
 
@@ -268,7 +268,7 @@ All phases done. Total Coder cost: $0.55
 
 ## Git Integration
 
-**Initialization:** On first run, cestdone ensures the target repo has git initialized with a `.gitignore` (excludes `node_modules/`, `dist/`, `.env`, etc.). Existing repos and `.gitignore` files are left untouched.
+**Initialization:** On first run, cestDone ensures the target repo has git initialized with a `.gitignore` (excludes `node_modules/`, `dist/`, `.env`, etc.). Existing repos and `.gitignore` files are left untouched.
 
 **Commits by the Director:** The Director is responsible for committing verified work during the Review step. Each commit is a clean checkpoint:
 - Tests pass + types check → `git add -A && git commit` → respond `continue` or `done`
@@ -358,7 +358,7 @@ npm install
 
 ### Authentication
 
-cestdone uses the [Claude Agent SDK](https://docs.anthropic.com/en/docs/agent-sdk), which requires `ANTHROPIC_API_KEY` in the environment. The SDK reads it automatically — cestdone does not manage the key itself.
+cestDone uses the [Claude Agent SDK](https://docs.anthropic.com/en/docs/agent-sdk), which requires `ANTHROPIC_API_KEY` in the environment. The SDK reads it automatically — cestDone does not manage the key itself.
 
 Set it in a `.env` file (Node 22+ loads it via `--env-file`):
 ```
@@ -386,7 +386,7 @@ Both `run` and `resume` accept these flags:
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--spec <path>` | Path to spec file (required) | — |
-| `--target <path>` | Target repository path | `.cestdonerc.json` value or `.` |
+| `--target <path>` | Target repository path | `.cestDonerc.json` value or `.` |
 | `--house-rules <path>` | Path to house rules file (`run` only) | none |
 | `--director-model <model>` | Director model: `haiku`, `sonnet`, `opus`, or full ID | `sonnet` |
 | `--coder-model <model>` | Coder model: `haiku`, `sonnet`, `opus`, or full ID | `haiku` |
@@ -425,14 +425,14 @@ Models are resolved in this order: CLI flag → environment variable → default
 
 | Role | CLI flag | Env var | Default |
 |------|----------|---------|---------|
-| Director | `--director-model` | `CESTDONE_DIRECTOR_MODEL` | `sonnet` (claude-sonnet-4) |
-| Coder | `--coder-model` | `CESTDONE_CODER_MODEL` | `haiku` (claude-haiku-4.5) |
+| Director | `--director-model` | `cestDone_DIRECTOR_MODEL` | `sonnet` (claude-sonnet-4) |
+| Coder | `--coder-model` | `cestDone_CODER_MODEL` | `haiku` (claude-haiku-4.5) |
 
 Aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full model ID directly (e.g., `claude-opus-4-20250514`).
 
 ### Configuration
 
-Optional `.cestdonerc.json` in the target repo:
+Optional `.cestDonerc.json` in the target repo:
 ```json
 {
   "defaultModel": "claude-opus-4-20250514",
@@ -447,7 +447,7 @@ Optional `.cestdonerc.json` in the target repo:
 }
 ```
 
-CLI flags override `.cestdonerc.json` values.
+CLI flags override `.cestDonerc.json` values.
 
 ## Project Structure
 
@@ -467,7 +467,7 @@ src/
 │   └── result-parser.ts  # Parse Agent SDK results
 └── shared/
     ├── types.ts          # All TypeScript types
-    ├── config.ts         # .cestdonerc.json loading
+    ├── config.ts         # .cestDonerc.json loading
     ├── git.ts            # Git repo init + .gitignore
     ├── plan-parser.ts    # .plan.md parsing (getPlanPath, parsePlan)
     ├── spec-writer.ts    # Atomic plan file updates
@@ -507,7 +507,7 @@ src/
 ## Planned Phases
 
 ### Phase 2: Git Branch Strategy
-- Branch-per-phase strategy (`cestdone/phase-N`)
+- Branch-per-phase strategy (`cestDone/phase-N`)
 
 ### Phase 3: Visual Verification
 - Playwright screenshots of running web apps
