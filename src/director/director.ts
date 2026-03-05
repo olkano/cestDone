@@ -1,7 +1,6 @@
 // src/director/director.ts
-import { query } from '@anthropic-ai/claude-agent-sdk'
-import type { Phase, PhaseStatus, Config, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan, TokenUsage } from '../shared/types.js'
-import { WorkflowStep, mapSdkUsage, formatToolCall } from '../shared/types.js'
+import type { Phase, PhaseStatus, Config, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan, TokenUsage, Backend, BackendResult } from '../shared/types.js'
+import { WorkflowStep } from '../shared/types.js'
 import { CostTracker, formatTotals } from '../shared/cost-tracker.js'
 import {
   buildDirectorTools,
@@ -20,6 +19,7 @@ import {
 import { getDirectorModel, getCoderModel } from './model-selector.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
 import { detectEnvironment } from '../shared/environment.js'
+import { DEFAULTS } from '../shared/config.js'
 import type { SessionLogger } from '../shared/logger.js'
 
 export interface DirectorDeps {
@@ -32,10 +32,12 @@ export interface DirectorDeps {
   display: (text: string) => void
   logger: SessionLogger
   costTracker: CostTracker
+  backend: Backend
+  coderBackend: Backend
 }
 
-const MAX_REJECTIONS = 3
-const MAX_CODER_RETRIES = 3
+const MAX_REJECTIONS = DEFAULTS.maxRejections
+const MAX_CODER_RETRIES = DEFAULTS.maxCoderRetries
 
 export interface DirectorCallResult {
   response: DirectorResponse
@@ -77,6 +79,7 @@ export async function runPlanningFlow(
     systemPromptText,
     config,
     logger,
+    backend: deps.backend,
   })
   const analyzeResult = recordDirectorCall(deps, analyzeCallResult)
   let sessionId = analyzeCallResult.sessionId
@@ -84,7 +87,7 @@ export async function runPlanningFlow(
   // Step 2: Clarify (iterative — ask follow-ups until Director is satisfied)
   let clarificationsText = ''
   let pendingQuestions = analyzeResult.action === 'ask_human' ? (analyzeResult.questions ?? []) : []
-  const MAX_CLARIFY_ROUNDS = 3
+  const MAX_CLARIFY_ROUNDS = DEFAULTS.maxClarifyRounds
 
   for (let round = 0; round < MAX_CLARIFY_ROUNDS && pendingQuestions.length > 0; round++) {
     logger.log('Director', `Planning: Clarify round ${round + 1} — ${pendingQuestions.length} questions`)
@@ -101,6 +104,7 @@ export async function runPlanningFlow(
       systemPromptText,
       config,
       logger,
+      backend: deps.backend,
       resume: sessionId,
     })
     const clarifyResult = recordDirectorCall(deps, clarifyCallResult)
@@ -122,6 +126,7 @@ export async function runPlanningFlow(
     systemPromptText,
     config,
     logger,
+    backend: deps.backend,
     resume: sessionId,
   })
   const createResult = recordDirectorCall(deps, createCallResult)
@@ -144,6 +149,7 @@ export async function runPlanningFlow(
         systemPromptText,
         config,
         logger,
+        backend: deps.backend,
         resume: sessionId,
       })
       const fixResult = recordDirectorCall(deps, fixCallResult)
@@ -174,6 +180,7 @@ export async function runPlanningFlow(
         systemPromptText,
         config,
         logger,
+        backend: deps.backend,
         resume: sessionId,
       })
       const escResult = recordDirectorCall(deps, escCallResult)
@@ -186,6 +193,7 @@ export async function runPlanningFlow(
         systemPromptText,
         config,
         logger,
+        backend: deps.backend,
         resume: sessionId,
       })
       const revResult = recordDirectorCall(deps, revCallResult)
@@ -236,6 +244,7 @@ export async function runPhase(
     systemPromptText,
     config,
     logger,
+    backend: deps.backend,
     resume: sessionId,
   })
   const completeResult = recordDirectorCall(deps, completeCallResult)
@@ -268,6 +277,7 @@ async function executeTwoAgentPhase(
       instructions,
       completedSubPhases: [...completedSubPhases],
       logger,
+      backend: deps.coderBackend,
     }))
     totalCoderCost += coderResult.cost
     deps.costTracker.recordCoder({
@@ -305,6 +315,7 @@ async function executeTwoAgentPhase(
         systemPromptText,
         config,
         logger,
+        backend: deps.backend,
         resume: sessionId,
         toolsOverride: reviewTools,
       })
@@ -318,12 +329,6 @@ async function executeTwoAgentPhase(
 
     logger.log('Director', `Review decision: action=${reviewResult.action}`)
 
-    if (reviewResult.action === 'done') {
-      deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
-      logger.log('Director', `Phase ${phase.number} done (total cost: $${totalCoderCost.toFixed(2)}, sub-phases: ${completedSubPhases.length + 1})`)
-      break
-    }
-
     if (reviewResult.action === 'continue') {
       completedSubPhases.push(summary)
       coderRetries = 0
@@ -333,19 +338,30 @@ async function executeTwoAgentPhase(
       continue
     }
 
-    logger.log('Director', `Review returned '${reviewResult.action}' — treating as fix (retry ${coderRetries + 1}/${MAX_CODER_RETRIES})`)
-    coderRetries++
-    if (coderRetries >= MAX_CODER_RETRIES) {
-      logger.log('Director', `Escalating after ${coderRetries} Coder failures`)
-      const guidance = await deps.askInput(
-        `Coder has failed ${coderRetries} times. Latest error: "${coderResult.message}"\n` +
-        'Please provide guidance on how to proceed: '
-      )
-      coderRetries = 0
-      instructions = `Human guidance: ${guidance}\nPrevious error: ${coderResult.message}\nPlease fix the issues and try again.`
-    } else {
-      instructions = reviewResult.message
+    if (reviewResult.action === 'fix') {
+      logger.log('Director', `Review returned 'fix' (retry ${coderRetries + 1}/${MAX_CODER_RETRIES})`)
+      coderRetries++
+      if (coderRetries >= MAX_CODER_RETRIES) {
+        logger.log('Director', `Escalating after ${coderRetries} Coder failures`)
+        const guidance = await deps.askInput(
+          `Coder has failed ${coderRetries} times. Latest error: "${coderResult.message}"\n` +
+          'Please provide guidance on how to proceed: '
+        )
+        coderRetries = 0
+        instructions = `Human guidance: ${guidance}\nPrevious error: ${coderResult.message}\nPlease fix the issues and try again.`
+      } else {
+        instructions = reviewResult.message
+      }
+      continue
     }
+
+    // Any other action (done, analyze, approve, etc.) means phase is complete
+    if (reviewResult.action !== 'done') {
+      logger.log('Director', `Review returned '${reviewResult.action}' — treating as done`)
+    }
+    deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
+    logger.log('Director', `Phase ${phase.number} done (total cost: $${totalCoderCost.toFixed(2)}, sub-phases: ${completedSubPhases.length + 1})`)
+    break
   }
 
   return sessionId!
@@ -367,6 +383,7 @@ async function executeDirectorOnlyPhase(
     systemPromptText,
     config,
     logger,
+    backend: deps.backend,
     resume: sessionId,
     toolsOverride: execTools,
     maxTurnsOverride: config.maxTurns,
@@ -386,6 +403,7 @@ function buildCoderOptions(params: {
   instructions: string
   completedSubPhases?: string[]
   logger: SessionLogger
+  backend: Backend
 }): CoderOptions {
   return {
     step: params.step,
@@ -398,13 +416,13 @@ function buildCoderOptions(params: {
     maxBudgetUsd: params.config.maxBudgetUsd,
     logger: params.logger,
     completedSubPhases: params.completedSubPhases,
+    backend: params.backend,
   }
 }
 
 function getDirectorMaxTurns(step: WorkflowStep): number {
-  // Review: read diff, optional functional testing, git commit
-  if (step === WorkflowStep.Review) return 20
-  return 15
+  if (step === WorkflowStep.Review) return DEFAULTS.directorMaxTurnsReview
+  return DEFAULTS.directorMaxTurnsDefault
 }
 
 interface ExecuteDirectorParams {
@@ -413,13 +431,14 @@ interface ExecuteDirectorParams {
   systemPromptText: string
   config: Config
   logger: SessionLogger
+  backend: Backend
   resume?: string
   toolsOverride?: string[]
   maxTurnsOverride?: number
 }
 
 export async function executeDirector(params: ExecuteDirectorParams): Promise<DirectorCallResult> {
-  const { prompt, step, systemPromptText, config, logger } = params
+  const { prompt, step, systemPromptText, config, logger, backend } = params
   const model = getDirectorModel(config.directorModel)
   const tools = params.toolsOverride ?? buildDirectorTools(step)
   const maxTurns = params.maxTurnsOverride ?? getDirectorMaxTurns(step)
@@ -427,113 +446,67 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   logger.log('Director', `Call starting (step: ${step}, model: ${model}, maxTurns: ${maxTurns})`)
   logger.logVerbose('Director', `Prompt:\n${prompt}`)
 
-  const env = { ...process.env }
-  delete env.CLAUDECODE
-
-  const queryOptions: Record<string, unknown> = {
+  const result = await backend.invoke({
+    prompt,
+    systemPrompt: params.resume ? undefined : systemPromptText,
     model,
+    tools,
+    outputSchema: DIRECTOR_RESPONSE_SCHEMA,
     cwd: config.targetRepoPath,
     maxTurns,
-    permissionMode: 'bypassPermissions',
-    allowDangerouslySkipPermissions: true,
-    tools,
-    outputFormat: {
-      type: 'json_schema',
-      schema: DIRECTOR_RESPONSE_SCHEMA,
-    },
-    env,
+    resumeSessionId: params.resume,
+    env: { ...process.env },
+    logger,
+  })
+
+  logger.log('Director', `Call completed (cost: $${(result.costUsd ?? 0).toFixed(2)}, turns: ${result.numTurns}, success: ${result.success})`)
+  logger.log('Director', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
+
+  if (!result.success) {
+    throw new Error(result.errorMessage ?? `Director session failed: ${result.rawText?.slice(0, 200) ?? 'no output'}`)
   }
 
-  if (params.resume) {
-    queryOptions.resume = params.resume
-  } else {
-    queryOptions.systemPrompt = {
-      type: 'preset',
-      preset: 'claude_code',
-      append: systemPromptText,
-    }
+  const response = extractDirectorResponse(result, logger)
+  logger.log('Director', `Response action: ${response.action}`)
+
+  return {
+    response,
+    costUsd: result.costUsd ?? 0,
+    numTurns: result.numTurns,
+    durationMs: result.durationMs,
+    usage: result.usage,
+    sessionId: result.sessionId ?? '',
   }
-
-  let callResult: DirectorCallResult | null = null
-  let capturedSessionId = ''
-
-  const q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
-
-  try {
-    for await (const message of q) {
-      const msg = message as { type: string; subtype?: string; session_id?: string; total_cost_usd?: number; num_turns?: number; duration_ms?: number; structured_output?: unknown; result?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }; usage?: unknown }
-
-      if (msg.type === 'system' && msg.session_id) {
-        capturedSessionId = msg.session_id
-      }
-
-      if (msg.type === 'assistant' && msg.message?.content) {
-        for (const block of msg.message.content) {
-          if (block.type === 'text' && block.text) {
-            logger.log('Director', block.text.slice(0, 500))
-          } else if (block.type === 'tool_use' && block.name) {
-            logger.log('Director', `Tool: ${formatToolCall(block.name, block.input)}`)
-          }
-        }
-      }
-
-      if (msg.type === 'result') {
-        const usage = mapSdkUsage(msg.usage)
-        logger.log('Director', `Call completed (cost: $${msg.total_cost_usd?.toFixed(2)}, turns: ${msg.num_turns}, subtype: ${msg.subtype ?? 'unknown'})`)
-        logger.log('Director', `Tokens: in:${usage.inputTokens} out:${usage.outputTokens} cache-r:${usage.cacheReadInputTokens} cache-w:${usage.cacheCreationInputTokens}`)
-        callResult = {
-          response: extractDirectorResponse(msg, logger),
-          costUsd: msg.total_cost_usd ?? 0,
-          numTurns: msg.num_turns ?? 0,
-          durationMs: msg.duration_ms ?? 0,
-          usage,
-          sessionId: capturedSessionId,
-        }
-        logger.logVerbose('Director', 'Result received, breaking out of SDK stream')
-        break
-      }
-    }
-  } finally {
-    q.close()
-  }
-
-  logger.logVerbose('Director', 'SDK stream iteration ended')
-
-  if (!callResult) {
-    throw new Error('Director session ended with no result')
-  }
-
-  logger.log('Director', `Response action: ${callResult.response.action}`)
-  return callResult
 }
 
-function extractDirectorResponse(msg: { structured_output?: unknown; result?: string; subtype?: string }, logger: SessionLogger): DirectorResponse {
-  logger.logVerbose('Director', `extractDirectorResponse: subtype=${msg.subtype}, has_structured_output=${!!msg.structured_output}, has_result=${!!msg.result}, result_length=${msg.result?.length ?? 0}`)
+function extractDirectorResponse(result: BackendResult, logger: SessionLogger): DirectorResponse {
+  const hasOutput = result.output !== undefined && result.output !== null
+  logger.logVerbose('Director', `extractDirectorResponse: success=${result.success}, has_output=${hasOutput}, has_rawText=${!!result.rawText}`)
 
-  if (msg.structured_output && typeof msg.structured_output === 'object') {
-    const so = msg.structured_output as Record<string, unknown>
-    logger.logVerbose('Director', `Using structured_output: action=${so.action}, message_length=${(so.message as string)?.length ?? 0}`)
-    return msg.structured_output as DirectorResponse
+  if (hasOutput && typeof result.output === 'object') {
+    const so = result.output as Record<string, unknown>
+    if (so.action && so.message) {
+      logger.logVerbose('Director', `Using output: action=${so.action}, message_length=${(so.message as string)?.length ?? 0}`)
+      return result.output as DirectorResponse
+    }
   }
 
-  if (msg.result) {
+  if (result.rawText) {
     try {
-      const parsed = JSON.parse(msg.result) as DirectorResponse
+      const parsed = JSON.parse(result.rawText) as DirectorResponse
       if (parsed.action && parsed.message) {
-        logger.logVerbose('Director', `Parsed result text as JSON: action=${parsed.action}`)
+        logger.logVerbose('Director', `Parsed rawText as JSON: action=${parsed.action}`)
         return parsed
       }
     } catch {
       // Not JSON — fall through
     }
 
-    return { action: 'analyze', message: msg.result }
+    return { action: 'analyze', message: result.rawText }
   }
 
-  // No structured output and no result text — likely hit max turns or other SDK error.
-  // Instead of crashing, return a safe default and let the workflow handle it.
-  const reason = msg.subtype ?? 'unknown'
-  logger.log('Director', `WARNING: No structured output produced (subtype: ${reason}). Defaulting to 'done'.`)
+  const reason = result.errorMessage ?? 'unknown'
+  logger.log('Director', `WARNING: No structured output produced (reason: ${reason}). Defaulting to 'done'.`)
   return {
     action: 'done',
     message: `Director review completed without structured response (reason: ${reason}). Proceeding based on Coder self-report.`,

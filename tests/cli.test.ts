@@ -13,6 +13,13 @@ vi.mock('../src/shared/git.js')
 vi.mock('../src/shared/logger.js', () => ({
   createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' }),
 }))
+vi.mock('../src/backends/index.js', () => ({
+  createBackend: () => ({
+    name: 'agent-sdk',
+    invoke: vi.fn(),
+    preflight: vi.fn().mockResolvedValue({ ok: true }),
+  }),
+}))
 
 import fs from 'node:fs'
 import { loadConfig } from '../src/shared/config.js'
@@ -37,7 +44,6 @@ const DONE_PHASE: Phase = {
 }
 
 const MOCK_CONFIG: Config = {
-  defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '.',
   maxTurns: 100,
 }
@@ -256,9 +262,9 @@ describe('CLI flag wiring', () => {
     await handleRun('spec.md', {})
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
-    expect(configPassed.withCoder).toBe(false)
-    expect(configPassed.withReviews).toBe(false)
-    expect(configPassed.withBashReviews).toBe(false)
+    expect(configPassed.withCoder).toBe(true)
+    expect(configPassed.withReviews).toBe(true)
+    expect(configPassed.withBashReviews).toBe(true)
     expect(configPassed.withHumanValidation).toBe(false)
   })
 
@@ -304,6 +310,68 @@ describe('CLI flag wiring', () => {
     expect(configPassed.withBashReviews).toBe(true)
   })
 
+  // KF6: --backend sets both director and coder backends
+  it('--backend sets both backends on config', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+      sessionId: 'sess-planning',
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', { backend: 'claude-cli' })
+
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.directorBackend).toBe('claude-cli')
+    expect(configPassed.coderBackend).toBe('claude-cli')
+  })
+
+  // KF7: --director-backend overrides --backend
+  it('--director-backend overrides --backend', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+      sessionId: 'sess-planning',
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', { backend: 'claude-cli', directorBackend: 'agent-sdk' })
+
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.directorBackend).toBe('agent-sdk')
+    expect(configPassed.coderBackend).toBe('claude-cli')
+  })
+
+  // KF8: --claude-cli-path sets config field
+  it('--claude-cli-path sets config field', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+      sessionId: 'sess-planning',
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', { claudeCliPath: '/opt/claude' })
+
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.claudeCliPath).toBe('/opt/claude')
+  })
+
   // KF5: --with-reviews without --with-coder warns and disables reviews
   it('warns when withReviews is set without withCoder', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
@@ -319,7 +387,7 @@ describe('CLI flag wiring', () => {
       .mockReturnValueOnce(donePlan)
     const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await handleRun('spec.md', { withReviews: true })
+    await handleRun('spec.md', { withCoder: false, withReviews: true })
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--with-reviews'))
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]

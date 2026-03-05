@@ -84,16 +84,17 @@ beforeEach(() => {
   queryCallIndex = 0
   vi.clearAllMocks()
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-integ-'))
-  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-20250514'
-  process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5-20251001'
+  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-6'
+  process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5'
 
   vi.mocked(ensureTTY).mockReturnValue(undefined)
   vi.mocked(askApproval).mockResolvedValue({ approved: true })
   vi.mocked(askInput).mockResolvedValue('done')
   vi.mocked(loadConfig).mockReturnValue({
-    defaultModel: 'claude-opus-4-20250514',
     targetRepoPath: '.',
     maxTurns: 100,
+    directorBackend: 'agent-sdk',
+    coderBackend: 'agent-sdk',
   })
 })
 

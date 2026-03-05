@@ -17,12 +17,12 @@ describe('loadConfig', () => {
   // B1: Loads .cestdonerc.json from CWD, returns typed config
   it('loads .cestdonerc.json from the given directory', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
-    const config = { defaultModel: 'claude-sonnet-4-20250514' }
+    const config = { maxTurns: 50 }
     fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
 
     const result = loadConfig(tmpDir)
 
-    expect(result.defaultModel).toBe('claude-sonnet-4-20250514')
+    expect(result.maxTurns).toBe(50)
     expect(result.targetRepoPath).toBe('.')
   })
 
@@ -32,8 +32,8 @@ describe('loadConfig', () => {
 
     const result = loadConfig(tmpDir)
 
-    expect(result.defaultModel).toBe('claude-opus-4-20250514')
     expect(result.targetRepoPath).toBe('.')
+    expect(result.maxTurns).toBe(100)
   })
 
   // M1: maxTurns defaults to 100 when not in .cestdonerc.json
@@ -114,6 +114,34 @@ describe('loadConfig', () => {
     expect(result.maxTurns).toBe(50)
     expect(result.directorModel).toBe('haiku')
     expect(result.withCoder).toBeUndefined()
+  })
+
+  // B1: Backend fields default to undefined
+  it('defaults backend fields to undefined', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.directorBackend).toBeUndefined()
+    expect(result.coderBackend).toBeUndefined()
+    expect(result.claudeCliPath).toBeUndefined()
+  })
+
+  // B2: Reads backend fields from .cestdonerc.json
+  it('reads backend fields from .cestdonerc.json', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const config = {
+      directorBackend: 'claude-cli',
+      coderBackend: 'agent-sdk',
+      claudeCliPath: '/usr/local/bin/claude',
+    }
+    fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.directorBackend).toBe('claude-cli')
+    expect(result.coderBackend).toBe('agent-sdk')
+    expect(result.claudeCliPath).toBe('/usr/local/bin/claude')
   })
 })
 

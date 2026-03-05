@@ -13,8 +13,10 @@ export interface Phase {
 }
 
 
+export type BackendType = 'agent-sdk' | 'claude-cli'
+export type ModelAlias = 'haiku' | 'sonnet' | 'opus'
+
 export interface Config {
-  defaultModel: string
   targetRepoPath: string
   maxTurns: number
   maxBudgetUsd?: number
@@ -24,6 +26,9 @@ export interface Config {
   withReviews?: boolean
   withBashReviews?: boolean
   withHumanValidation?: boolean
+  directorBackend?: BackendType
+  coderBackend?: BackendType
+  claudeCliPath?: string
 }
 
 
@@ -83,6 +88,7 @@ export interface CoderOptions {
   maxBudgetUsd?: number
   logger: SessionLogger
   completedSubPhases?: string[]
+  backend: Backend
 }
 
 export interface FreeFormSpec {
@@ -123,6 +129,38 @@ export function formatDuration(ms: number): string {
   if (h > 0) return `${h}h ${m}m ${s}s`
   if (m > 0) return `${m}m ${s}s`
   return `${s}s`
+}
+
+export interface BackendInvocation {
+  prompt: string
+  systemPrompt?: string
+  model: string
+  tools?: string[]
+  outputSchema?: object
+  cwd: string
+  maxTurns?: number
+  maxBudgetUsd?: number
+  resumeSessionId?: string
+  env?: Record<string, string | undefined>
+  logger: SessionLogger
+}
+
+export interface BackendResult {
+  output: unknown
+  rawText?: string
+  sessionId?: string
+  costUsd: number | null
+  numTurns: number
+  durationMs: number
+  usage: TokenUsage
+  success: boolean
+  errorMessage?: string
+}
+
+export interface Backend {
+  invoke(params: BackendInvocation): Promise<BackendResult>
+  preflight(): Promise<{ ok: boolean; error?: string }>
+  name: BackendType
 }
 
 /** Formats a tool call for logging — shows meaningful details per tool type. */

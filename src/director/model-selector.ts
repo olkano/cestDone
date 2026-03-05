@@ -1,8 +1,12 @@
 // src/director/model-selector.ts
+// List available models:
+// curl -s https://api.anthropic.com/v1/models -H "x-api-key: $ANTHROPIC_API_KEY" -H "anthropic-version: 2023-06-01"
 
-export const SONNET = 'claude-sonnet-4-20250514'
-export const HAIKU = 'claude-haiku-4-5-20251001'
-export const OPUS = 'claude-opus-4-20250514'
+import { DEFAULTS } from '../shared/config.js'
+
+export const SONNET = 'claude-sonnet-4-6'
+export const HAIKU = 'claude-haiku-4-5'
+export const OPUS = 'claude-opus-4-6'
 
 const ALIASES: Record<string, string> = {
   haiku: HAIKU,
@@ -17,22 +21,22 @@ export function resolveModelAlias(modelOrAlias: string): string {
 
 /**
  * Returns the model for Director calls.
- * Priority: override param → CESTDONE_DIRECTOR_MODEL env var → default (sonnet).
+ * Priority: override param → CESTDONE_DIRECTOR_MODEL env var → default from DEFAULTS.
  */
 export function getDirectorModel(override?: string): string {
   if (override) return resolveModelAlias(override)
   const env = process.env.CESTDONE_DIRECTOR_MODEL
   if (env) return resolveModelAlias(env)
-  return SONNET
+  return resolveModelAlias(DEFAULTS.directorModel)
 }
 
 /**
  * Returns the model for Coder calls.
- * Priority: override param → CESTDONE_CODER_MODEL env var → default (haiku).
+ * Priority: override param → CESTDONE_CODER_MODEL env var → default from DEFAULTS.
  */
 export function getCoderModel(override?: string): string {
   if (override) return resolveModelAlias(override)
   const env = process.env.CESTDONE_CODER_MODEL
   if (env) return resolveModelAlias(env)
-  return HAIKU
+  return resolveModelAlias(DEFAULTS.coderModel)
 }

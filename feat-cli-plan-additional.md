@@ -1,4 +1,4 @@
-# codex-cli-plan.md
+# cfeat-cli-plan-additional.md (by CODEX)
 
 Generated: 2026-03-04
 Updated: 2026-03-04 (Claude-first scope)

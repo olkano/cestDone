@@ -11,6 +11,7 @@ _(items that must be resolved before or during current phase)_
 ## 🟡 Medium priority (next phases)
 _(items for upcoming phases, or improvements to current architecture)_
 
+- [ ] Change --target default from cwd (.) to the spec file's parent directory — so users don't need to pass --target when spec is in the target repo
 - [ ] Limit Director questions to 3 max in Analyze prompt — prevent question flooding (found in live test)
 - [ ] Allow 'skip' / empty Enter to skip remaining Director questions in Step 2
 - [ ] `--yes` flag for CI/non-interactive environments (skip approval prompts, auto-approve)

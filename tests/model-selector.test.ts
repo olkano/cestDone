@@ -20,7 +20,7 @@ describe('resolveModelAlias', () => {
 
   // MA4
   it('passes through a full model ID unchanged', () => {
-    expect(resolveModelAlias('claude-sonnet-4-20250514')).toBe('claude-sonnet-4-20250514')
+    expect(resolveModelAlias('claude-sonnet-4-6')).toBe('claude-sonnet-4-6')
   })
 
   // MA5
@@ -49,7 +49,7 @@ describe('getDirectorModel', () => {
   // MD2
   it('uses full model ID override as-is', () => {
     process.env.CESTDONE_DIRECTOR_MODEL = HAIKU
-    expect(getDirectorModel('claude-sonnet-4-20250514')).toBe(SONNET)
+    expect(getDirectorModel('claude-sonnet-4-6')).toBe('claude-sonnet-4-6')
   })
 
   // MD3
@@ -59,9 +59,9 @@ describe('getDirectorModel', () => {
   })
 
   // MD4
-  it('defaults to sonnet when no override and no env var', () => {
+  it('defaults to opus when no override and no env var', () => {
     delete process.env.CESTDONE_DIRECTOR_MODEL
-    expect(getDirectorModel(undefined)).toBe(SONNET)
+    expect(getDirectorModel(undefined)).toBe(OPUS)
   })
 
   // MD5 (backward compat: no-arg call)
@@ -95,9 +95,9 @@ describe('getCoderModel', () => {
   })
 
   // MC3
-  it('defaults to haiku when no override and no env var', () => {
+  it('defaults to opus when no override and no env var', () => {
     delete process.env.CESTDONE_CODER_MODEL
-    expect(getCoderModel(undefined)).toBe(HAIKU)
+    expect(getCoderModel(undefined)).toBe(OPUS)
   })
 
   // MC4 (backward compat: no-arg call)

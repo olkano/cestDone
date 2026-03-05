@@ -150,10 +150,13 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     '## Response Actions',
     `Your scope is ONLY Phase ${phaseNumber} (${phaseName}). Do NOT plan or include work for subsequent phases.`,
     '',
+    'IMPORTANT: You MUST use one of these three actions ONLY — no other action is valid for a review:',
     '- **fix**: Issues found. Do NOT commit. Return specific fix instructions for the Coder.',
     '- **continue**: Current sub-phase correct and committed, but more sub-phases remain WITHIN THIS PHASE.',
     '  Do NOT use "continue" to advance to the next plan phase — that is handled automatically.',
     `- **done**: Phase ${phaseNumber} is complete — all deliverables verified and committed.`,
+    '',
+    'Do NOT use "analyze", "approve", "ask_human", or any other action. Only "fix", "continue", or "done".',
   )
 
   return parts.join('\n')

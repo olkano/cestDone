@@ -1,5 +1,5 @@
 // src/coder/result-parser.ts
-import type { CoderResult, CoderReport } from '../shared/types.js'
+import type { CoderResult, CoderReport, BackendResult } from '../shared/types.js'
 import { mapSdkUsage } from '../shared/types.js'
 
 export interface SDKResultLike {
@@ -41,6 +41,47 @@ export function parseResult(msg: SDKResultLike): CoderResult {
     filesChanged: report.filesChanged,
     report,
   }
+}
+
+export function parseCoderResult(result: BackendResult): CoderResult {
+  const base = {
+    cost: result.costUsd ?? 0,
+    numTurns: result.numTurns,
+    durationMs: result.durationMs,
+    usage: result.usage,
+  }
+
+  if (!result.success) {
+    const msg = result.errorMessage ?? 'Coder failed'
+    return {
+      ...base,
+      status: 'failed',
+      message: msg,
+      report: result.output
+        ? extractReportFromOutput(result.output)
+        : { status: 'failed', summary: msg },
+    }
+  }
+
+  const report = extractReportFromOutput(result.output)
+  return {
+    ...base,
+    status: report.status === 'success' ? 'success' : report.status === 'failed' ? 'failed' : 'partial',
+    message: report.summary,
+    filesChanged: report.filesChanged,
+    report,
+  }
+}
+
+function extractReportFromOutput(output: unknown): CoderReport {
+  if (output && typeof output === 'object') {
+    const obj = output as Record<string, unknown>
+    if (obj.status && obj.summary) return output as CoderReport
+  }
+  if (typeof output === 'string') {
+    return { status: 'partial', summary: output }
+  }
+  return { status: 'partial', summary: '(no output)' }
 }
 
 function extractReport(msg: SDKResultLike): CoderReport {

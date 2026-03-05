@@ -9,6 +9,7 @@ Make cestdone configurable so it can use either of two backends:
 Director and Coder can use **independent backends** (e.g., Director on `claude-cli`, Coder on `agent-sdk`).
 Director and Coder can use **independent models** (e.g., Director with Opus, Coder with Sonnet).
 
+Note: You can see a complementary and similar analysis in `feat-cli-plan-additional.md` that might add some value.
 ---
 
 ## 1. Current Architecture (Agent SDK)

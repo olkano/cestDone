@@ -1,9 +1,17 @@
-"""Analyze cestdone orchestrator run from log file."""
+"""Analyze cestdone orchestrator run from log file.
+
+Usage: python analyze_run.py <log-file>
+"""
 import re
+import sys
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-LOG_PATH = r"logs/2026-02-14.log"
+if len(sys.argv) < 2:
+    print("Usage: python analyze_run.py <log-file>")
+    sys.exit(1)
+
+LOG_PATH = sys.argv[1]
 
 with open(LOG_PATH, encoding="utf-8") as f:
     lines = f.readlines()

@@ -3,42 +3,35 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { runPhase, runPlanningFlow, executeDirector } from '../src/director/director.js'
 import type { DirectorDeps } from '../src/director/director.js'
 import { WorkflowStep } from '../src/shared/types.js'
-import type { Config, Phase, CoderResult, CoderOptions, FreeFormSpec, Plan } from '../src/shared/types.js'
+import type { Config, Phase, CoderResult, CoderOptions, FreeFormSpec, Plan, Backend, BackendResult } from '../src/shared/types.js'
 import { CostTracker } from '../src/shared/cost-tracker.js'
 
-const mockQuery = vi.fn()
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  query: (...args: unknown[]) => mockQuery(...args),
-}))
-
 let directorCallCount = 0
+
+const mockBackend: Backend = {
+  name: 'agent-sdk',
+  invoke: vi.fn(),
+  preflight: vi.fn().mockResolvedValue({ ok: true }),
+}
 
 beforeEach(() => {
   directorCallCount = 0
   vi.clearAllMocks()
-  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-20250514'
-  process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5-20251001'
+  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-6'
+  process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5'
 })
 
-function makeDirectorResult(action: string, message: string, questions?: string[]) {
+function makeBackendResult(action: string, message: string, questions?: string[]): BackendResult {
   return {
-    type: 'result' as const,
-    subtype: 'success' as const,
-    total_cost_usd: 0.05,
-    num_turns: 3,
-    duration_ms: 2000,
+    output: { action, message, ...(questions ? { questions } : {}) },
+    rawText: JSON.stringify({ action, message, ...(questions ? { questions } : {}) }),
+    sessionId: 'sess-dir',
+    costUsd: 0.05,
+    numTurns: 3,
+    durationMs: 2000,
     usage: { inputTokens: 500, outputTokens: 200, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
-    structured_output: { action, message, ...(questions ? { questions } : {}) },
+    success: true,
   }
-}
-
-async function* generateDirectorMessages(result: Record<string, unknown>) {
-  yield { type: 'system', session_id: 'sess-dir' }
-  yield result
-}
-
-function createMockQuery(result: Record<string, unknown>) {
-  return Object.assign(generateDirectorMessages(result), { close: vi.fn() })
 }
 
 const TEST_PHASE: Phase = {
@@ -59,7 +52,6 @@ const TEST_PLAN: Plan = {
 }
 
 const TEST_CONFIG: Config = {
-  defaultModel: 'claude-opus-4-20250514',
   targetRepoPath: '/tmp/repo',
   maxTurns: 100,
 }
@@ -91,10 +83,10 @@ function makeCoderError(overrides: Partial<CoderResult> = {}): CoderResult {
 }
 
 function setupDirectorResponses(...responses: Array<{ action: string; message: string; questions?: string[] }>) {
-  mockQuery.mockImplementation(() => {
+  ;(mockBackend.invoke as ReturnType<typeof vi.fn>).mockImplementation(() => {
     const idx = directorCallCount++
     const r = responses[idx] ?? { action: 'done', message: 'fallback' }
-    return createMockQuery(makeDirectorResult(r.action, r.message, r.questions))
+    return Promise.resolve(makeBackendResult(r.action, r.message, r.questions))
   })
 }
 
@@ -107,8 +99,10 @@ function createHappyPathDeps(): DirectorDeps {
     writePhaseCompletion: vi.fn(),
     coderExecute: vi.fn().mockResolvedValue(makeCoderSuccess()),
     display: vi.fn(),
-    logger: { log: vi.fn(), logVerbose: vi.fn() },
+    logger: { log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' },
     costTracker: new CostTracker(),
+    backend: mockBackend,
+    coderBackend: mockBackend,
   }
 }
 
@@ -129,7 +123,7 @@ describe('runPhase', () => {
     expect(deps.updatePhaseStatus).toHaveBeenCalledWith('plan.md', 1, 'in-progress')
     expect(deps.coderExecute).toHaveBeenCalledTimes(1)
     // First Director call is Review, not sub-planning
-    const firstPrompt = mockQuery.mock.calls[0][0].prompt
+    const firstPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt
     expect(firstPrompt).toContain('Coder Report')
   })
 
@@ -179,7 +173,7 @@ describe('runPhase', () => {
       'plan.md', 1, 'Phase done. Created scaffold.'
     )
     // Director called 2 times: review, complete
-    expect(mockQuery).toHaveBeenCalledTimes(2)
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
   })
 
   // R4: Error → Director formulates fix → retry Coder
@@ -325,8 +319,8 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
     // 2 calls: review, complete
-    expect(mockQuery).toHaveBeenCalledTimes(2)
-    for (const call of mockQuery.mock.calls) {
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
+    for (const call of (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls) {
       expect(typeof call[0].prompt).toBe('string')
     }
   })
@@ -341,19 +335,17 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    const firstOpts = mockQuery.mock.calls[0][0].options
-    expect(firstOpts.outputFormat).toEqual({
-      type: 'json_schema',
-      schema: expect.objectContaining({
+    const firstOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(firstOpts.outputSchema).toEqual(
+      expect.objectContaining({
         type: 'object',
         required: ['action', 'message'],
       }),
-    })
+    )
   })
 
-  // J11: Director strips CLAUDECODE env var
-  it('Director strips CLAUDECODE env var', async () => {
-    process.env.CLAUDECODE = '1'
+  // J11: Director passes env to backend (backend handles stripping)
+  it('Director passes env to backend', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
@@ -362,9 +354,9 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    const firstOpts = mockQuery.mock.calls[0][0].options
-    expect(firstOpts.env.CLAUDECODE).toBeUndefined()
-    delete process.env.CLAUDECODE
+    const firstOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(firstOpts.env).toBeDefined()
+    expect(typeof firstOpts.env).toBe('object')
   })
 
   // J12: Review step gives Director Bash tool
@@ -382,8 +374,8 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
     // 3 Director calls: review(fix), review(done), complete
-    expect(mockQuery).toHaveBeenCalledTimes(3)
-    const reviewOpts = mockQuery.mock.calls[0][0].options
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
+    const reviewOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
   })
 
@@ -461,7 +453,7 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
     // Second review call (index 1) should have the sub-phase context
-    const secondReviewPrompt = mockQuery.mock.calls[1][0].prompt
+    const secondReviewPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[1][0].prompt
     expect(secondReviewPrompt).toContain('Previously Completed Sub-phases')
   })
 
@@ -476,8 +468,8 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
     // 2 calls: review(0), complete(1)
-    expect(mockQuery).toHaveBeenCalledTimes(2)
-    const reviewOpts = mockQuery.mock.calls[0][0].options
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
+    const reviewOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
   })
 
@@ -491,10 +483,10 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    const firstOpts = mockQuery.mock.calls[0][0].options
-    expect(firstOpts.systemPrompt.append).toContain('Test Project')
-    expect(firstOpts.systemPrompt.append).toContain('A test project.')
-    expect(firstOpts.systemPrompt.append).toContain('TypeScript, Node.js')
+    const firstOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(firstOpts.systemPrompt).toContain('Test Project')
+    expect(firstOpts.systemPrompt).toContain('A test project.')
+    expect(firstOpts.systemPrompt).toContain('TypeScript, Node.js')
   })
 
   // J19: runPhase resumes Director session when sessionId provided
@@ -508,10 +500,10 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps, 'sess-existing')
 
     // First Director call resumes from provided sessionId
-    expect(mockQuery).toHaveBeenCalledTimes(2)
-    expect(mockQuery.mock.calls[0][0].options.resume).toBe('sess-existing')
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
+    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].resumeSessionId).toBe('sess-existing')
     // Subsequent calls use sessionId from SDK response (mock returns 'sess-dir')
-    expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-dir')
+    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[1][0].resumeSessionId).toBe('sess-dir')
   })
 
   // J20: runPhase creates fresh session when no sessionId provided
@@ -525,9 +517,9 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
     // First call should be fresh (no resume)
-    expect(mockQuery.mock.calls[0][0].options.resume).toBeUndefined()
+    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].resumeSessionId).toBeUndefined()
     // Second call should resume from first call's session
-    expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-dir')
+    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[1][0].resumeSessionId).toBe('sess-dir')
   })
 
   // J21: runPhase returns sessionId for cross-phase continuity
@@ -555,7 +547,7 @@ describe('runPhase', () => {
 
     expect(deps.coderExecute).toHaveBeenCalledTimes(1)
     // Only 1 Director call: complete (no review)
-    expect(mockQuery).toHaveBeenCalledTimes(1)
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(1)
     expect(deps.writePhaseCompletion).toHaveBeenCalled()
   })
 
@@ -570,7 +562,7 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
     // 2 Director calls: review + complete
-    expect(mockQuery).toHaveBeenCalledTimes(2)
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
   })
 
   // RV3: Review runs when config.withReviews is true
@@ -584,7 +576,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    expect(mockQuery).toHaveBeenCalledTimes(2)
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
   })
 
   // RV4: Without reviews, Coder runs exactly once (no retry loop)
@@ -612,7 +604,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    const reviewOpts = mockQuery.mock.calls[0][0].options
+    const reviewOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep'])
   })
 
@@ -627,7 +619,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    const reviewOpts = mockQuery.mock.calls[0][0].options
+    const reviewOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
   })
 
@@ -641,7 +633,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    const reviewOpts = mockQuery.mock.calls[0][0].options
+    const reviewOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
   })
 
@@ -670,7 +662,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    const execOpts = mockQuery.mock.calls[0][0].options
+    const execOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(execOpts.tools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'])
   })
 
@@ -685,7 +677,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    const execPrompt = mockQuery.mock.calls[0][0].prompt
+    const execPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt
     expect(execPrompt).toContain('Phase 1')
     expect(execPrompt).toContain('Setup')
     expect(execPrompt).not.toContain('Coder Report')
@@ -702,7 +694,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    expect(mockQuery).toHaveBeenCalledTimes(2)
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
   })
 
   // DO5: Director-only completes phase with summary
@@ -743,8 +735,8 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    const execOpts = mockQuery.mock.calls[0][0].options
-    expect(execOpts.model).toBe('claude-sonnet-4-20250514')
+    const execOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(execOpts.model).toBe('claude-sonnet-4-6')
   })
 
   // DO8: Director-only gets generous maxTurns for execution
@@ -758,7 +750,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    const execOpts = mockQuery.mock.calls[0][0].options
+    const execOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(execOpts.maxTurns).toBeGreaterThanOrEqual(50)
   })
 })
@@ -856,7 +848,7 @@ describe('runPlanningFlow', () => {
     expect(askInputCalls[0][0]).toContain('Want polling?')
     expect(askInputCalls[1][0]).toContain('Polling interval?')
     // 4 Director calls: analyze, clarify round 1, clarify round 2, createPlan
-    expect(mockQuery).toHaveBeenCalledTimes(4)
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(4)
   })
 
   // P3: Plan revision — human provides feedback, Director revises
@@ -874,8 +866,8 @@ describe('runPlanningFlow', () => {
     await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
 
     expect(deps.askApproval).toHaveBeenCalledTimes(2)
-    expect(mockQuery).toHaveBeenCalledTimes(3)
-    const revisionPrompt = mockQuery.mock.calls[2][0].prompt
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
+    const revisionPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[2][0].prompt
     expect(revisionPrompt).toContain('Add a testing phase')
   })
 
@@ -890,8 +882,8 @@ describe('runPlanningFlow', () => {
 
     const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
 
-    expect(mockQuery).toHaveBeenCalledTimes(3)
-    const fixPrompt = mockQuery.mock.calls[2][0].prompt
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
+    const fixPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[2][0].prompt
     expect(fixPrompt).toContain('format error')
     expect(result.plan.title).toBe('Test Project')
   })
@@ -946,9 +938,9 @@ describe('runPlanningFlow', () => {
 
     await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
 
-    const firstOpts = mockQuery.mock.calls[0][0].options
-    expect(firstOpts.systemPrompt.append).toContain('Build a widget app')
-    expect(firstOpts.systemPrompt.append).toContain('Use TDD')
+    const firstOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(firstOpts.systemPrompt).toContain('Build a widget app')
+    expect(firstOpts.systemPrompt).toContain('Use TDD')
   })
 
   // P8: createPlanFile is called with correct path derived from spec file path
@@ -979,13 +971,13 @@ describe('runPlanningFlow', () => {
     await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
 
     // 3 calls: analyze, clarify, createPlan
-    expect(mockQuery).toHaveBeenCalledTimes(3)
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
     // First call: no resume
-    expect(mockQuery.mock.calls[0][0].options.resume).toBeUndefined()
+    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].resumeSessionId).toBeUndefined()
     // Second call: resumes from first session
-    expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-dir')
+    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[1][0].resumeSessionId).toBe('sess-dir')
     // Third call: also resumes
-    expect(mockQuery.mock.calls[2][0].options.resume).toBe('sess-dir')
+    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[2][0].resumeSessionId).toBe('sess-dir')
   })
 
   // P10: Returns sessionId for execution flow to continue
@@ -1046,7 +1038,7 @@ describe('runPlanningFlow', () => {
     expect(deps.askApproval).not.toHaveBeenCalled()
     expect(result.plan.title).toBe('Test Project')
     // 3 calls: analyze, createPlan(invalid), fix
-    expect(mockQuery).toHaveBeenCalledTimes(3)
+    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
   })
 
   // PV4: Plan revision loop works when withHumanValidation is true
@@ -1071,11 +1063,15 @@ describe('runPlanningFlow', () => {
 // === executeDirector session tracking tests ===
 
 describe('executeDirector', () => {
-  const mockLogger = { log: vi.fn(), logVerbose: vi.fn() }
+  const mockLogger = { log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' }
+
+  function setupBackendResult(action: string, message: string) {
+    ;(mockBackend.invoke as ReturnType<typeof vi.fn>).mockResolvedValue(makeBackendResult(action, message))
+  }
 
   // S1: Captures session_id from system init message
   it('captures session_id from system init message', async () => {
-    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+    setupBackendResult('done', 'test')
 
     const result = await executeDirector({
       prompt: 'test',
@@ -1083,14 +1079,15 @@ describe('executeDirector', () => {
       systemPromptText: 'system prompt',
       config: TEST_CONFIG,
       logger: mockLogger,
+      backend: mockBackend,
     })
 
     expect(result.sessionId).toBe('sess-dir')
   })
 
-  // S2: Passes resume option to query when provided
-  it('passes resume option to query when provided', async () => {
-    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+  // S2: Passes resume option to backend when provided
+  it('passes resume option to backend when provided', async () => {
+    setupBackendResult('done', 'test')
 
     await executeDirector({
       prompt: 'test',
@@ -1098,16 +1095,17 @@ describe('executeDirector', () => {
       systemPromptText: 'system prompt',
       config: TEST_CONFIG,
       logger: mockLogger,
+      backend: mockBackend,
       resume: 'sess-123',
     })
 
-    const opts = mockQuery.mock.calls[0][0].options
-    expect(opts.resume).toBe('sess-123')
+    const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(invocation.resumeSessionId).toBe('sess-123')
   })
 
   // S3: Does not include resume option when not provided
   it('does not include resume option when not provided', async () => {
-    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+    setupBackendResult('done', 'test')
 
     await executeDirector({
       prompt: 'test',
@@ -1115,15 +1113,16 @@ describe('executeDirector', () => {
       systemPromptText: 'system prompt',
       config: TEST_CONFIG,
       logger: mockLogger,
+      backend: mockBackend,
     })
 
-    const opts = mockQuery.mock.calls[0][0].options
-    expect(opts.resume).toBeUndefined()
+    const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(invocation.resumeSessionId).toBeUndefined()
   })
 
   // S4: Omits systemPrompt when resuming (session retains original)
   it('omits systemPrompt when resuming', async () => {
-    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+    setupBackendResult('done', 'test')
 
     await executeDirector({
       prompt: 'test',
@@ -1131,16 +1130,17 @@ describe('executeDirector', () => {
       systemPromptText: 'system prompt',
       config: TEST_CONFIG,
       logger: mockLogger,
+      backend: mockBackend,
       resume: 'sess-123',
     })
 
-    const opts = mockQuery.mock.calls[0][0].options
-    expect(opts.systemPrompt).toBeUndefined()
+    const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(invocation.systemPrompt).toBeUndefined()
   })
 
   // S5: Includes systemPrompt on fresh session (no resume)
   it('includes systemPrompt on fresh session', async () => {
-    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+    setupBackendResult('done', 'test')
 
     await executeDirector({
       prompt: 'test',
@@ -1148,16 +1148,16 @@ describe('executeDirector', () => {
       systemPromptText: 'my system prompt',
       config: TEST_CONFIG,
       logger: mockLogger,
+      backend: mockBackend,
     })
 
-    const opts = mockQuery.mock.calls[0][0].options
-    expect(opts.systemPrompt).toBeDefined()
-    expect(opts.systemPrompt.append).toBe('my system prompt')
+    const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(invocation.systemPrompt).toBe('my system prompt')
   })
 
   // MO1: Uses config.directorModel override when set
   it('uses directorModel from config when set', async () => {
-    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+    setupBackendResult('done', 'test')
     const config = { ...TEST_CONFIG, directorModel: 'opus' }
 
     await executeDirector({
@@ -1166,16 +1166,17 @@ describe('executeDirector', () => {
       systemPromptText: 'system',
       config,
       logger: mockLogger,
+      backend: mockBackend,
     })
 
-    const opts = mockQuery.mock.calls[0][0].options
-    expect(opts.model).toBe('claude-opus-4-20250514')
+    const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(invocation.model).toBe('claude-opus-4-6')
   })
 
   // MO2: Falls back to env var when no directorModel override
   it('falls back to env var when directorModel not in config', async () => {
-    process.env.CESTDONE_DIRECTOR_MODEL = 'claude-haiku-4-5-20251001'
-    mockQuery.mockReturnValue(createMockQuery(makeDirectorResult('done', 'test')))
+    process.env.CESTDONE_DIRECTOR_MODEL = 'claude-haiku-4-5'
+    setupBackendResult('done', 'test')
 
     await executeDirector({
       prompt: 'test',
@@ -1183,10 +1184,11 @@ describe('executeDirector', () => {
       systemPromptText: 'system',
       config: TEST_CONFIG,
       logger: mockLogger,
+      backend: mockBackend,
     })
 
-    const opts = mockQuery.mock.calls[0][0].options
-    expect(opts.model).toBe('claude-haiku-4-5-20251001')
+    const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(invocation.model).toBe('claude-haiku-4-5')
   })
 
   // MO3: buildCoderOptions uses config.coderModel override
@@ -1201,6 +1203,6 @@ describe('executeDirector', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
     const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
-    expect(opts.model).toBe('claude-sonnet-4-20250514')
+    expect(opts.model).toBe('claude-sonnet-4-6')
   })
 })

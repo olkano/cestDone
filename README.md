@@ -70,7 +70,9 @@ cestDone supports two execution modes:
 └─────────────────────┘     └─────────────────────────┘
 ```
 
-Both agents use `@anthropic-ai/claude-agent-sdk` with `outputFormat` for structured JSON responses.
+Both agents use a **Backend** abstraction that supports two implementations:
+- **Agent SDK** (`agent-sdk`, default) — uses `@anthropic-ai/claude-agent-sdk` with `outputFormat` for structured JSON responses. Requires `ANTHROPIC_API_KEY` (per-token API billing).
+- **Claude Code CLI** (`claude-cli`) — shells out to `claude -p` with `--output-format json`. Uses your Claude Max/Pro subscription (no API key needed). Authenticate via `claude auth login`.
 
 **Session strategy:**
 - **Director**: Single continuous session per process run. The first `query()` call creates the session; all subsequent calls pass `resume: sessionId` to continue the conversation. The Director remembers what it read, what clarifications were given, and what each phase reported — no redundant re-exploration.
@@ -291,7 +293,7 @@ Each agent gets only the tools it needs per step:
 | Review (read-only) | Director | Read, Glob, Grep |
 | Complete | Director | Read, Glob, Grep |
 
-Tools are enforced via the `tools` parameter in Agent SDK `query()`, which physically restricts available tools in the session.
+Tools are enforced via the `tools` parameter (Agent SDK) or `--disallowedTools` (Claude CLI), which physically restricts available tools in the session.
 
 ## Structured Output
 
@@ -358,14 +360,17 @@ npm install
 
 ### Authentication
 
-cestDone uses the [Claude Agent SDK](https://docs.anthropic.com/en/docs/agent-sdk), which requires `ANTHROPIC_API_KEY` in the environment. The SDK reads it automatically — cestDone does not manage the key itself.
-
-Set it in a `.env` file (Node 22+ loads it via `--env-file`):
+**Agent SDK backend** (default): Requires `ANTHROPIC_API_KEY` in the environment. Set it in a `.env` file (Node 22+ loads it via `--env-file`):
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-> **Note:** The Agent SDK requires an API key. Claude Max/Pro subscriptions cannot be used — Anthropic explicitly prohibits third-party tools from using subscription-based authentication. API billing is separate from your Claude subscription.
+**Claude CLI backend** (`--backend claude-cli`): Uses your Claude Max/Pro subscription via the `claude` binary. No API key needed — authenticate via:
+```bash
+claude auth login
+```
+
+> **Note:** The Agent SDK backend requires an API key with per-token billing. The Claude CLI backend uses your subscription instead — no `ANTHROPIC_API_KEY` needed (it's stripped from the environment to ensure subscription billing).
 
 ### Commands
 
@@ -394,6 +399,10 @@ Both `run` and `resume` accept these flags:
 | `--with-reviews` | Enable Director reviews after Coder execution | off |
 | `--with-bash-reviews` | Enable Bash in Director reviews (implies `--with-reviews`) | off (read-only review) |
 | `--with-human-validation` | Require human approval of plan before execution | off (auto-approve) |
+| `--backend <type>` | Set both Director and Coder backends (`agent-sdk` or `claude-cli`) | `agent-sdk` |
+| `--director-backend <type>` | Override Director backend (takes precedence over `--backend`) | `agent-sdk` |
+| `--coder-backend <type>` | Override Coder backend (takes precedence over `--backend`) | `agent-sdk` |
+| `--claude-cli-path <path>` | Path to claude binary (for `claude-cli` backend) | `claude` |
 
 **Flag implications:**
 - `--with-bash-reviews` automatically enables `--with-reviews`
@@ -417,6 +426,14 @@ npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app \
 # Override models
 npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app \
   --director-model opus --coder-model sonnet --with-coder
+
+# Use Claude CLI backend (Max/Pro subscription, no API key needed)
+npx tsx src/cli/index.ts run --spec spec.md --target ./my-app \
+  --backend claude-cli
+
+# Mixed: Director on CLI (cheap planning), Coder on API (structured output)
+npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app \
+  --director-backend claude-cli --coder-backend agent-sdk --with-coder
 ```
 
 ### Model Selection
@@ -443,7 +460,10 @@ Optional `.cestDonerc.json` in the target repo:
   "withCoder": false,
   "withReviews": false,
   "withBashReviews": false,
-  "withHumanValidation": false
+  "withHumanValidation": false,
+  "directorBackend": "agent-sdk",
+  "coderBackend": "claude-cli",
+  "claudeCliPath": "/usr/local/bin/claude"
 }
 ```
 
@@ -453,6 +473,10 @@ CLI flags override `.cestDonerc.json` values.
 
 ```
 src/
+├── backends/
+│   ├── index.ts          # Backend factory (createBackend)
+│   ├── agent-sdk.ts      # AgentSdkBackend (API key billing)
+│   └── claude-cli.ts     # ClaudeCliBackend (subscription billing)
 ├── cli/
 │   ├── index.ts          # CLI entry point (run, resume commands)
 │   └── prompt.ts         # Terminal interaction (askApproval, askInput)
@@ -478,8 +502,9 @@ src/
 ## Tech Stack
 
 - **Runtime:** Node.js + TypeScript (ESM)
-- **Agent SDK:** `@anthropic-ai/claude-agent-sdk` (both Director and Coder)
-- **Tests:** Vitest (256 tests across 17 files)
+- **Agent SDK:** `@anthropic-ai/claude-agent-sdk` (Agent SDK backend)
+- **Claude CLI:** `claude -p` (Claude CLI backend, subscription billing)
+- **Tests:** Vitest (324 tests across 21 files)
 - **Logging:** Pino with file rotation
 - **CLI:** Commander
 
@@ -491,6 +516,8 @@ src/
 - Model alias resolution (`haiku`/`sonnet`/`opus`) with CLI override → env var → default fallback
 - Automatic sequential execution of all phases (no human intervention by default)
 - Free-form spec input with optional house rules
+- Backend abstraction: Agent SDK (API billing) and Claude Code CLI (subscription billing)
+- Independent backend selection per agent (Director and Coder can use different backends)
 - Agent SDK integration with structured JSON output for both agents
 - Director session resumption — single continuous conversation across planning + all phases
 - Per-step tool restrictions enforced via `tools` parameter
