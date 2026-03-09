@@ -21,6 +21,8 @@ export interface RunOptions {
   houseRules?: string
   directorModel?: string
   coderModel?: string
+  directorMaxTurns?: string
+  maxTurns?: string
   withCoder?: boolean
   withReviews?: boolean
   withBashReviews?: boolean
@@ -35,6 +37,8 @@ export interface ResumeOptions {
   target?: string
   directorModel?: string
   coderModel?: string
+  directorMaxTurns?: string
+  maxTurns?: string
   withCoder?: boolean
   withReviews?: boolean
   withBashReviews?: boolean
@@ -48,6 +52,8 @@ export interface ResumeOptions {
 function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void {
   if (options?.directorModel) config.directorModel = options.directorModel
   if (options?.coderModel) config.coderModel = options.coderModel
+  if (options?.directorMaxTurns) config.directorMaxTurns = parseInt(options.directorMaxTurns, 10)
+  if (options?.maxTurns) config.maxTurns = parseInt(options.maxTurns, 10)
 
   // Only override booleans when CLI flag was explicitly passed
   if (options?.withCoder !== undefined) config.withCoder = options.withCoder
@@ -240,6 +246,8 @@ function addCommonOptions(cmd: Command): Command {
     .option('--target <path>', `Target repository path (default: "${DEFAULTS.targetRepoPath}")`)
     .option('--director-model <model>', `Director model: haiku | sonnet | opus (default: "${DEFAULTS.directorModel}")`)
     .option('--coder-model <model>', `Coder model: haiku | sonnet | opus (default: "${DEFAULTS.coderModel}")`)
+    .option('--director-max-turns <n>', `Max turns for Director steps (default: ${DEFAULTS.directorMaxTurnsDefault})`)
+    .option('--max-turns <n>', `Max turns for Coder (default: ${DEFAULTS.maxTurns})`)
     .option('--with-coder', `Two-agent mode: Director plans, Coder implements (default: ${DEFAULTS.withCoder})`)
     .option('--no-with-coder', 'Disable two-agent mode (director-only)')
     .option('--with-reviews', `Director reviews after Coder execution (default: ${DEFAULTS.withReviews})`)
@@ -267,12 +275,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
     .requiredOption('--spec <path>', 'Path to spec file (required)')
     .option('--house-rules <path>', 'Path to house rules file')
   addCommonOptions(runCmd)
-    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; coderModel?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string }) => {
+    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; coderModel?: string; directorMaxTurns?: string; maxTurns?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string }) => {
       await handleRun(opts.spec, {
         target: opts.target,
         houseRules: opts.houseRules,
         directorModel: opts.directorModel,
         coderModel: opts.coderModel,
+        directorMaxTurns: opts.directorMaxTurns,
+        maxTurns: opts.maxTurns,
         withCoder: opts.withCoder,
         withReviews: opts.withReviews,
         withBashReviews: opts.withBashReviews,
@@ -288,11 +298,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
     .description('Resume execution from an existing .plan.md file')
     .requiredOption('--spec <path>', 'Path to spec file (required)')
   addCommonOptions(resumeCmd)
-    .action(async (opts: { spec: string; target?: string; directorModel?: string; coderModel?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string }) => {
+    .action(async (opts: { spec: string; target?: string; directorModel?: string; coderModel?: string; directorMaxTurns?: string; maxTurns?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string }) => {
       await handleResume(opts.spec, {
         target: opts.target,
         directorModel: opts.directorModel,
         coderModel: opts.coderModel,
+        directorMaxTurns: opts.directorMaxTurns,
+        maxTurns: opts.maxTurns,
         withCoder: opts.withCoder,
         withReviews: opts.withReviews,
         withBashReviews: opts.withBashReviews,

@@ -326,7 +326,12 @@ export function buildCreatePlanPrompt(spec: FreeFormSpec, clarifications: string
     '- Include only the relevant house rules in each phase\'s ### Applicable Rules',
     '- Number phases starting from 1',
     '- Each phase spec should be self-contained enough for a Coder to work on independently',
-    'Do NOT write code yet.',
+    '',
+    'IMPORTANT:',
+    '- Return the plan directly in your message field as markdown text.',
+    '- Do NOT use any tools during this step — you already have all the information from the Analyze step.',
+    '- Do NOT spawn subagents, write files, or use planning tools. Just produce the plan text.',
+    '- Do NOT write code yet.',
   )
 
   return parts.join('\n')

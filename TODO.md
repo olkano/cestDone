@@ -1,16 +1,6 @@
 # TODO — cestdone
 
-## 🔴 High priority (blocks current work)
-_(items that must be resolved before or during current phase)_
-
-- [x] Atomic write for spec updates — write to temp file, then rename. Prevents corruption on crash mid-write
-- [x] Structured Director output schema — define `tool_use` response schema with action envelope (`approve | ask_human | fix | complete`). Needed before Director module implementation
-- [x] Windows stdin compatibility — use Node `readline` module, test explicitly on Windows. Required for Phase 0 acceptance criteria
-- [x] Non-TTY detection — error with clear message when no TTY available (Phase 0 hard requirement)
-
-## 🟡 Medium priority (next phases)
-_(items for upcoming phases, or improvements to current architecture)_
-
+- [ ] Instead of the "CLI: Still waiting... (150s elapsed)", show the "thinking process" asn seen in the CLI itself (assess viability)
 - [ ] Change --target default from cwd (.) to the spec file's parent directory — so users don't need to pass --target when spec is in the target repo
 - [ ] Limit Director questions to 3 max in Analyze prompt — prevent question flooding (found in live test)
 - [ ] Allow 'skip' / empty Enter to skip remaining Director questions in Step 2
@@ -28,5 +18,4 @@ _(polish, optimization, edge cases that can wait)_
 
 - [ ] Config file hierarchical lookup (currently CWD only — may revisit if multi-repo setups need it)
 - [ ] Graceful handling when house-rules.md is missing — currently warns, consider testing edge cases (empty file, broken path)
-- [x] Director "I'm stuck" escalation UX — after 3 rejections, format a clear summary of attempts for human review (implemented for both plan rejections and Coder failures)
 - [ ] Spec parser recovery mode — currently strict-fail by design, may want a `--lint` command to validate spec files without running

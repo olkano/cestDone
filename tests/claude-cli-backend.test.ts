@@ -22,6 +22,35 @@ function makeInvocation(overrides: Partial<BackendInvocation> = {}): BackendInvo
   }
 }
 
+function makeStreamOutput(resultOverrides: Record<string, unknown> = {}) {
+  const initEvent = JSON.stringify({
+    type: 'system', subtype: 'init', session_id: 'sess-cli-1',
+    tools: ['Read', 'Glob', 'Grep'], model: 'claude-sonnet-4-6',
+  })
+  const resultEvent = JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    duration_ms: 2000,
+    duration_api_ms: 1800,
+    num_turns: 3,
+    result: '{"action":"done","message":"ok"}',
+    session_id: 'sess-cli-1',
+    total_cost_usd: 0.05,
+    usage: {
+      input_tokens: 500,
+      output_tokens: 200,
+      cache_read_input_tokens: 100,
+      cache_creation_input_tokens: 50,
+    },
+    permission_denials: [],
+    uuid: 'uuid-1',
+    ...resultOverrides,
+  })
+  return initEvent + '\n' + resultEvent + '\n'
+}
+
+// Legacy single-JSON format for parseCliResult tests
 function makeCliOutput(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     type: 'result',
@@ -112,10 +141,15 @@ describe('toDenylist', () => {
     expect(toDenylist(undefined)).toEqual([])
   })
 
-  it('returns empty array when all tools allowed', () => {
-    const allTools = ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep',
+  it('returns only internal tools when all standard tools allowed', () => {
+    const allStandard = ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep',
       'WebFetch', 'WebSearch', 'TodoRead', 'TodoWrite', 'NotebookRead', 'NotebookEdit']
-    expect(toDenylist(allTools)).toEqual([])
+    const denied = toDenylist(allStandard)
+    expect(denied).not.toContain('Read')
+    expect(denied).not.toContain('Write')
+    expect(denied).toContain('ExitPlanMode')
+    expect(denied).toContain('Task')
+    expect(denied).toContain('Agent')
   })
 
   it('computes correct denylist for read-only tools', () => {
@@ -143,6 +177,26 @@ describe('toDenylist', () => {
     expect(denied).not.toContain('Bash')
     expect(denied).toContain('WebFetch')
     expect(denied).toContain('WebSearch')
+  })
+
+  it('always denies internal Claude Code tools (ExitPlanMode, Task, Agent, etc.)', () => {
+    const denied = toDenylist(['Read', 'Glob', 'Grep'])
+    expect(denied).toContain('ExitPlanMode')
+    expect(denied).toContain('EnterPlanMode')
+    expect(denied).toContain('Task')
+    expect(denied).toContain('Agent')
+    expect(denied).toContain('AskUserQuestion')
+  })
+
+  it('denies internal tools even when all standard tools are allowed', () => {
+    const allStandard = ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep',
+      'WebFetch', 'WebSearch', 'TodoRead', 'TodoWrite', 'NotebookRead', 'NotebookEdit']
+    const denied = toDenylist(allStandard)
+    expect(denied).toContain('ExitPlanMode')
+    expect(denied).toContain('EnterPlanMode')
+    expect(denied).toContain('Task')
+    expect(denied).toContain('Agent')
+    expect(denied).toContain('AskUserQuestion')
   })
 })
 
@@ -206,6 +260,39 @@ describe('parseCliResult', () => {
   })
 })
 
+describe('parseStreamResultEvent', () => {
+  let parseStreamResultEvent: typeof import('../src/backends/claude-cli.js').parseStreamResultEvent
+
+  beforeEach(async () => {
+    const mod = await import('../src/backends/claude-cli.js')
+    parseStreamResultEvent = mod.parseStreamResultEvent
+  })
+
+  it('parses a success result event', () => {
+    const event = {
+      type: 'result', subtype: 'success', session_id: 'sess-1',
+      num_turns: 5, duration_ms: 3000, result: '{"action":"done","message":"ok"}',
+      usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    }
+    const result = parseStreamResultEvent(event, { type: 'object' })
+    expect(result.success).toBe(true)
+    expect(result.output).toEqual({ action: 'done', message: 'ok' })
+    expect(result.sessionId).toBe('sess-1')
+    expect(result.numTurns).toBe(5)
+  })
+
+  it('parses an error result event', () => {
+    const event = {
+      type: 'result', subtype: 'error_max_turns', result: 'hit max turns',
+      num_turns: 15, duration_ms: 600000,
+      usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    }
+    const result = parseStreamResultEvent(event)
+    expect(result.success).toBe(false)
+    expect(result.errorMessage).toContain('error_max_turns')
+  })
+})
+
 describe('ClaudeCliBackend', () => {
   let ClaudeCliBackend: typeof import('../src/backends/claude-cli.js').ClaudeCliBackend
 
@@ -224,7 +311,7 @@ describe('ClaudeCliBackend', () => {
 
   describe('invoke()', () => {
     it('spawns claude with correct base flags', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation())
@@ -234,12 +321,13 @@ describe('ClaudeCliBackend', () => {
       expect(args).toContain('-p')
       expect(args).toContain('test prompt')
       expect(args).toContain('--output-format')
-      expect(args).toContain('json')
+      expect(args).toContain('stream-json')
+      expect(args).toContain('--verbose')
       expect(args).toContain('--dangerously-skip-permissions')
     })
 
     it('includes --model flag', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ model: 'claude-opus-4-6' }))
@@ -250,7 +338,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('includes --append-system-prompt when systemPrompt provided', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ systemPrompt: 'You are a Director AI.' }))
@@ -262,7 +350,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('includes --disallowedTools computed from tools whitelist', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ tools: ['Read', 'Glob', 'Grep'] }))
@@ -278,7 +366,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('includes --resume when resumeSessionId provided', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ resumeSessionId: 'sess-123' }))
@@ -289,7 +377,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('includes --max-turns when maxTurns provided', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ maxTurns: 20 }))
@@ -300,7 +388,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('ignores maxBudgetUsd (no CLI equivalent)', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ maxBudgetUsd: 5.0 }))
@@ -310,7 +398,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('strips ANTHROPIC_API_KEY and CLAUDECODE from env, inherits process.env', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({
@@ -328,7 +416,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('uses --strict-mcp-config with empty config', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation())
@@ -339,7 +427,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('sets cwd on spawn options', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ cwd: '/my/repo' }))
@@ -349,7 +437,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('closes stdin immediately to unblock CLI', async () => {
-      const mockChild = createMockChild(makeCliOutput())
+      const mockChild = createMockChild(makeStreamOutput())
       ;(spawn as unknown as ReturnType<typeof vi.fn>).mockReturnValue(mockChild)
       const backend = new ClaudeCliBackend()
 
@@ -359,7 +447,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('parses stdout as CLI JSON and returns BackendResult', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       const result = await backend.invoke(makeInvocation())
@@ -393,7 +481,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('omits --append-system-prompt when resuming', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ resumeSessionId: 'sess-123', systemPrompt: 'ignored' }))
@@ -403,7 +491,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('appends JSON instructions to system prompt when outputSchema provided', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({
@@ -419,7 +507,7 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('does not include --disallowedTools when no tools specified', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation({ tools: undefined }))
@@ -429,13 +517,42 @@ describe('ClaudeCliBackend', () => {
     })
 
     it('uses custom cli path', async () => {
-      mockSpawnSuccess(makeCliOutput())
+      mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend('/custom/claude')
 
       await backend.invoke(makeInvocation())
 
       const { cmd } = getSpawnArgs()
       expect(cmd).toBe('/custom/claude')
+    })
+
+    it('logs tool calls from stream events in real-time', async () => {
+      const assistantEvent = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', name: 'Read', input: { file_path: '/foo/bar.ts' } },
+            { type: 'tool_use', name: 'Grep', input: { pattern: 'TODO' } },
+          ],
+        },
+      })
+      const initEvent = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-cli-1' })
+      const resultEvent = JSON.stringify({
+        type: 'result', subtype: 'success', num_turns: 2, duration_ms: 1000,
+        result: '"done"', session_id: 'sess-cli-1',
+        usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      })
+      const streamOutput = [initEvent, assistantEvent, resultEvent].join('\n') + '\n'
+
+      mockSpawnSuccess(streamOutput)
+      const backend = new ClaudeCliBackend()
+      const logger = { log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' }
+
+      await backend.invoke(makeInvocation({ logger }))
+
+      const logCalls = logger.log.mock.calls.map((c: string[]) => c[1])
+      expect(logCalls).toContainEqual('Tool: Read(/foo/bar.ts)')
+      expect(logCalls).toContainEqual('Tool: Grep(TODO)')
     })
   })
 

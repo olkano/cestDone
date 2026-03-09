@@ -376,6 +376,24 @@ describe('buildCreatePlanPrompt', () => {
     expect(prompt).toContain('Build a web dashboard')
     expect(prompt).not.toContain('Clarifications')
   })
+
+  it('explicitly prohibits tool use during plan creation', () => {
+    const prompt = buildCreatePlanPrompt(TEST_SPEC, '')
+
+    expect(prompt).toMatch(/do NOT use.*tools/i)
+  })
+
+  it('explicitly prohibits spawning subagents', () => {
+    const prompt = buildCreatePlanPrompt(TEST_SPEC, '')
+
+    expect(prompt).toMatch(/do NOT.*subagent/i)
+  })
+
+  it('instructs to return plan directly in message field', () => {
+    const prompt = buildCreatePlanPrompt(TEST_SPEC, '')
+
+    expect(prompt).toMatch(/return.*plan.*directly.*message/i)
+  })
 })
 
 describe('buildRevisePlanPrompt', () => {

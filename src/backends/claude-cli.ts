@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { Backend, BackendInvocation, BackendResult, BackendType } from '../shared/types.js'
-import { mapSdkUsage } from '../shared/types.js'
+import { mapSdkUsage, formatToolCall } from '../shared/types.js'
 import { DEFAULTS } from '../shared/config.js'
 
 const ALL_CLAUDE_CODE_TOOLS = [
@@ -12,9 +12,21 @@ const ALL_CLAUDE_CODE_TOOLS = [
   'WebFetch', 'WebSearch', 'TodoRead', 'TodoWrite', 'NotebookRead', 'NotebookEdit',
 ]
 
+// Claude Code internal tools that must always be blocked.
+// These are not in the standard tool list but are available inside Claude Code sessions.
+// Without blocking these, the Director can escape its lane by spawning subagents,
+// entering plan mode, or prompting the user directly.
+const ALWAYS_DENIED_TOOLS = [
+  'ExitPlanMode', 'EnterPlanMode', 'Task', 'Agent', 'AskUserQuestion',
+]
+
 export function toDenylist(allowedTools?: string[]): string[] {
   if (!allowedTools) return []
-  return ALL_CLAUDE_CODE_TOOLS.filter(t => !allowedTools.includes(t))
+  const denied = ALL_CLAUDE_CODE_TOOLS.filter(t => !allowedTools.includes(t))
+  for (const tool of ALWAYS_DENIED_TOOLS) {
+    if (!denied.includes(tool)) denied.push(tool)
+  }
+  return denied
 }
 
 interface CliJsonOutput {
@@ -30,6 +42,28 @@ interface CliJsonOutput {
   usage: unknown
   permission_denials: unknown[]
   uuid: string
+}
+
+interface StreamEvent {
+  type: string      // 'system' | 'assistant' | 'user' | 'result'
+  subtype?: string   // 'init' for system, 'success'/'error' for result
+  session_id?: string
+  message?: {
+    content?: Array<{
+      type: string   // 'text' | 'tool_use'
+      text?: string
+      name?: string
+      input?: unknown
+    }>
+  }
+  // Result fields (same as CliJsonOutput)
+  is_error?: boolean
+  duration_ms?: number
+  duration_api_ms?: number
+  num_turns?: number
+  result?: string
+  total_cost_usd?: number
+  usage?: unknown
 }
 
 export function parseCliResult(stdout: string, outputSchema?: object): BackendResult {
@@ -70,6 +104,41 @@ export function parseCliResult(stdout: string, outputSchema?: object): BackendRe
     usage: mapSdkUsage(parsed.usage),
     success,
     errorMessage: success ? undefined : `CLI error (${parsed.subtype}): ${resultText}`,
+  }
+}
+
+/** Parse a result-type stream event into BackendResult. */
+export function parseStreamResultEvent(event: StreamEvent, outputSchema?: object): BackendResult {
+  const resultText = event.result ?? ''
+  // CLI may report success but return a non-useful result like "Prompt is too long"
+  const isPromptTooLong = resultText.trim() === 'Prompt is too long'
+  const success = event.subtype === 'success' && !isPromptTooLong
+  let output: unknown = resultText
+  const rawText: string | undefined = resultText
+
+  if (outputSchema) {
+    try {
+      output = JSON.parse(resultText)
+    } catch {
+      const match = resultText.match(/\{[\s\S]*\}/)
+      if (match) {
+        try { output = JSON.parse(match[0]) } catch { output = resultText }
+      }
+    }
+  }
+
+  return {
+    output,
+    rawText,
+    sessionId: event.session_id,
+    costUsd: null,
+    numTurns: event.num_turns ?? 0,
+    durationMs: event.duration_ms ?? 0,
+    usage: mapSdkUsage(event.usage),
+    success,
+    errorMessage: success ? undefined
+      : isPromptTooLong ? 'Session context too large — prompt is too long. Consider starting a fresh session.'
+      : `CLI error (${event.subtype}): ${resultText}`,
   }
 }
 
@@ -168,35 +237,55 @@ export class ClaudeCliBackend implements Backend {
       // Without this, the CLI may wait for stdin EOF before proceeding.
       child.stdin.end()
 
-      const stdoutChunks: Buffer[] = []
       let stderrText = ''
-      let resolved = false
+      let stdoutBuffer = '' // Line buffer for NDJSON
+      let resultEvent: StreamEvent | undefined
+      let sessionId: string | undefined
+      let turnCount = 0
 
       const heartbeat = setInterval(() => {
-        if (!resolved) {
+        if (!resultEvent) {
           const elapsed = Math.round((Date.now() - startTime) / 1000)
-          params.logger.log('CLI', `Still waiting... (${elapsed}s elapsed)`)
+          params.logger.log('CLI', `Still waiting... (${elapsed}s elapsed, turns: ${turnCount})`)
         }
       }, DEFAULTS.cliHeartbeatMs)
 
       child.stdout.on('data', (chunk: Buffer) => {
-        stdoutChunks.push(chunk)
+        stdoutBuffer += chunk.toString()
+        // Process complete NDJSON lines
+        let newlineIdx: number
+        while ((newlineIdx = stdoutBuffer.indexOf('\n')) !== -1) {
+          const line = stdoutBuffer.slice(0, newlineIdx).trim()
+          stdoutBuffer = stdoutBuffer.slice(newlineIdx + 1)
+          if (!line) continue
+
+          try {
+            const event: StreamEvent = JSON.parse(line)
+            this.handleStreamEvent(event, params, () => { turnCount++ })
+            if (event.type === 'system' && event.session_id) {
+              sessionId = event.session_id
+            }
+            if (event.type === 'result') {
+              resultEvent = event
+            }
+          } catch {
+            params.logger.logVerbose('CLI', `Non-JSON stdout line: ${line.slice(0, 200)}`)
+          }
+        }
       })
 
       child.stderr.on('data', (chunk: Buffer) => {
         const text = chunk.toString()
         stderrText += text
-        // Stream stderr lines to logger for real-time visibility
         for (const line of text.split('\n')) {
           const trimmed = line.trim()
           if (trimmed) {
-            params.logger.log('CLI', trimmed)
+            params.logger.logVerbose('CLI', trimmed)
           }
         }
       })
 
       function finish(result: BackendResult) {
-        resolved = true
         clearInterval(heartbeat)
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
         params.logger.log('CLI', `Completed in ${elapsed}s (success=${result.success})`)
@@ -212,22 +301,18 @@ export class ClaudeCliBackend implements Backend {
       })
 
       child.on('close', (code) => {
-        const out = Buffer.concat(stdoutChunks).toString()
-
-        if (code !== 0 && !out) {
-          const errorMessage = `CLI exited with code ${code}: ${stderrText.slice(0, 500)}`
-          params.logger.log('CLI', errorMessage)
-          finish({ output: null, rawText: stderrText, sessionId: undefined, costUsd: null, numTurns: 0, durationMs: 0, usage: ZERO_USAGE, success: false, errorMessage })
+        if (resultEvent) {
+          const result = parseStreamResultEvent(resultEvent, params.outputSchema)
+          // Prefer session_id from init event if result doesn't have one
+          if (!result.sessionId && sessionId) result.sessionId = sessionId
+          finish(result)
           return
         }
 
-        try {
-          finish(parseCliResult(out, params.outputSchema))
-        } catch (parseErr) {
-          const errorMessage = `Failed to parse CLI output: ${(parseErr as Error).message}`
-          params.logger.log('CLI', errorMessage)
-          finish({ output: null, rawText: out || stderrText, sessionId: undefined, costUsd: null, numTurns: 0, durationMs: 0, usage: ZERO_USAGE, success: false, errorMessage })
-        }
+        // No result event — fall back to error handling
+        const errorMessage = `CLI exited with code ${code} without result event: ${stderrText.slice(0, 500)}`
+        params.logger.log('CLI', errorMessage)
+        finish({ output: null, rawText: stderrText, sessionId, costUsd: null, numTurns: 0, durationMs: 0, usage: ZERO_USAGE, success: false, errorMessage })
       })
     })
   }
@@ -249,10 +334,28 @@ export class ClaudeCliBackend implements Backend {
     })
   }
 
+  private handleStreamEvent(
+    event: StreamEvent,
+    params: BackendInvocation,
+    onTurn: () => void,
+  ): void {
+    if (event.type === 'assistant' && event.message?.content) {
+      for (const block of event.message.content) {
+        if (block.type === 'tool_use' && block.name) {
+          params.logger.log('CLI', `Tool: ${formatToolCall(block.name, block.input)}`)
+        } else if (block.type === 'text' && block.text) {
+          params.logger.logVerbose('CLI', `Text: ${block.text.slice(0, 300)}`)
+        }
+      }
+      onTurn()
+    }
+  }
+
   private buildArgs(params: BackendInvocation): string[] {
     const args: string[] = [
       '-p', params.prompt,
-      '--output-format', 'json',
+      '--output-format', 'stream-json',
+      '--verbose',
       '--dangerously-skip-permissions',
       '--model', params.model,
       '--strict-mcp-config',

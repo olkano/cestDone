@@ -19,6 +19,7 @@ export type ModelAlias = 'haiku' | 'sonnet' | 'opus'
 export interface Config {
   targetRepoPath: string
   maxTurns: number
+  directorMaxTurns?: number
   maxBudgetUsd?: number
   directorModel?: string
   coderModel?: string

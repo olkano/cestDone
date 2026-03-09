@@ -135,6 +135,8 @@ export async function runPlanningFlow(
   // Validate plan format + optional human approval
   const needsApproval = config.withHumanValidation !== false
   let rejectionCount = 0
+  let planFixAttempts = 0
+  const MAX_PLAN_FIX_ATTEMPTS = 3
   let currentPlanContent = createResult.message
 
   while (true) {
@@ -142,7 +144,11 @@ export async function runPlanningFlow(
     try {
       parsePlan(currentPlanContent)
     } catch (err) {
-      logger.log('Director', `Plan format invalid: ${(err as Error).message}. Asking Director to fix.`)
+      planFixAttempts++
+      if (planFixAttempts > MAX_PLAN_FIX_ATTEMPTS) {
+        throw new Error(`Plan format still invalid after ${MAX_PLAN_FIX_ATTEMPTS} fix attempts: ${(err as Error).message}\n\nLast plan content:\n${currentPlanContent.slice(0, 500)}`)
+      }
+      logger.log('Director', `Plan format invalid (attempt ${planFixAttempts}/${MAX_PLAN_FIX_ATTEMPTS}): ${(err as Error).message}. Asking Director to fix.`)
       const fixCallResult = await executeDirector({
         prompt: `The plan you produced has a format error: ${(err as Error).message}\n\nPlease fix it and return the corrected plan in your message field.\n\nOriginal plan:\n${currentPlanContent}`,
         step: WorkflowStep.CreatePlan,
@@ -420,9 +426,9 @@ function buildCoderOptions(params: {
   }
 }
 
-function getDirectorMaxTurns(step: WorkflowStep): number {
-  if (step === WorkflowStep.Review) return DEFAULTS.directorMaxTurnsReview
-  return DEFAULTS.directorMaxTurnsDefault
+function getDirectorMaxTurns(step: WorkflowStep, config?: Config): number {
+  if (step === WorkflowStep.Review) return config?.directorMaxTurns ?? DEFAULTS.directorMaxTurnsReview
+  return config?.directorMaxTurns ?? DEFAULTS.directorMaxTurnsDefault
 }
 
 interface ExecuteDirectorParams {
@@ -441,7 +447,7 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   const { prompt, step, systemPromptText, config, logger, backend } = params
   const model = getDirectorModel(config.directorModel)
   const tools = params.toolsOverride ?? buildDirectorTools(step)
-  const maxTurns = params.maxTurnsOverride ?? getDirectorMaxTurns(step)
+  const maxTurns = params.maxTurnsOverride ?? getDirectorMaxTurns(step, config)
 
   logger.log('Director', `Call starting (step: ${step}, model: ${model}, maxTurns: ${maxTurns})`)
   logger.logVerbose('Director', `Prompt:\n${prompt}`)

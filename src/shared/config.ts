@@ -25,7 +25,7 @@ export const DEFAULTS = {
   maxCoderRetries: 3,          // Coder fix retries before escalating
   maxClarifyRounds: 3,         // Clarification Q&A rounds
   directorMaxTurnsReview: 20,  // Director turns for Review step
-  directorMaxTurnsDefault: 15, // Director turns for other steps
+  directorMaxTurnsDefault: 50, // Director turns for other steps
   cliHeartbeatMs: 30_000,      // CLI backend heartbeat interval
 } as const
 

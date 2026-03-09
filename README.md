@@ -1,552 +1,186 @@
 # cestDone
 
-AI-orchestrated development CLI. A Director AI plans and executes — or delegates to a Coder AI for two-agent mode.
+AI-orchestrated development CLI. Write a plain-text spec, and cestDone turns it into working code — planning, implementing, reviewing, and committing autonomously.
 
 ## Why
 
-The bottleneck in AI-assisted development is the human sitting between the AI planner and the AI coder. **cestDone** removes that bottleneck by having a Director AI orchestrate the entire workflow, with the human intervening only when explicitly opted in.
+The bottleneck in AI-assisted development isn't the AI — it's the human sitting between the planner and the coder. You paste context, copy instructions, re-explain what was already decided, and babysit every step.
 
-## Architecture
+**cestDone removes that bottleneck.** A Director AI reads your spec, explores the codebase, creates a phased plan, and either implements it directly or delegates to a Coder AI. The human intervenes only when explicitly opted in.
 
-cestDone supports two execution modes:
+There's a second, subtler problem: **context window exhaustion.** When you drive an AI agent manually through a large project, the conversation fills up — the model forgets earlier decisions, loses track of files, and quality degrades. cestDone sidesteps this by giving the Director a fresh, focused context per step (read-only tools during planning, scoped phase specs during execution) while maintaining continuity through a resumed session. The Coder gets an even cleaner deal: a fresh session per phase with only the relevant slice of the plan. Neither agent's context window fills up, even on large projects.
 
-**Director-only mode** (default) — the Director plans and executes everything directly:
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  CLI Orchestrator (TypeScript)                                       │
-│  src/cli/index.ts → src/director/director.ts                        │
-│                                                                      │
-│  Two-flow architecture: planning + phase execution.                 │
-│  Director: continuous session (resume) across all steps.            │
-└──────────────────────────────┬───────────────────────────────────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │  DIRECTOR AI        │
-                    │                     │
-                    │  Agent SDK query()  │
-                    │                     │
-                    │  Planning:          │
-                    │  Read, Glob, Grep   │
-                    │                     │
-                    │  Execution:         │
-                    │  Read, Write, Edit, │
-                    │  MultiEdit, Bash,   │
-                    │  Glob, Grep         │
-                    │                     │
-                    │  Returns JSON:      │
-                    │  { action, message, │
-                    │    questions? }     │
-                    └─────────────────────┘
-```
-
-**Two-agent mode** (`--with-coder`) — the Director plans and reviews, a separate Coder implements:
+## How It Works
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│  CLI Orchestrator (TypeScript)                                       │
-│  src/cli/index.ts → src/director/director.ts                        │
-│                                                                      │
-│  Director: continuous session (resume). Coder: fresh per phase.     │
-└──────────┬────────────────────────────┬──────────────────────────────┘
-           │                            │
-           ▼                            ▼
-┌─────────────────────┐     ┌─────────────────────────┐
-│  DIRECTOR AI        │     │  CODER AI               │
-│                     │     │                          │
-│  Agent SDK query()  │     │  Agent SDK query()       │
-│  Read, Glob, Grep   │     │  Read, Write, Edit,      │
-│  + Bash (review)    │     │  MultiEdit, Bash,        │
-│                     │     │  Glob, Grep              │
-│  Returns JSON:      │     │                          │
-│  { action, message, │     │  Returns JSON:           │
-│    questions? }     │     │  { status, summary,      │
-│                     │     │    filesChanged?,         │
-│  Can read code,     │     │    testsRun?, issues? }  │
-│  run tests,         │     │                          │
-│  explore codebase   │     │  Can edit code, run      │
-│  CANNOT edit files  │     │  commands, run tests     │
-└─────────────────────┘     └─────────────────────────┘
+spec.md ──► DIRECTOR                                        .plan.md
+             │                                                  │
+             ├─ Analyze (read-only)                             │
+             ├─ Clarify (asks you questions)                    │
+             └─ Create Plan ──────────────────────────────────► │
+                                                                │
+             For each phase:                                    │
+             ┌──────────────────────────────────────────────┐   │
+             │                                              │   │
+             │  CODER (fresh session per phase)             │   │
+             │  ├─ Reads phase spec from plan               │   │
+             │  ├─ Implements: edit files, run tests        │   │
+             │  └─ Reports result                           │   │
+             │         │                                    │   │
+             │         ▼                                    │   │
+             │  DIRECTOR (review)                           │   │
+             │  ├─ Reads code, runs tests                   │   │
+             │  ├─ fix ──► retry Coder (max 3, then human)  │   │
+             │  ├─ continue ──► Coder keeps going           │   │
+             │  └─ done ──► commit, update plan ───────────►│   │
+             │                                              │   │
+             └──────────────────────────────────────────────┘   │
 ```
 
-Both agents use a **Backend** abstraction that supports two implementations:
-- **Agent SDK** (`agent-sdk`, default) — uses `@anthropic-ai/claude-agent-sdk` with `outputFormat` for structured JSON responses. Requires `ANTHROPIC_API_KEY` (per-token API billing).
-- **Claude Code CLI** (`claude-cli`) — shells out to `claude -p` with `--output-format json`. Uses your Claude Max/Pro subscription (no API key needed). Authenticate via `claude auth login`.
+**Planning** (once per spec):
+1. **Analyze** — Director reads the spec, explores the target repo
+2. **Clarify** — Director asks questions if needed, you answer in the terminal
+3. **Create Plan** — Director writes a structured `.plan.md` with numbered phases
 
-**Session strategy:**
-- **Director**: Single continuous session per process run. The first `query()` call creates the session; all subsequent calls pass `resume: sessionId` to continue the conversation. The Director remembers what it read, what clarifications were given, and what each phase reported — no redundant re-exploration.
-- **Coder** (two-agent mode only): Fresh `query()` session per phase. Clean context prevents cross-phase pollution.
+**Execution** (per phase):
+1. **Execute** — Coder implements the phase (or the Director, in director-only mode)
+2. **Review** — Director reads files and optionally runs tests to verify
+3. **Complete** — Director updates `.plan.md`, commits verified work, moves to next phase
 
-## Workflow
+### Two Modes
 
-There are two flows: **Planning** (once per spec) and **Phase Execution** (once per phase).
+- **Two-agent mode** (default): Director plans and reviews, Coder implements. The Coder gets a fresh session per phase — clean context, no cross-phase pollution.
+- **Director-only mode** (`--no-with-coder`): The Director does everything. Simpler, but the Director's context carries more weight.
 
-### Planning Flow
+### Two Backends
 
-```
-Human writes free-form spec.md + optional house-rules.md
-       │
-       ▼
- ┌─ 1. ANALYZE ──────────────────────────────────────────────┐
- │  Director reads spec + explores codebase (Read/Glob/Grep) │
- │  Lists clarifying questions or says "ready to proceed"     │
- └────────────────────────────┬───────────────────────────────┘
-                              │
-              ┌───── questions? ─────┐
-              │ yes                  │ no
-              ▼                      │
- ┌─ 2. CLARIFY ──────────┐          │
- │  Human answers each    │          │
- │  question via CLI      │          │
- └───────────┬────────────┘          │
-             │                       │
-             ◄───────────────────────┘
-             │
-             ▼
- ┌─ 3. CREATE PLAN ──────────────────────────────────────────┐
- │  Director creates structured .plan.md with phases          │
- │  With --with-human-validation:                             │
- │    Human approves or rejects (max 3 rejections)            │
- │  Without (default):                                        │
- │    Plan auto-approved after format validation              │
- └────────────────────────────┬───────────────────────────────┘
-                              │ approved
-                              ▼
-                    .plan.md written to disk
-                    (source of truth for tracking)
-```
+- **Claude CLI** (default): Spawns `claude -p` under the hood. Uses your Claude Max or Pro subscription — no API key, no per-token billing. Authenticate with `claude auth login`.
+- **Agent SDK** (`--backend agent-sdk`): Uses `@anthropic-ai/claude-agent-sdk` with per-token API billing. Requires `ANTHROPIC_API_KEY` in the environment.
 
-### Phase Execution (per phase)
+You can mix backends per agent (e.g., Director on CLI, Coder on API) with `--director-backend` and `--coder-backend`.
 
-**Director-only mode** (default):
-
-```
- ┌─ EXECUTE ─────────────────────────────────────────────────┐
- │  Director implements the phase directly using full tools    │
- │  (Read, Write, Edit, MultiEdit, Bash, Glob, Grep)          │
- │  Returns: done action with summary                         │
- └────────────────────────────┬───────────────────────────────┘
-                              │
-                              ▼
- ┌─ COMPLETE ────────────────────────────────────────────────┐
- │  Director writes Done summary to .plan.md                  │
- │  Phase status: done                                        │
- └────────────────────────────────────────────────────────────┘
-```
-
-**Two-agent mode** (`--with-coder`):
-
-```
- ┌─ EXECUTE ─────────────────────────────────────────────────┐
- │  Coder receives phase spec + plan context (tech stack,     │
- │  project context, completed phases) and implements directly │
- │  Full tools: edit, bash, etc.                              │
- │  Returns: status, summary, files changed, test results     │
- └────────────────────────────┬───────────────────────────────┘
-                              │
-                    ┌─── --with-reviews? ───┐
-                    │ yes                   │ no
-                    ▼                       │
- ┌─ REVIEW ───────────────────────────────┐ │
- │  Director reads files, verifies work   │ │
- │  With --with-bash-reviews: runs tests  │ │
- │  Without: read-only review             │ │
- │                                         │ │
- │  → "done"     → COMPLETE               │ │
- │  → "continue" → back to EXECUTE        │ │
- │  → "fix"      → back to EXECUTE        │ │
- │    (max 3, then escalate to human)     │ │
- └─────────────┬───────────────────────────┘ │
-               │                             │
-               ◄─────────────────────────────┘
-               │ done
-               ▼
- ┌─ COMPLETE ────────────────────────────────────────────────┐
- │  Director writes Done summary to .plan.md                  │
- │  Phase status: done                                        │
- └────────────────────────────────────────────────────────────┘
-```
-
-## Example Session
-
-Given this spec file (`spec.md`):
-
-```
-Add POST /api/auth/login with JWT tokens. Use bcrypt for passwords.
-```
-
-### Director-only (default)
-
-```bash
-npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app --house-rules house-rules.md
-```
-
-```
-── Planning: Analyze ───────────────────────────────────────
-Director explores my-app/ with Read/Glob/Grep, reads spec.
-
-  Director → { action: "ask_human",
-               questions: ["Where should JWT secret come from?",
-                           "Token expiry duration?"] }
-
-── Planning: Clarify ───────────────────────────────────────
-  Director asks: Where should JWT secret come from?
-  Your answer: JWT_SECRET env var
-
-  Director asks: Token expiry duration?
-  Your answer: 24h
-
-── Planning: Create Plan ───────────────────────────────────
-Director creates structured plan with phases.
-Plan auto-approved. Written to spec.plan.md.
-
-── Phase 1: Execute (Director) ─────────────────────────────
-Director implements the phase directly with full tools.
-
-  Director → { action: "done", message: "Created JWT middleware
-               and POST /api/auth/login. 5 tests pass." }
-
-── Phase 1: Complete ───────────────────────────────────────
-Phase status → done.
-
-── Phase 2: Execute (Director) ─────────────────────────────
-Director implements registration, building on existing auth code.
-
-  Director → { action: "done", message: "Added register endpoint.
-               8 tests pass." }
-
-── Phase 2: Complete ───────────────────────────────────────
-All phases done.
-```
-
-### Two-agent mode with all bells and whistles
-
-```bash
-npx tsx --env-file=.env src/cli/index.ts run \
-  --spec spec.md --target ./my-app --house-rules house-rules.md \
-  --with-coder --with-reviews --with-bash-reviews --with-human-validation
-```
-
-```
-── Planning: Analyze ───────────────────────────────────────
-Director explores my-app/ with Read/Glob/Grep, reads spec.
-(same clarification flow as above)
-
-── Planning: Create Plan ───────────────────────────────────
-  === Director's Plan ===
-  # Plan: My App Auth
-  ## Phase 1: Auth middleware + login
-  ## Phase 2: Registration
-  ======================
-
-  Approve? (y/n): y                ← only with --with-human-validation
-
-── Phase 1: Execute (Coder) ────────────────────────────────
-Coder implements the phase.
-
-  Coder: Created JWT middleware. 5 tests pass. (cost: $0.30)
-
-── Phase 1: Review ─────────────────────────────────────────
-Director reads files, runs npm test (Bash enabled via --with-bash-reviews).
-
-  Director → { action: "done", message: "All verified." }
-
-── Phase 1: Complete ───────────────────────────────────────
-Phase status → done.
-
-── Phase 2: Execute (Coder) ────────────────────────────────
-  Coder: Added register endpoint. 8 tests pass. (cost: $0.25)
-
-── Phase 2: Review + Complete ──────────────────────────────
-All phases done. Total Coder cost: $0.55
-```
-
-**Error handling** (two-agent mode with reviews): If the Coder produces broken code, the Director:
-1. Reviews the code and identifies issues (runs tests if `--with-bash-reviews`)
-2. Returns `fix` with specific instructions → Coder retries
-3. After 3 failures, escalates to human for guidance
-4. Retry count resets when Director sends new instructions via `continue`
-
-## Git Integration
-
-**Initialization:** On first run, cestDone ensures the target repo has git initialized with a `.gitignore` (excludes `node_modules/`, `dist/`, `.env`, etc.). Existing repos and `.gitignore` files are left untouched.
-
-**Commits by the Director:** The Director is responsible for committing verified work during the Review step. Each commit is a clean checkpoint:
-- Tests pass + types check → `git add -A && git commit` → respond `continue` or `done`
-- Tests fail or issues found → **no commit** → respond `fix`
-
-This means every commit represents verified, working code. If a sub-phase fails after a commit, the previous commit serves as a safe rollback point.
-
-## Tool Restrictions
-
-Each agent gets only the tools it needs per step:
-
-| Step | Agent | Tools |
-|------|-------|-------|
-| Analyze | Director | Read, Glob, Grep |
-| Clarify | Director | Read, Glob, Grep |
-| CreatePlan | Director | Read, Glob, Grep |
-| Execute (director-only) | Director | Read, Write, Edit, MultiEdit, Bash, Glob, Grep |
-| Execute (two-agent) | Coder | Read, Write, Edit, MultiEdit, Bash, Glob, Grep |
-| Review (`--with-bash-reviews`) | Director | Read, Glob, Grep, **Bash** |
-| Review (read-only) | Director | Read, Glob, Grep |
-| Complete | Director | Read, Glob, Grep |
-
-Tools are enforced via the `tools` parameter (Agent SDK) or `--disallowedTools` (Claude CLI), which physically restricts available tools in the session.
-
-## Structured Output
-
-Both agents return typed JSON via `outputFormat`:
-
-**Director** returns `DirectorResponse`:
-```json
-{ "action": "approve | ask_human | fix | continue | done | escalate",
-  "message": "plan text, review result, or next instructions",
-  "questions": ["only with ask_human"] }
-```
-
-Actions: `approve` (plan/analysis OK), `ask_human` (needs input), `fix` (Coder retry), `continue` (current work OK, next instructions in message), `done` (all complete), `escalate` (stuck).
-
-**Coder** returns `CoderReport`:
-```json
-{ "status": "success | partial | failed",
-  "summary": "what was done",
-  "filesChanged": ["src/auth.ts"],
-  "testsRun": { "passed": 8, "failed": 0, "skipped": 0 },
-  "issues": ["optional list of problems"] }
-```
-
-## Spec File Format
-
-The spec is **free-form text** — just describe what you want built:
-
-```markdown
-Build a REST API with user authentication and a dashboard.
-Use Express, PostgreSQL, and JWT tokens.
-```
-
-The Director creates a structured `.plan.md` file from this spec during the planning flow. The plan file follows this format and is the source of truth for tracking:
-
-```markdown
-# Plan: Project Name
-
-## Context
-Description derived from spec + Q&A.
-
-## Tech Stack
-Extracted/decided technologies.
-
-## House Rules
-Rules that apply to this project.
-
-## Phase 1: First thing to build
-### Status: pending | in-progress | done
-### Spec
-Detailed phase specification.
-### Applicable Rules
-Only the house rules relevant to this phase.
-### Done
-_(filled by Director when phase completes)_
-```
-
-Status transitions: `pending` → `in-progress` → `done`. The original spec file is never modified.
-
-## Installation & Usage
+## Quick Start
 
 ```bash
 npm install
 ```
 
-### Authentication
+Write a spec file:
 
-**Agent SDK backend** (default): Requires `ANTHROPIC_API_KEY` in the environment. Set it in a `.env` file (Node 22+ loads it via `--env-file`):
 ```
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-**Claude CLI backend** (`--backend claude-cli`): Uses your Claude Max/Pro subscription via the `claude` binary. No API key needed — authenticate via:
-```bash
-claude auth login
+Add POST /api/auth/login with JWT tokens. Use bcrypt for passwords.
+Include tests.
 ```
 
-> **Note:** The Agent SDK backend requires an API key with per-token billing. The Claude CLI backend uses your subscription instead — no `ANTHROPIC_API_KEY` needed (it's stripped from the environment to ensure subscription billing).
-
-### Commands
-
-**Run** — create a plan from a spec and execute all phases:
-```bash
-npx tsx --env-file=.env src/cli/index.ts run --spec ./my-spec.md --target /path/to/repo
-```
-
-**Resume** — continue execution from an existing `.plan.md`:
-```bash
-npx tsx --env-file=.env src/cli/index.ts resume --spec ./my-spec.md --target /path/to/repo
-```
-
-### CLI Flags
-
-Both `run` and `resume` accept these flags:
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--spec <path>` | Path to spec file (required) | — |
-| `--target <path>` | Target repository path | `.cestDonerc.json` value or `.` |
-| `--house-rules <path>` | Path to house rules file (`run` only) | none |
-| `--director-model <model>` | Director model: `haiku`, `sonnet`, `opus`, or full ID | `sonnet` |
-| `--coder-model <model>` | Coder model: `haiku`, `sonnet`, `opus`, or full ID | `haiku` |
-| `--with-coder` | Enable two-agent mode (Director + Coder) | off (director-only) |
-| `--with-reviews` | Enable Director reviews after Coder execution | off |
-| `--with-bash-reviews` | Enable Bash in Director reviews (implies `--with-reviews`) | off (read-only review) |
-| `--with-human-validation` | Require human approval of plan before execution | off (auto-approve) |
-| `--backend <type>` | Set both Director and Coder backends (`agent-sdk` or `claude-cli`) | `agent-sdk` |
-| `--director-backend <type>` | Override Director backend (takes precedence over `--backend`) | `agent-sdk` |
-| `--coder-backend <type>` | Override Coder backend (takes precedence over `--backend`) | `agent-sdk` |
-| `--claude-cli-path <path>` | Path to claude binary (for `claude-cli` backend) | `claude` |
-
-**Flag implications:**
-- `--with-bash-reviews` automatically enables `--with-reviews`
-- `--with-reviews` without `--with-coder` is invalid (warns and disables reviews)
-
-**Examples:**
+Run it:
 
 ```bash
-# Cheapest: Director-only, no reviews, no approval
-npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app
+# Using Claude CLI backend (default — uses Max/Pro subscription)
+npx tsx src/cli/index.ts run --spec spec.md --target ./my-app
 
-# Full two-agent mode with all safety gates
-npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app \
-  --with-coder --with-reviews --with-bash-reviews --with-human-validation \
-  --house-rules house-rules.md
-
-# Two-agent without reviews (Coder runs, straight to complete)
-npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app \
-  --with-coder
-
-# Override models
-npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app \
-  --director-model opus --coder-model sonnet --with-coder
-
-# Use Claude CLI backend (Max/Pro subscription, no API key needed)
-npx tsx src/cli/index.ts run --spec spec.md --target ./my-app \
-  --backend claude-cli
-
-# Mixed: Director on CLI (cheap planning), Coder on API (structured output)
-npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app \
-  --director-backend claude-cli --coder-backend agent-sdk --with-coder
+# Using Agent SDK backend (requires ANTHROPIC_API_KEY)
+npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app --backend agent-sdk
 ```
 
-### Model Selection
+Resume a partially completed plan:
 
-Models are resolved in this order: CLI flag → environment variable → default.
+```bash
+npx tsx src/cli/index.ts resume --spec spec.md --target ./my-app
+```
 
-| Role | CLI flag | Env var | Default |
-|------|----------|---------|---------|
-| Director | `--director-model` | `cestDone_DIRECTOR_MODEL` | `sonnet` (claude-sonnet-4) |
-| Coder | `--coder-model` | `cestDone_CODER_MODEL` | `haiku` (claude-haiku-4.5) |
+## CLI Reference
 
-Aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full model ID directly (e.g., `claude-opus-4-20250514`).
+```
+Usage: cestdone [commands]
 
-### Configuration
+Commands:
+  run [options]     Create a plan from a spec and execute all phases
+  resume [options]  Resume execution from an existing .plan.md file
+```
 
-Optional `.cestDonerc.json` in the target repo:
+### `run` options
+
+```
+  --spec <path>              Path to spec file (required)
+  --house-rules <path>       Path to house rules file
+  --target <path>            Target repository path (default: ".")
+  --director-model <model>   Director model: haiku | sonnet | opus (default: "opus")
+  --coder-model <model>      Coder model: haiku | sonnet | opus (default: "opus")
+  --with-coder               Two-agent mode: Director plans, Coder implements (default: true)
+  --no-with-coder            Disable two-agent mode (director-only)
+  --with-reviews             Director reviews after Coder execution (default: true)
+  --no-with-reviews          Disable Director reviews
+  --with-bash-reviews        Allow Bash in reviews, implies --with-reviews (default: true)
+  --no-with-bash-reviews     Disable Bash in reviews
+  --with-human-validation    Require human approval of plan (default: false)
+  --backend <type>           Backend for both agents: agent-sdk | claude-cli (default: "claude-cli")
+  --director-backend <type>  Override Director backend: agent-sdk | claude-cli
+  --coder-backend <type>     Override Coder backend: agent-sdk | claude-cli
+  --claude-cli-path <path>   Path to claude binary (default: "claude")
+```
+
+`resume` accepts all the same options except `--house-rules`.
+
+### Examples
+
+```bash
+# Default: two-agent mode, reviews enabled, Claude CLI backend
+npx tsx src/cli/index.ts run --spec spec.md --target ./my-app
+
+# Director-only mode (no Coder)
+npx tsx src/cli/index.ts run --spec spec.md --target ./my-app --no-with-coder
+
+# Require human approval of the plan before execution
+npx tsx src/cli/index.ts run --spec spec.md --target ./my-app --with-human-validation
+
+# Use API backend with custom models
+npx tsx --env-file=.env src/cli/index.ts run --spec spec.md --target ./my-app \
+  --backend agent-sdk --director-model sonnet --coder-model haiku
+
+# House rules for coding standards
+npx tsx src/cli/index.ts run --spec spec.md --target ./my-app --house-rules house-rules.md
+```
+
+## Configuration
+
+Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
+
 ```json
 {
-  "defaultModel": "claude-opus-4-20250514",
+  "targetRepoPath": ".",
   "maxTurns": 100,
-  "maxBudgetUsd": 5.0,
-  "directorModel": "sonnet",
-  "coderModel": "haiku",
-  "withCoder": false,
-  "withReviews": false,
-  "withBashReviews": false,
+  "directorModel": "opus",
+  "coderModel": "opus",
+  "withCoder": true,
+  "withReviews": true,
+  "withBashReviews": true,
   "withHumanValidation": false,
-  "directorBackend": "agent-sdk",
+  "directorBackend": "claude-cli",
   "coderBackend": "claude-cli",
-  "claudeCliPath": "/usr/local/bin/claude"
+  "claudeCliPath": "claude"
 }
 ```
 
-CLI flags override `.cestDonerc.json` values.
+Model aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full ID directly (e.g., `claude-sonnet-4-6`).
 
-## Project Structure
+## Spec File Format
+
+Just plain text. Describe what you want:
 
 ```
-src/
-├── backends/
-│   ├── index.ts          # Backend factory (createBackend)
-│   ├── agent-sdk.ts      # AgentSdkBackend (API key billing)
-│   └── claude-cli.ts     # ClaudeCliBackend (subscription billing)
-├── cli/
-│   ├── index.ts          # CLI entry point (run, resume commands)
-│   └── prompt.ts         # Terminal interaction (askApproval, askInput)
-├── director/
-│   ├── director.ts       # Planning + phase execution orchestrator
-│   ├── prompts.ts        # All prompt templates + response schema
-│   └── model-selector.ts # Model alias resolution + selection
-├── coder/
-│   ├── coder.ts          # Agent SDK wrapper for Coder
-│   ├── coder-prompt.ts   # Coder prompt assembly
-│   ├── permissions.ts    # Tool restrictions per step
-│   └── result-parser.ts  # Parse Agent SDK results
-└── shared/
-    ├── types.ts          # All TypeScript types
-    ├── config.ts         # .cestDonerc.json loading
-    ├── git.ts            # Git repo init + .gitignore
-    ├── plan-parser.ts    # .plan.md parsing (getPlanPath, parsePlan)
-    ├── spec-writer.ts    # Atomic plan file updates
-    ├── cost-tracker.ts   # Per-session cost accumulation
-    └── logger.ts         # Pino file logging
+Build a dashboard that shows project metrics.
+Scrape data from ITM Platform and render charts with Chart.js.
+Add a refresh button and auto-update every 5 minutes.
 ```
 
-## Tech Stack
+The Director turns this into a structured `.plan.md` with phases, which becomes the source of truth for tracking progress. The original spec is never modified.
 
-- **Runtime:** Node.js + TypeScript (ESM)
-- **Agent SDK:** `@anthropic-ai/claude-agent-sdk` (Agent SDK backend)
-- **Claude CLI:** `claude -p` (Claude CLI backend, subscription billing)
-- **Tests:** Vitest (324 tests across 21 files)
-- **Logging:** Pino with file rotation
-- **CLI:** Commander
+Optionally provide a `--house-rules` file with coding standards, conventions, or constraints that apply across all phases.
 
-## What's Been Built
+## Made by
 
-- Two execution modes: director-only (default, cheaper) and two-agent (`--with-coder`)
-- Two-flow architecture: planning flow (spec → .plan.md) + phase execution
-- Configurable execution pipeline via CLI flags (`--with-reviews`, `--with-bash-reviews`, `--with-human-validation`)
-- Model alias resolution (`haiku`/`sonnet`/`opus`) with CLI override → env var → default fallback
-- Automatic sequential execution of all phases (no human intervention by default)
-- Free-form spec input with optional house rules
-- Backend abstraction: Agent SDK (API billing) and Claude Code CLI (subscription billing)
-- Independent backend selection per agent (Director and Coder can use different backends)
-- Agent SDK integration with structured JSON output for both agents
-- Director session resumption — single continuous conversation across planning + all phases
-- Per-step tool restrictions enforced via `tools` parameter
-- Plan file parsing, status tracking, and atomic updates
-- Execute→Review loop with iteration (continue/done/fix) in two-agent mode
-- Retry with escalation (max 3 retries, then human)
-- Optional plan approval with rejection feedback loop (max 3 rejections, then escalate)
-- Cost tracking and accumulation across retries
-- Git initialization with `.gitignore` on first run
-- Director-owned commits on verified work (no commit on failure)
-- CLI with `run` and `resume` commands, `--help`, and error-on-invalid-flag
-- File-based logging with rotation
+If you find cestDone useful, check out [Olkano](https://www.olkano.com) — a daily check-in app for people who live or spend time alone. One tap to say you're OK; your trusted contacts only hear from us if you don't. Because the best safety net is the one you never notice until you need it.
 
-## Planned Phases
+## License
 
-### Phase 2: Git Branch Strategy
-- Branch-per-phase strategy (`cestDone/phase-N`)
-
-### Phase 3: Visual Verification
-- Playwright screenshots of running web apps
-- Director uses Claude vision to verify UI
-- Visual feedback loop for CSS/layout issues
-
-### Phase 4: Notifications + Async Approval
-- Email notifications via SendGrid when approval needed
-- Webhook endpoint for approve/reject via email links
-- Timeout handling with reminders
-
-### Phase 5: Cron + Marketing Automation
-- Scheduled recurring workflows
-- Reddit monitoring, blog generation, SEO analysis
-- State persistence across runs via SQLite
+ISC
