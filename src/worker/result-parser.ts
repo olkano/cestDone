@@ -1,5 +1,5 @@
-// src/coder/result-parser.ts
-import type { CoderResult, CoderReport, BackendResult } from '../shared/types.js'
+// src/worker/result-parser.ts
+import type { WorkerResult, WorkerReport, BackendResult } from '../shared/types.js'
 import { mapSdkUsage } from '../shared/types.js'
 
 export interface SDKResultLike {
@@ -14,7 +14,7 @@ export interface SDKResultLike {
   usage?: unknown
 }
 
-export function parseResult(msg: SDKResultLike): CoderResult {
+export function parseResult(msg: SDKResultLike): WorkerResult {
   const base = {
     cost: msg.total_cost_usd,
     numTurns: msg.num_turns,
@@ -28,7 +28,7 @@ export function parseResult(msg: SDKResultLike): CoderResult {
     return {
       ...base,
       status: 'failed',
-      message: `Coder failed: ${errorLabel} — ${errorDetail}`,
+      message: `Worker failed: ${errorLabel} — ${errorDetail}`,
       report: null,
     }
   }
@@ -43,7 +43,7 @@ export function parseResult(msg: SDKResultLike): CoderResult {
   }
 }
 
-export function parseCoderResult(result: BackendResult): CoderResult {
+export function parseWorkerResult(result: BackendResult): WorkerResult {
   const base = {
     cost: result.costUsd ?? 0,
     numTurns: result.numTurns,
@@ -52,7 +52,7 @@ export function parseCoderResult(result: BackendResult): CoderResult {
   }
 
   if (!result.success) {
-    const msg = result.errorMessage ?? 'Coder failed'
+    const msg = result.errorMessage ?? 'Worker failed'
     return {
       ...base,
       status: 'failed',
@@ -73,10 +73,10 @@ export function parseCoderResult(result: BackendResult): CoderResult {
   }
 }
 
-function extractReportFromOutput(output: unknown): CoderReport {
+function extractReportFromOutput(output: unknown): WorkerReport {
   if (output && typeof output === 'object') {
     const obj = output as Record<string, unknown>
-    if (obj.status && obj.summary) return output as CoderReport
+    if (obj.status && obj.summary) return output as WorkerReport
   }
   if (typeof output === 'string') {
     return { status: 'partial', summary: output }
@@ -84,14 +84,14 @@ function extractReportFromOutput(output: unknown): CoderReport {
   return { status: 'partial', summary: '(no output)' }
 }
 
-function extractReport(msg: SDKResultLike): CoderReport {
+function extractReport(msg: SDKResultLike): WorkerReport {
   if (msg.structured_output && typeof msg.structured_output === 'object') {
-    return msg.structured_output as CoderReport
+    return msg.structured_output as WorkerReport
   }
 
   if (msg.result) {
     try {
-      const parsed = JSON.parse(msg.result) as CoderReport
+      const parsed = JSON.parse(msg.result) as WorkerReport
       if (parsed.status && parsed.summary) {
         return parsed
       }

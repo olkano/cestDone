@@ -4,11 +4,11 @@ AI-orchestrated development CLI. Write a plain-text spec, and cestDone turns it 
 
 ## Why
 
-The bottleneck in AI-assisted development isn't the AI — it's the human sitting between the planner and the coder. You paste context, copy instructions, re-explain what was already decided, and babysit every step.
+The bottleneck in AI-assisted development isn't the AI — it's the human sitting between the planner and the worker. You paste context, copy instructions, re-explain what was already decided, and babysit every step.
 
-**cestDone removes that bottleneck.** A Director AI reads your spec, explores the codebase, creates a phased plan, and either implements it directly or delegates to a Coder AI. The human intervenes only when explicitly opted in.
+**cestDone removes that bottleneck.** A Director AI reads your spec, explores the codebase, creates a phased plan, and either implements it directly or delegates to a Worker AI. The human intervenes only when explicitly opted in.
 
-There's a second, subtler problem: **context window exhaustion.** When you drive an AI agent manually through a large project, the conversation fills up — the model forgets earlier decisions, loses track of files, and quality degrades. cestDone sidesteps this by giving the Director a fresh, focused context per step (read-only tools during planning, scoped phase specs during execution) while maintaining continuity through a resumed session. The Coder gets an even cleaner deal: a fresh session per phase with only the relevant slice of the plan. Neither agent's context window fills up, even on large projects.
+There's a second, subtler problem: **context window exhaustion.** When you drive an AI agent manually through a large project, the conversation fills up — the model forgets earlier decisions, loses track of files, and quality degrades. cestDone sidesteps this by giving the Director a fresh, focused context per step (read-only tools during planning, scoped phase specs during execution) while maintaining continuity through a resumed session. The Worker gets an even cleaner deal: a fresh session per phase with only the relevant slice of the plan. Neither agent's context window fills up, even on large projects.
 
 ## How It Works
 
@@ -22,7 +22,7 @@ spec.md ──► DIRECTOR                                        .plan.md
              For each phase:                                    │
              ┌──────────────────────────────────────────────┐   │
              │                                              │   │
-             │  CODER (fresh session per phase)             │   │
+             │  WORKER (fresh session per phase)             │   │
              │  ├─ Reads phase spec from plan               │   │
              │  ├─ Implements: edit files, run tests        │   │
              │  └─ Reports result                           │   │
@@ -30,8 +30,8 @@ spec.md ──► DIRECTOR                                        .plan.md
              │         ▼                                    │   │
              │  DIRECTOR (review)                           │   │
              │  ├─ Reads code, runs tests                   │   │
-             │  ├─ fix ──► retry Coder (max 3, then human)  │   │
-             │  ├─ continue ──► Coder keeps going           │   │
+             │  ├─ fix ──► retry Worker (max 3, then human)  │   │
+             │  ├─ continue ──► Worker keeps going           │   │
              │  └─ done ──► commit, update plan ───────────►│   │
              │                                              │   │
              └──────────────────────────────────────────────┘   │
@@ -43,21 +43,21 @@ spec.md ──► DIRECTOR                                        .plan.md
 3. **Create Plan** — Director writes a structured `.plan.md` with numbered phases
 
 **Execution** (per phase):
-1. **Execute** — Coder implements the phase (or the Director, in director-only mode)
+1. **Execute** — Worker implements the phase (or the Director, in director-only mode)
 2. **Review** — Director reads files and optionally runs tests to verify
 3. **Complete** — Director updates `.plan.md`, commits verified work, moves to next phase
 
 ### Two Modes
 
-- **Two-agent mode** (default): Director plans and reviews, Coder implements. The Coder gets a fresh session per phase — clean context, no cross-phase pollution.
-- **Director-only mode** (`--no-with-coder`): The Director does everything. Simpler, but the Director's context carries more weight.
+- **Two-agent mode** (default): Director plans and reviews, Worker implements. The Worker gets a fresh session per phase — clean context, no cross-phase pollution.
+- **Director-only mode** (`--no-with-worker`): The Director does everything. Simpler, but the Director's context carries more weight.
 
 ### Two Backends
 
 - **Claude CLI** (default): Spawns `claude -p` under the hood. Uses your Claude Max or Pro subscription — no API key, no per-token billing. Authenticate with `claude auth login`.
 - **Agent SDK** (`--backend agent-sdk`): Uses `@anthropic-ai/claude-agent-sdk` with per-token API billing. Requires `ANTHROPIC_API_KEY` in the environment.
 
-You can mix backends per agent (e.g., Director on CLI, Coder on API) with `--director-backend` and `--coder-backend`.
+You can mix backends per agent (e.g., Director on CLI, Worker on API) with `--director-backend` and `--worker-backend`.
 
 ## Quick Start
 
@@ -116,7 +116,7 @@ Commands:
   daemon [options]     Start daemon with schedules and triggers from .cestdonerc.json
   daemon status        Show daemon status
   daemon stop          Stop running daemon
-  send-email           Send an email (used by Coder agent via Bash)
+  send-email           Send an email (used by Worker agent via Bash)
 ```
 
 ### `run` options
@@ -126,10 +126,10 @@ Commands:
   --house-rules <path>       Path to house rules file
   --target <path>            Target repository path (default: ".")
   --director-model <model>   Director model: haiku | sonnet | opus (default: "opus")
-  --coder-model <model>      Coder model: haiku | sonnet | opus (default: "opus")
-  --with-coder               Two-agent mode: Director plans, Coder implements (default: true)
-  --no-with-coder            Disable two-agent mode (director-only)
-  --with-reviews             Director reviews after Coder execution (default: true)
+  --worker-model <model>      Worker model: haiku | sonnet | opus (default: "opus")
+  --with-worker               Two-agent mode: Director plans, Worker implements (default: true)
+  --no-with-worker            Disable two-agent mode (director-only)
+  --with-reviews             Director reviews after Worker execution (default: true)
   --no-with-reviews          Disable Director reviews
   --with-bash-reviews        Allow Bash in reviews, implies --with-reviews (default: true)
   --no-with-bash-reviews     Disable Bash in reviews
@@ -137,7 +137,7 @@ Commands:
   --non-interactive          Run without TTY — auto-approves plans, skips clarifications (default: false)
   --backend <type>           Backend for both agents: agent-sdk | claude-cli (default: "claude-cli")
   --director-backend <type>  Override Director backend: agent-sdk | claude-cli
-  --coder-backend <type>     Override Coder backend: agent-sdk | claude-cli
+  --worker-backend <type>     Override Worker backend: agent-sdk | claude-cli
   --claude-cli-path <path>   Path to claude binary (default: "claude")
 ```
 
@@ -149,8 +149,8 @@ Commands:
 # Default: two-agent mode, reviews enabled, Claude CLI backend
 cestdone run --spec spec.md --target ./my-app
 
-# Director-only mode (no Coder)
-cestdone run --spec spec.md --target ./my-app --no-with-coder
+# Director-only mode (no Worker)
+cestdone run --spec spec.md --target ./my-app --no-with-worker
 
 # Require human approval of the plan before execution
 cestdone run --spec spec.md --target ./my-app --with-human-validation
@@ -160,7 +160,7 @@ cestdone run --spec spec.md --target ./my-app --non-interactive
 
 # Use API backend with custom models
 cestdone run --spec spec.md --target ./my-app \
-  --backend agent-sdk --director-model sonnet --coder-model haiku
+  --backend agent-sdk --director-model sonnet --worker-model haiku
 
 # House rules for coding standards
 cestdone run --spec spec.md --target ./my-app --house-rules house-rules.md
@@ -175,14 +175,14 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
   "targetRepoPath": ".",
   "maxTurns": 100,
   "directorModel": "opus",
-  "coderModel": "opus",
-  "withCoder": true,
+  "workerModel": "opus",
+  "withWorker": true,
   "withReviews": true,
   "withBashReviews": true,
   "withHumanValidation": false,
   "nonInteractive": false,
   "directorBackend": "claude-cli",
-  "coderBackend": "claude-cli",
+  "workerBackend": "claude-cli",
   "claudeCliPath": "claude"
 }
 ```
@@ -243,7 +243,7 @@ Do not modify unrelated code.
 cestdone daemon
 ```
 
-Now, when someone opens an issue, GitHub POSTs the event to your daemon. The daemon injects the issue title, body, and number into the spec template, then runs the full Director + Coder flow — analyzing the codebase, writing a fix, running tests, and committing to a new branch. You wake up to a ready-to-review PR branch.
+Now, when someone opens an issue, GitHub POSTs the event to your daemon. The daemon injects the issue title, body, and number into the spec template, then runs the full Director + Worker flow — analyzing the codebase, writing a fix, running tests, and committing to a new branch. You wake up to a ready-to-review PR branch.
 
 **Other examples of what you can automate:**
 
@@ -268,7 +268,7 @@ Now, when someone opens an issue, GitHub POSTs the event to your daemon. The dae
                                                               handleRun()
                                                            (non-interactive)
                                                                      │
-                                                              Director + Coder
+                                                              Director + Worker
                                                               plan → execute
 ```
 
@@ -434,7 +434,7 @@ WantedBy=multi-user.target
 
 ## Email Notifications
 
-cestDone can send emails via the `send-email` CLI command. This is designed for the Coder agent to invoke via Bash when a spec says "send an email when finished."
+cestDone can send emails via the `send-email` CLI command. This is designed for the Worker agent to invoke via Bash when a spec says "send an email when finished."
 
 ### Configuration
 
@@ -469,7 +469,7 @@ cestdone send-email \
   --body "All phases finished successfully."
 ```
 
-In a spec file, you can instruct the Coder to send an email:
+In a spec file, you can instruct the Worker to send an email:
 
 ```markdown
 When all tasks are complete, send a notification email:

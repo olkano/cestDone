@@ -54,7 +54,7 @@ function makeDirectorResult(action: string, message: string) {
   }
 }
 
-function makeCoderResult(overrides: Record<string, unknown> = {}) {
+function makeWorkerResult(overrides: Record<string, unknown> = {}) {
   return {
     type: 'result' as const,
     subtype: 'success' as const,
@@ -85,7 +85,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-integ-'))
   process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-6'
-  process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5'
+  process.env.CESTDONE_WORKER_MODEL = 'claude-haiku-4-5'
 
   vi.mocked(ensureTTY).mockReturnValue(undefined)
   vi.mocked(askApproval).mockResolvedValue({ approved: true })
@@ -94,7 +94,7 @@ beforeEach(() => {
     targetRepoPath: '.',
     maxTurns: 100,
     directorBackend: 'agent-sdk',
-    coderBackend: 'agent-sdk',
+    workerBackend: 'agent-sdk',
   })
 })
 
@@ -106,11 +106,11 @@ describe('integration', () => {
   // I1: Full flow — no plan exists → planning flow → phase execution
   it('runs full workflow: planning → phase execution → completion', async () => {
     // Planning flow: Director(analyze), Director(createPlan)
-    // Phase execution: Coder(execute), Director(review), Director(complete)
+    // Phase execution: Worker(execute), Director(review), Director(complete)
     const responses = [
       makeDirectorResult('analyze', 'Spec is clear. No questions.'),
       makeDirectorResult('done', VALID_PLAN_CONTENT),
-      makeCoderResult(),
+      makeWorkerResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Phase done. Created scaffold.'),
     ]
@@ -123,7 +123,7 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build a simple project with tests.', 'utf-8')
 
-    await handleRun(specPath, { withCoder: true, withReviews: true, withHumanValidation: true })
+    await handleRun(specPath, { withWorker: true, withReviews: true, withHumanValidation: true })
 
     // Plan file created
     const planPath = specPath.replace('.md', '.plan.md')
@@ -146,12 +146,12 @@ describe('integration', () => {
     expect(askApproval).toHaveBeenCalledTimes(1)
   })
 
-  // I2: Coder receives correct tools for Execute step
-  it('passes correct tools to Coder for Execute step', async () => {
+  // I2: Worker receives correct tools for Execute step
+  it('passes correct tools to Worker for Execute step', async () => {
     const responses = [
       makeDirectorResult('analyze', 'Spec is clear.'),
       makeDirectorResult('done', VALID_PLAN_CONTENT),
-      makeCoderResult(),
+      makeWorkerResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Done.'),
     ]
@@ -164,12 +164,12 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build something.', 'utf-8')
 
-    await handleRun(specPath, { withCoder: true, withReviews: true })
+    await handleRun(specPath, { withWorker: true, withReviews: true })
 
-    // The 3rd query() call (index 2) is the Coder (execute step)
+    // The 3rd query() call (index 2) is the Worker (execute step)
     expect(mockQuery).toHaveBeenCalledTimes(5)
-    const coderParams = mockQuery.mock.calls[2][0]
-    expect(coderParams.options.tools).toEqual(
+    const workerParams = mockQuery.mock.calls[2][0]
+    expect(workerParams.options.tools).toEqual(
       ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
     )
   })
@@ -182,9 +182,9 @@ describe('integration', () => {
     fs.writeFileSync(specPath, 'Original spec.', 'utf-8')
     fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
 
-    // Phase execution only: Coder(execute), Director(review), Director(complete)
+    // Phase execution only: Worker(execute), Director(review), Director(complete)
     const responses = [
-      makeCoderResult(),
+      makeWorkerResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Resumed and done.'),
     ]
@@ -194,7 +194,7 @@ describe('integration', () => {
       return createMockQuery(responses[idx])
     })
 
-    await handleResume(specPath, { withCoder: true, withReviews: true })
+    await handleResume(specPath, { withWorker: true, withReviews: true })
 
     // Only 3 calls — no planning flow, no sub-plan
     expect(mockQuery).toHaveBeenCalledTimes(3)
@@ -210,7 +210,7 @@ describe('integration', () => {
     const responses = [
       makeDirectorResult('analyze', 'Spec is clear. No questions.'),
       makeDirectorResult('done', VALID_PLAN_CONTENT),
-      makeCoderResult(),
+      makeWorkerResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Phase done. Created scaffold.'),
     ]
@@ -223,7 +223,7 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build a simple project with tests.', 'utf-8')
 
-    await handleRun(specPath, { withCoder: true, withReviews: true, withHumanValidation: true })
+    await handleRun(specPath, { withWorker: true, withReviews: true, withHumanValidation: true })
 
     expect(mockQuery).toHaveBeenCalledTimes(5)
 
@@ -235,8 +235,8 @@ describe('integration', () => {
     expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-1')
     expect(mockQuery.mock.calls[1][0].options.systemPrompt).toBeUndefined()
 
-    // Call 2 (Coder): fresh session — Coder never resumes
-    // (Coder doesn't use Director session)
+    // Call 2 (Worker): fresh session — Worker never resumes
+    // (Worker doesn't use Director session)
 
     // Call 3 (Review): resumes Director session
     expect(mockQuery.mock.calls[3][0].options.resume).toBeDefined()
@@ -255,7 +255,7 @@ describe('integration', () => {
     fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
 
     const responses = [
-      makeCoderResult(),
+      makeWorkerResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Resumed and done.'),
     ]
@@ -265,9 +265,9 @@ describe('integration', () => {
       return createMockQuery(responses[idx])
     })
 
-    await handleResume(specPath, { withCoder: true, withReviews: true })
+    await handleResume(specPath, { withWorker: true, withReviews: true })
 
-    // Call 0 (Coder): fresh session (Coder always fresh)
+    // Call 0 (Worker): fresh session (Worker always fresh)
     // Call 1 (Review): fresh Director session — no resume (first Director call in resume flow)
     expect(mockQuery.mock.calls[1][0].options.resume).toBeUndefined()
     expect(mockQuery.mock.calls[1][0].options.systemPrompt).toBeDefined()

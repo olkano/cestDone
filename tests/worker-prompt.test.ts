@@ -1,6 +1,6 @@
-// tests/coder-prompt.test.ts
+// tests/worker-prompt.test.ts
 import { describe, it, expect } from 'vitest'
-import { buildCoderPrompt } from '../src/coder/coder-prompt.js'
+import { buildWorkerPrompt } from '../src/worker/worker-prompt.js'
 import { WorkflowStep } from '../src/shared/types.js'
 import type { Phase } from '../src/shared/types.js'
 
@@ -8,15 +8,15 @@ const TEST_PHASE: Phase = {
   number: 1,
   name: 'Agent SDK integration',
   status: 'in-progress',
-  spec: 'Connect Director to Coder via Agent SDK.',
+  spec: 'Connect Director to Worker via Agent SDK.',
   applicableRules: '',
   done: '_(to be filled)_',
 }
 
-describe('buildCoderPrompt', () => {
+describe('buildWorkerPrompt', () => {
   // O1: Includes Director's instructions in prompt
   it('includes Director instructions', () => {
-    const result = buildCoderPrompt({
+    const result = buildWorkerPrompt({
       instructions: 'Implement the login endpoint using TDD.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
@@ -27,7 +27,7 @@ describe('buildCoderPrompt', () => {
 
   // O2: House rules are NOT in the user prompt (they go in systemPrompt.append)
   it('does not include house-rules in the prompt', () => {
-    const result = buildCoderPrompt({
+    const result = buildWorkerPrompt({
       instructions: 'Do something.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
@@ -38,7 +38,7 @@ describe('buildCoderPrompt', () => {
 
   // O3: Includes phase context (number, name, spec)
   it('includes phase context', () => {
-    const result = buildCoderPrompt({
+    const result = buildWorkerPrompt({
       instructions: 'Do something.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
@@ -46,12 +46,12 @@ describe('buildCoderPrompt', () => {
 
     expect(result).toContain('Phase 1')
     expect(result).toContain('Agent SDK integration')
-    expect(result).toContain('Connect Director to Coder via Agent SDK.')
+    expect(result).toContain('Connect Director to Worker via Agent SDK.')
   })
 
   // O4: Includes reporting instructions
   it('includes reporting instructions', () => {
-    const result = buildCoderPrompt({
+    const result = buildWorkerPrompt({
       instructions: 'Do something.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
@@ -63,7 +63,7 @@ describe('buildCoderPrompt', () => {
 
   // O5: Read-only steps include constraint about not modifying files
   it('includes read-only constraint for Analyze step', () => {
-    const result = buildCoderPrompt({
+    const result = buildWorkerPrompt({
       instructions: 'Analyze the codebase.',
       phase: TEST_PHASE,
       step: WorkflowStep.Analyze,
@@ -73,7 +73,7 @@ describe('buildCoderPrompt', () => {
   })
 
   it('does not include read-only constraint for Execute step', () => {
-    const result = buildCoderPrompt({
+    const result = buildWorkerPrompt({
       instructions: 'Implement the feature.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
@@ -84,7 +84,7 @@ describe('buildCoderPrompt', () => {
 
   // O6: Includes completed sub-phases context
   it('includes completed sub-phases when provided', () => {
-    const result = buildCoderPrompt({
+    const result = buildWorkerPrompt({
       instructions: 'Implement sub-phase B.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
@@ -98,7 +98,7 @@ describe('buildCoderPrompt', () => {
   })
 
   it('omits sub-phases section when none completed', () => {
-    const result = buildCoderPrompt({
+    const result = buildWorkerPrompt({
       instructions: 'Implement sub-phase A.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,

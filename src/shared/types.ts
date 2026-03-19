@@ -22,13 +22,13 @@ export interface Config {
   directorMaxTurns?: number
   maxBudgetUsd?: number
   directorModel?: string
-  coderModel?: string
-  withCoder?: boolean
+  workerModel?: string
+  withWorker?: boolean
   withReviews?: boolean
   withBashReviews?: boolean
   withHumanValidation?: boolean
   directorBackend?: BackendType
-  coderBackend?: BackendType
+  workerBackend?: BackendType
   claudeCliPath?: string
   nonInteractive?: boolean
   daemon?: import('../daemon/types.js').DaemonConfig
@@ -61,7 +61,7 @@ export interface TokenUsage {
   cacheCreationInputTokens: number
 }
 
-export interface CoderReport {
+export interface WorkerReport {
   status: 'success' | 'partial' | 'failed'
   summary: string
   filesChanged?: string[]
@@ -69,7 +69,7 @@ export interface CoderReport {
   issues?: string[]
 }
 
-export interface CoderResult {
+export interface WorkerResult {
   status: 'success' | 'partial' | 'failed'
   message: string
   filesChanged?: string[]
@@ -77,10 +77,10 @@ export interface CoderResult {
   numTurns: number
   durationMs: number
   usage: TokenUsage
-  report: CoderReport | null
+  report: WorkerReport | null
 }
 
-export interface CoderOptions {
+export interface WorkerOptions {
   step: WorkflowStep
   phase: Phase
   model: string

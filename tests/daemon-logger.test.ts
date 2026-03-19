@@ -92,11 +92,11 @@ describe('createDaemonLogger', () => {
     const logger = createDaemonLogger('/tmp/logs')
     const job = makeJob({ id: 'abc-123' })
 
-    logger.jobEnd(job, new Error('Coder crashed'))
+    logger.jobEnd(job, new Error('Worker crashed'))
 
     expect(fs.appendFileSync).toHaveBeenCalledWith(
       path.join('/tmp/logs', 'daemon.log'),
-      expect.stringContaining('[ERROR] Job abc-123 failed: Coder crashed'),
+      expect.stringContaining('[ERROR] Job abc-123 failed: Worker crashed'),
       'utf-8'
     )
   })

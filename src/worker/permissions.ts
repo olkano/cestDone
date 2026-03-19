@@ -1,4 +1,4 @@
-// src/coder/permissions.ts
+// src/worker/permissions.ts
 import { WorkflowStep } from '../shared/types.js'
 
 const READ_ONLY = ['Read', 'Glob', 'Grep']
@@ -11,6 +11,6 @@ export function getTools(step: WorkflowStep): string[] {
     case WorkflowStep.Execute:
       return FULL_EDIT
     default:
-      throw new Error(`Step ${step} is Director-only — no Coder call`)
+      throw new Error(`Step ${step} is Director-only — no Worker call`)
   }
 }

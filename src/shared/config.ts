@@ -12,18 +12,18 @@ export const DEFAULTS = {
   targetRepoPath: '.',
   maxTurns: 100,
   directorModel: 'opus' as ModelAlias,   // haiku | sonnet | opus
-  coderModel: 'opus' as ModelAlias,     // haiku | sonnet | opus
+  workerModel: 'opus' as ModelAlias,     // haiku | sonnet | opus
   backend: 'claude-cli' as BackendType, // agent-sdk (API billing) | claude-cli (subscription)
   claudeCliPath: 'claude',
-  withCoder: true,                       // Two-agent mode: Director plans, Coder implements
-  withReviews: true,                     // Director reviews after Coder execution
+  withWorker: true,                       // Two-agent mode: Director plans, Worker implements
+  withReviews: true,                     // Director reviews after Worker execution
   withBashReviews: true,                 // Allow Bash in Director reviews (implies withReviews)
   withHumanValidation: false,            // Require human approval of plan before execution
   nonInteractive: false,                  // Run without TTY (auto-approve, skip clarifications)
 
   // -- Internal limits (not CLI-visible) --
   maxRejections: 3,            // Plan rejections before escalating to human
-  maxCoderRetries: 3,          // Coder fix retries before escalating
+  maxWorkerRetries: 3,          // Worker fix retries before escalating
   maxClarifyRounds: 3,         // Clarification Q&A rounds
   directorMaxTurnsReview: 20,  // Director turns for Review step
   directorMaxTurnsDefault: 50, // Director turns for other steps

@@ -50,22 +50,22 @@ describe('Backend integration', () => {
   })
 
   describe('mixed backend scenarios', () => {
-    it('director on claude-cli, coder on agent-sdk', () => {
-      const config = makeConfig({ directorBackend: 'claude-cli', coderBackend: 'agent-sdk' })
+    it('director on claude-cli, worker on agent-sdk', () => {
+      const config = makeConfig({ directorBackend: 'claude-cli', workerBackend: 'agent-sdk' })
       const directorBackend = createBackend(config.directorBackend!, config)
-      const coderBackend = createBackend(config.coderBackend!, config)
+      const workerBackend = createBackend(config.workerBackend!, config)
 
       expect(directorBackend.name).toBe('claude-cli')
-      expect(coderBackend.name).toBe('agent-sdk')
+      expect(workerBackend.name).toBe('agent-sdk')
     })
 
     it('both on claude-cli', () => {
-      const config = makeConfig({ directorBackend: 'claude-cli', coderBackend: 'claude-cli' })
+      const config = makeConfig({ directorBackend: 'claude-cli', workerBackend: 'claude-cli' })
       const directorBackend = createBackend(config.directorBackend!, config)
-      const coderBackend = createBackend(config.coderBackend!, config)
+      const workerBackend = createBackend(config.workerBackend!, config)
 
       expect(directorBackend.name).toBe('claude-cli')
-      expect(coderBackend.name).toBe('claude-cli')
+      expect(workerBackend.name).toBe('claude-cli')
     })
   })
 

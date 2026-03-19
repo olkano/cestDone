@@ -1,8 +1,8 @@
-// tests/coder.test.ts
+// tests/worker.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { executeCoder } from '../src/coder/coder.js'
+import { executeWorker } from '../src/worker/worker.js'
 import { WorkflowStep } from '../src/shared/types.js'
-import type { CoderOptions, Backend, BackendResult } from '../src/shared/types.js'
+import type { WorkerOptions, Backend, BackendResult } from '../src/shared/types.js'
 
 const ZERO_USAGE = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
 
@@ -28,7 +28,7 @@ function makeMockBackend(): Backend & { invoke: ReturnType<typeof vi.fn> } {
   }
 }
 
-function makeOptions(overrides: Partial<CoderOptions> = {}): CoderOptions {
+function makeOptions(overrides: Partial<WorkerOptions> = {}): WorkerOptions {
   return {
     step: WorkflowStep.Execute,
     phase: { number: 1, name: 'Test Phase', status: 'in-progress', spec: 'Do stuff.', applicableRules: '', done: '' },
@@ -47,11 +47,11 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('executeCoder', () => {
+describe('executeWorker', () => {
   // Q1: Calls backend.invoke() with correct prompt, cwd, model, maxTurns
   it('calls backend.invoke() with correct prompt, cwd, model, maxTurns', async () => {
     const backend = makeMockBackend()
-    await executeCoder(makeOptions({ backend }))
+    await executeWorker(makeOptions({ backend }))
 
     expect(backend.invoke).toHaveBeenCalledTimes(1)
     const params = backend.invoke.mock.calls[0][0]
@@ -65,7 +65,7 @@ describe('executeCoder', () => {
   // Q3: Sets tools from getTools(step)
   it('passes tools based on step', async () => {
     const backend = makeMockBackend()
-    await executeCoder(makeOptions({ backend, step: WorkflowStep.Analyze }))
+    await executeWorker(makeOptions({ backend, step: WorkflowStep.Analyze }))
 
     const params = backend.invoke.mock.calls[0][0]
     expect(params.tools).toEqual(['Read', 'Glob', 'Grep'])
@@ -73,7 +73,7 @@ describe('executeCoder', () => {
 
   it('passes full tools for Execute step', async () => {
     const backend = makeMockBackend()
-    await executeCoder(makeOptions({ backend, step: WorkflowStep.Execute }))
+    await executeWorker(makeOptions({ backend, step: WorkflowStep.Execute }))
 
     const params = backend.invoke.mock.calls[0][0]
     expect(params.tools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'])
@@ -82,7 +82,7 @@ describe('executeCoder', () => {
   // Q4: Passes house rules as systemPrompt
   it('passes house rules as systemPrompt', async () => {
     const backend = makeMockBackend()
-    await executeCoder(makeOptions({ backend, houseRulesContent: 'Always use TDD.' }))
+    await executeWorker(makeOptions({ backend, houseRulesContent: 'Always use TDD.' }))
 
     const params = backend.invoke.mock.calls[0][0]
     expect(params.systemPrompt).toBe('Always use TDD.')
@@ -91,7 +91,7 @@ describe('executeCoder', () => {
   // Q5: Passes outputSchema
   it('passes outputSchema', async () => {
     const backend = makeMockBackend()
-    await executeCoder(makeOptions({ backend }))
+    await executeWorker(makeOptions({ backend }))
 
     const params = backend.invoke.mock.calls[0][0]
     expect(params.outputSchema).toEqual(expect.objectContaining({
@@ -107,7 +107,7 @@ describe('executeCoder', () => {
   // Q6: Passes maxBudgetUsd
   it('passes maxBudgetUsd when defined', async () => {
     const backend = makeMockBackend()
-    await executeCoder(makeOptions({ backend, maxBudgetUsd: 5.0 }))
+    await executeWorker(makeOptions({ backend, maxBudgetUsd: 5.0 }))
 
     const params = backend.invoke.mock.calls[0][0]
     expect(params.maxBudgetUsd).toBe(5.0)
@@ -115,7 +115,7 @@ describe('executeCoder', () => {
 
   it('omits maxBudgetUsd when undefined', async () => {
     const backend = makeMockBackend()
-    await executeCoder(makeOptions({ backend, maxBudgetUsd: undefined }))
+    await executeWorker(makeOptions({ backend, maxBudgetUsd: undefined }))
 
     const params = backend.invoke.mock.calls[0][0]
     expect(params.maxBudgetUsd).toBeUndefined()
@@ -131,7 +131,7 @@ describe('executeCoder', () => {
       usage: { inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
     }))
 
-    const result = await executeCoder(makeOptions({ backend }))
+    const result = await executeWorker(makeOptions({ backend }))
 
     expect(result.cost).toBe(1.50)
     expect(result.numTurns).toBe(42)
@@ -151,7 +151,7 @@ describe('executeCoder', () => {
       },
     }))
 
-    const result = await executeCoder(makeOptions({ backend }))
+    const result = await executeWorker(makeOptions({ backend }))
 
     expect(result.status).toBe('success')
     expect(result.report).not.toBeNull()
@@ -160,7 +160,7 @@ describe('executeCoder', () => {
     expect(result.report!.testsRun).toEqual({ passed: 5, failed: 0, skipped: 0 })
   })
 
-  // Q11: Backend returns failure — returns failed CoderResult
+  // Q11: Backend returns failure — returns failed WorkerResult
   it('returns failed when backend returns failure', async () => {
     const backend = makeMockBackend()
     backend.invoke.mockResolvedValue(makeBackendResult({
@@ -174,7 +174,7 @@ describe('executeCoder', () => {
       errorMessage: 'CLI error: something failed',
     }))
 
-    const result = await executeCoder(makeOptions({ backend }))
+    const result = await executeWorker(makeOptions({ backend }))
 
     expect(result.status).toBe('failed')
     expect(result.cost).toBe(0)
@@ -183,12 +183,12 @@ describe('executeCoder', () => {
     expect(result.report!.status).toBe('failed')
   })
 
-  // Q12: backend.invoke() throws — catches and returns failed CoderResult
+  // Q12: backend.invoke() throws — catches and returns failed WorkerResult
   it('catches backend.invoke() exception and returns failed result', async () => {
     const backend = makeMockBackend()
     backend.invoke.mockRejectedValue(new Error('Network connection failed'))
 
-    const result = await executeCoder(makeOptions({ backend }))
+    const result = await executeWorker(makeOptions({ backend }))
 
     expect(result.status).toBe('failed')
     expect(result.message).toContain('Network connection failed')
@@ -204,7 +204,7 @@ describe('executeCoder', () => {
   // Q13: Passes env to backend
   it('passes env to backend', async () => {
     const backend = makeMockBackend()
-    await executeCoder(makeOptions({ backend }))
+    await executeWorker(makeOptions({ backend }))
 
     const params = backend.invoke.mock.calls[0][0]
     expect(params.env).toBeDefined()

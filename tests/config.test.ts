@@ -73,8 +73,8 @@ describe('loadConfig', () => {
     const result = loadConfig(tmpDir)
 
     expect(result.directorModel).toBeUndefined()
-    expect(result.coderModel).toBeUndefined()
-    expect(result.withCoder).toBeUndefined()
+    expect(result.workerModel).toBeUndefined()
+    expect(result.withWorker).toBeUndefined()
     expect(result.withReviews).toBeUndefined()
     expect(result.withBashReviews).toBeUndefined()
     expect(result.withHumanValidation).toBeUndefined()
@@ -85,8 +85,8 @@ describe('loadConfig', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
     const config = {
       directorModel: 'opus',
-      coderModel: 'sonnet',
-      withCoder: true,
+      workerModel: 'sonnet',
+      withWorker: true,
       withReviews: true,
       withBashReviews: false,
       withHumanValidation: true,
@@ -96,8 +96,8 @@ describe('loadConfig', () => {
     const result = loadConfig(tmpDir)
 
     expect(result.directorModel).toBe('opus')
-    expect(result.coderModel).toBe('sonnet')
-    expect(result.withCoder).toBe(true)
+    expect(result.workerModel).toBe('sonnet')
+    expect(result.withWorker).toBe(true)
     expect(result.withReviews).toBe(true)
     expect(result.withBashReviews).toBe(false)
     expect(result.withHumanValidation).toBe(true)
@@ -113,7 +113,7 @@ describe('loadConfig', () => {
 
     expect(result.maxTurns).toBe(50)
     expect(result.directorModel).toBe('haiku')
-    expect(result.withCoder).toBeUndefined()
+    expect(result.withWorker).toBeUndefined()
   })
 
   // B1: Backend fields default to undefined
@@ -123,7 +123,7 @@ describe('loadConfig', () => {
     const result = loadConfig(tmpDir)
 
     expect(result.directorBackend).toBeUndefined()
-    expect(result.coderBackend).toBeUndefined()
+    expect(result.workerBackend).toBeUndefined()
     expect(result.claudeCliPath).toBeUndefined()
   })
 
@@ -132,7 +132,7 @@ describe('loadConfig', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
     const config = {
       directorBackend: 'claude-cli',
-      coderBackend: 'agent-sdk',
+      workerBackend: 'agent-sdk',
       claudeCliPath: '/usr/local/bin/claude',
     }
     fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
@@ -140,7 +140,7 @@ describe('loadConfig', () => {
     const result = loadConfig(tmpDir)
 
     expect(result.directorBackend).toBe('claude-cli')
-    expect(result.coderBackend).toBe('agent-sdk')
+    expect(result.workerBackend).toBe('agent-sdk')
     expect(result.claudeCliPath).toBe('/usr/local/bin/claude')
   })
 })

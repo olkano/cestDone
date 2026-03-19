@@ -6,8 +6,8 @@ Make cestdone configurable so it can use either of two backends:
 1. **Agent SDK** (`@anthropic-ai/claude-agent-sdk`) — current, uses Anthropic API (paid per token)
 2. **Claude Code CLI** (`claude -p`) — headless mode, uses Max/Pro subscription
 
-Director and Coder can use **independent backends** (e.g., Director on `claude-cli`, Coder on `agent-sdk`).
-Director and Coder can use **independent models** (e.g., Director with Opus, Coder with Sonnet).
+Director and Worker can use **independent backends** (e.g., Director on `claude-cli`, Worker on `agent-sdk`).
+Director and Worker can use **independent models** (e.g., Director with Opus, Worker with Sonnet).
 
 Note: You can see a complementary and similar analysis in `feat-cli-plan-additional.md` that might add some value.
 ---
@@ -16,7 +16,7 @@ Note: You can see a complementary and similar analysis in `feat-cli-plan-additio
 
 ### How cestdone invokes the SDK
 
-Both Director and Coder call `query()` from `@anthropic-ai/claude-agent-sdk`:
+Both Director and Worker call `query()` from `@anthropic-ai/claude-agent-sdk`:
 
 ```typescript
 import { query } from '@anthropic-ai/claude-agent-sdk'
@@ -56,11 +56,11 @@ q.close()
 
 ### Features used by cestdone
 
-| Feature | Director | Coder | Notes |
+| Feature | Director | Worker | Notes |
 |---------|----------|-------|-------|
 | System prompt (append) | Yes | Yes | Appended to `claude_code` preset |
 | Tool restriction (`tools`) | Yes (per step) | Yes (per step) | Physical restriction, not auto-approval |
-| Structured JSON output | Yes (`DirectorResponse`) | Yes (`CoderReport`) | Via `outputFormat.schema` |
+| Structured JSON output | Yes (`DirectorResponse`) | Yes (`WorkerReport`) | Via `outputFormat.schema` |
 | Session resume | Yes (continuous) | No (fresh per phase) | Director threads sessionId across planning + all phases |
 | Max turns | Yes (15-20) | Yes (from config) | Per `query()` call |
 | Budget limit | No | Yes (optional) | `maxBudgetUsd` |
@@ -237,7 +237,7 @@ function toDenylist(allowedTools: string[]): string[] {
 Examples:
 - **Director read-only**: `--disallowedTools Write Edit MultiEdit Bash`
 - **Director review+bash**: `--disallowedTools Write Edit MultiEdit`
-- **Coder full**: No restrictions (all tools available by default)
+- **Worker full**: No restrictions (all tools available by default)
 
 **Impact**: Functionally equivalent. Need to maintain a list of all tool names.
 
@@ -350,7 +350,7 @@ interface Backend {
 interface Config {
   // ... existing fields ...
   directorBackend?: BackendType          // default: 'agent-sdk'
-  coderBackend?: BackendType             // default: 'agent-sdk'
+  workerBackend?: BackendType             // default: 'agent-sdk'
   claudeCliPath?: string                 // default: 'claude'
 }
 ```
@@ -358,19 +358,19 @@ interface Config {
 ### CLI flags
 
 ```
---backend <type>              # Set both Director and Coder backend (agent-sdk | claude-cli)
+--backend <type>              # Set both Director and Worker backend (agent-sdk | claude-cli)
 --director-backend <type>     # Override Director backend only
---coder-backend <type>        # Override Coder backend only
+--worker-backend <type>        # Override Worker backend only
 --claude-cli-path <path>      # Path to claude binary (default: 'claude')
 ```
 
-Precedence: `--director-backend` / `--coder-backend` override `--backend`.
+Precedence: `--director-backend` / `--worker-backend` override `--backend`.
 
 ---
 
 ## 6. Independent Model Selection
 
-Director and Coder already support independent model selection via `--director-model` and `--coder-model` flags. This remains unchanged.
+Director and Worker already support independent model selection via `--director-model` and `--worker-model` flags. This remains unchanged.
 
 ### Model aliases for Anthropic backends
 
@@ -387,15 +387,15 @@ Full model IDs are always accepted (e.g., `--director-model claude-opus-4-6`).
 ### Combined backend + model examples
 
 ```bash
-# Director with Opus on subscription, Coder with Sonnet on API
+# Director with Opus on subscription, Worker with Sonnet on API
 cestdone run --spec spec.md \
   --director-backend claude-cli --director-model opus \
-  --coder-backend agent-sdk --coder-model sonnet
+  --worker-backend agent-sdk --worker-model sonnet
 
 # Both on subscription, different models
 cestdone run --spec spec.md \
   --backend claude-cli \
-  --director-model opus --coder-model sonnet
+  --director-model opus --worker-model sonnet
 
 # Default: both on agent-sdk, existing model defaults
 cestdone run --spec spec.md
@@ -430,12 +430,12 @@ claude -p "<prompt>" \
   --strict-mcp-config --mcp-config /tmp/empty-mcp.json
 ```
 
-### Coder invocation (full access)
+### Worker invocation (full access)
 
 ```bash
 claude -p "<prompt with JSON instructions>" \
   --model "claude-sonnet-4-6" \
-  --append-system-prompt "You are a Coder AI. Always respond with valid JSON." \
+  --append-system-prompt "You are a Worker AI. Always respond with valid JSON." \
   --output-format json \
   --dangerously-skip-permissions \
   --strict-mcp-config --mcp-config /tmp/empty-mcp.json
@@ -587,10 +587,10 @@ async preflight(): Promise<{ ok: boolean; error?: string }> {
 ### Phase 1: Backend interface + AgentSdkBackend (refactor)
 
 1. Define `Backend`, `BackendInvocation`, `BackendResult` types in `src/shared/types.ts`
-2. Create `src/backends/agent-sdk.ts` — extract current `query()` logic from `director.ts` and `coder.ts`
+2. Create `src/backends/agent-sdk.ts` — extract current `query()` logic from `director.ts` and `worker.ts`
 3. Create `src/backends/index.ts` — factory function: `createBackend(type, config)`
 4. Refactor `director.ts` to use `Backend.invoke()` instead of direct `query()`
-5. Refactor `coder.ts` to use `Backend.invoke()` instead of direct `query()`
+5. Refactor `worker.ts` to use `Backend.invoke()` instead of direct `query()`
 6. All existing tests must pass unchanged (AgentSdkBackend preserves exact behavior)
 
 ### Phase 2: ClaudeCliBackend
@@ -606,9 +606,9 @@ async preflight(): Promise<{ ok: boolean; error?: string }> {
 
 ### Phase 3: Config + CLI integration
 
-1. Add `directorBackend`, `coderBackend`, `claudeCliPath` to Config type
-2. Add CLI flags: `--backend`, `--director-backend`, `--coder-backend`, `--claude-cli-path`
-3. Wire backend selection into `director.ts` and `coder.ts`
+1. Add `directorBackend`, `workerBackend`, `claudeCliPath` to Config type
+2. Add CLI flags: `--backend`, `--director-backend`, `--worker-backend`, `--claude-cli-path`
+3. Wire backend selection into `director.ts` and `worker.ts`
 4. Update `.cestdonerc.json` schema
 
 ### Phase 4: Testing

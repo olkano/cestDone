@@ -1,6 +1,6 @@
 // tests/result-parser.test.ts
 import { describe, it, expect } from 'vitest'
-import { parseResult } from '../src/coder/result-parser.js'
+import { parseResult } from '../src/worker/result-parser.js'
 
 // Minimal SDKResultMessage shapes matching the SDK types
 
@@ -43,8 +43,8 @@ function makeErrorResult(subtype: string, overrides: Record<string, unknown> = {
 }
 
 describe('parseResult', () => {
-  // P1: Parses structured_output from successful SDKResultMessage into CoderReport
-  it('parses structured_output into CoderReport', () => {
+  // P1: Parses structured_output from successful SDKResultMessage into WorkerReport
+  it('parses structured_output into WorkerReport', () => {
     const msg = makeSuccessResult({
       structured_output: {
         status: 'success',
@@ -110,7 +110,7 @@ describe('parseResult', () => {
     expect(result.message).toContain('max_budget')
   })
 
-  // P6: Extracts total_cost_usd, num_turns, duration_ms into CoderResult fields
+  // P6: Extracts total_cost_usd, num_turns, duration_ms into WorkerResult fields
   it('extracts cost, turns, and duration from result message', () => {
     const msg = makeSuccessResult({
       structured_output: { status: 'success', summary: 'OK' },
@@ -126,7 +126,7 @@ describe('parseResult', () => {
     expect(result.durationMs).toBe(120000)
   })
 
-  // P7: Raw text fallback produces CoderReport with status 'partial'
+  // P7: Raw text fallback produces WorkerReport with status 'partial'
   it('wraps raw text into partial report when JSON parsing fails', () => {
     const msg = makeSuccessResult({
       result: 'I implemented the feature but tests are flaky.',

@@ -1,11 +1,11 @@
 // src/director/director.ts
-import type { Phase, PhaseStatus, Config, DirectorResponse, CoderResult, CoderOptions, FreeFormSpec, Plan, TokenUsage, Backend, BackendResult } from '../shared/types.js'
+import type { Phase, PhaseStatus, Config, DirectorResponse, WorkerResult, WorkerOptions, FreeFormSpec, Plan, TokenUsage, Backend, BackendResult } from '../shared/types.js'
 import { WorkflowStep } from '../shared/types.js'
 import { CostTracker, formatTotals } from '../shared/cost-tracker.js'
 import {
   buildDirectorTools,
   buildClarifyPrompt,
-  buildInitialCoderInstructions,
+  buildInitialWorkerInstructions,
   buildReviewPrompt,
   buildCompletePrompt,
   buildDirectorExecutionPrompt,
@@ -16,7 +16,7 @@ import {
   buildExecutionSystemPrompt,
   DIRECTOR_RESPONSE_SCHEMA,
 } from './prompts.js'
-import { getDirectorModel, getCoderModel } from './model-selector.js'
+import { getDirectorModel, getWorkerModel } from './model-selector.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
 import { detectEnvironment } from '../shared/environment.js'
 import { DEFAULTS } from '../shared/config.js'
@@ -28,16 +28,16 @@ export interface DirectorDeps {
   createPlanFile: (planPath: string, content: string) => void
   updatePhaseStatus: (filePath: string, phaseNumber: number, status: PhaseStatus) => void
   writePhaseCompletion: (filePath: string, phaseNumber: number, doneSummary: string) => void
-  coderExecute: (options: CoderOptions) => Promise<CoderResult>
+  workerExecute: (options: WorkerOptions) => Promise<WorkerResult>
   display: (text: string) => void
   logger: SessionLogger
   costTracker: CostTracker
   backend: Backend
-  coderBackend: Backend
+  workerBackend: Backend
 }
 
 const MAX_REJECTIONS = DEFAULTS.maxRejections
-const MAX_CODER_RETRIES = DEFAULTS.maxCoderRetries
+const MAX_WORKER_RETRIES = DEFAULTS.maxWorkerRetries
 
 export interface DirectorCallResult {
   response: DirectorResponse
@@ -234,9 +234,9 @@ export async function runPhase(
 
   deps.updatePhaseStatus(planFilePath, phase.number, 'in-progress')
 
-  const usesCoder = config.withCoder !== false // undefined (legacy) = true
+  const usesWorker = config.withWorker !== false // undefined (legacy) = true
 
-  if (usesCoder) {
+  if (usesWorker) {
     sessionId = await executeTwoAgentPhase(plan, phase, config, systemPromptText, env, deps, completedPhases, sessionId)
   } else {
     sessionId = await executeDirectorOnlyPhase(plan, phase, config, systemPromptText, env, deps, completedPhases, sessionId)
@@ -268,14 +268,14 @@ async function executeTwoAgentPhase(
   const { logger } = deps
   const shouldReview = config.withReviews !== false
   const reviewTools = buildDirectorTools(WorkflowStep.Review, { withBash: config.withBashReviews !== false })
-  let instructions = buildInitialCoderInstructions(plan, phase, completedPhases, env)
-  let coderRetries = 0
-  let totalCoderCost = 0
+  let instructions = buildInitialWorkerInstructions(plan, phase, completedPhases, env)
+  let workerRetries = 0
+  let totalWorkerCost = 0
   const completedSubPhases: string[] = []
 
   while (true) {
-    logger.log('Director', `Executing via Coder (attempt ${coderRetries + 1}, sub-phase ${completedSubPhases.length + 1})`)
-    const coderResult = await deps.coderExecute(buildCoderOptions({
+    logger.log('Director', `Executing via Worker (attempt ${workerRetries + 1}, sub-phase ${completedSubPhases.length + 1})`)
+    const workerResult = await deps.workerExecute(buildWorkerOptions({
       step: WorkflowStep.Execute,
       phase,
       config,
@@ -283,33 +283,33 @@ async function executeTwoAgentPhase(
       instructions,
       completedSubPhases: [...completedSubPhases],
       logger,
-      backend: deps.coderBackend,
+      backend: deps.workerBackend,
     }))
-    totalCoderCost += coderResult.cost
-    deps.costTracker.recordCoder({
-      costUsd: coderResult.cost,
-      inputTokens: coderResult.usage.inputTokens,
-      outputTokens: coderResult.usage.outputTokens,
-      cacheReadInputTokens: coderResult.usage.cacheReadInputTokens,
-      cacheCreationInputTokens: coderResult.usage.cacheCreationInputTokens,
+    totalWorkerCost += workerResult.cost
+    deps.costTracker.recordWorker({
+      costUsd: workerResult.cost,
+      inputTokens: workerResult.usage.inputTokens,
+      outputTokens: workerResult.usage.outputTokens,
+      cacheReadInputTokens: workerResult.usage.cacheReadInputTokens,
+      cacheCreationInputTokens: workerResult.usage.cacheCreationInputTokens,
     })
     logger.log('Session', formatTotals(deps.costTracker))
 
-    const summary = coderResult.report?.summary ?? coderResult.message
-    deps.display(`\nCoder: ${summary} (cost: $${coderResult.cost.toFixed(2)})`)
-    logger.log('Director', `Coder result: ${coderResult.status} (cost: $${coderResult.cost.toFixed(2)}, total: $${totalCoderCost.toFixed(2)})`)
-    logger.logVerbose('Director', `Coder report: ${JSON.stringify(coderResult.report)}`)
+    const summary = workerResult.report?.summary ?? workerResult.message
+    deps.display(`\nWorker: ${summary} (cost: $${workerResult.cost.toFixed(2)})`)
+    logger.log('Director', `Worker result: ${workerResult.status} (cost: $${workerResult.cost.toFixed(2)}, total: $${totalWorkerCost.toFixed(2)})`)
+    logger.logVerbose('Director', `Worker report: ${JSON.stringify(workerResult.report)}`)
 
     if (!shouldReview) {
-      deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
+      deps.display(`\nTotal Worker cost: $${totalWorkerCost.toFixed(2)}`)
       break
     }
 
-    logger.log('Director', `Reviewing Coder output for Phase ${phase.number} (${phase.name})`)
-    logger.logVerbose('Director', `Review state: completedSubPhases=${completedSubPhases.length}, coderRetries=${coderRetries}`)
+    logger.log('Director', `Reviewing Worker output for Phase ${phase.number} (${phase.name})`)
+    logger.logVerbose('Director', `Review state: completedSubPhases=${completedSubPhases.length}, workerRetries=${workerRetries}`)
     const reviewPrompt = buildReviewPrompt(
       phase.number, phase.name, phase.spec,
-      JSON.stringify(coderResult.report ?? { status: coderResult.status, message: coderResult.message }),
+      JSON.stringify(workerResult.report ?? { status: workerResult.status, message: workerResult.message }),
       completedSubPhases,
     )
 
@@ -337,7 +337,7 @@ async function executeTwoAgentPhase(
 
     if (reviewResult.action === 'continue') {
       completedSubPhases.push(summary)
-      coderRetries = 0
+      workerRetries = 0
       instructions = reviewResult.message
       logger.log('Director', `Sub-phase ${completedSubPhases.length} complete within Phase ${phase.number}, continuing`)
       deps.display(`\nSub-phase ${completedSubPhases.length} complete. Continuing...`)
@@ -345,16 +345,16 @@ async function executeTwoAgentPhase(
     }
 
     if (reviewResult.action === 'fix') {
-      logger.log('Director', `Review returned 'fix' (retry ${coderRetries + 1}/${MAX_CODER_RETRIES})`)
-      coderRetries++
-      if (coderRetries >= MAX_CODER_RETRIES) {
-        logger.log('Director', `Escalating after ${coderRetries} Coder failures`)
+      logger.log('Director', `Review returned 'fix' (retry ${workerRetries + 1}/${MAX_WORKER_RETRIES})`)
+      workerRetries++
+      if (workerRetries >= MAX_WORKER_RETRIES) {
+        logger.log('Director', `Escalating after ${workerRetries} Worker failures`)
         const guidance = await deps.askInput(
-          `Coder has failed ${coderRetries} times. Latest error: "${coderResult.message}"\n` +
+          `Worker has failed ${workerRetries} times. Latest error: "${workerResult.message}"\n` +
           'Please provide guidance on how to proceed: '
         )
-        coderRetries = 0
-        instructions = `Human guidance: ${guidance}\nPrevious error: ${coderResult.message}\nPlease fix the issues and try again.`
+        workerRetries = 0
+        instructions = `Human guidance: ${guidance}\nPrevious error: ${workerResult.message}\nPlease fix the issues and try again.`
       } else {
         instructions = reviewResult.message
       }
@@ -365,8 +365,8 @@ async function executeTwoAgentPhase(
     if (reviewResult.action !== 'done') {
       logger.log('Director', `Review returned '${reviewResult.action}' — treating as done`)
     }
-    deps.display(`\nTotal Coder cost: $${totalCoderCost.toFixed(2)}`)
-    logger.log('Director', `Phase ${phase.number} done (total cost: $${totalCoderCost.toFixed(2)}, sub-phases: ${completedSubPhases.length + 1})`)
+    deps.display(`\nTotal Worker cost: $${totalWorkerCost.toFixed(2)}`)
+    logger.log('Director', `Phase ${phase.number} done (total cost: $${totalWorkerCost.toFixed(2)}, sub-phases: ${completedSubPhases.length + 1})`)
     break
   }
 
@@ -401,7 +401,7 @@ async function executeDirectorOnlyPhase(
   return sessionId!
 }
 
-function buildCoderOptions(params: {
+function buildWorkerOptions(params: {
   step: WorkflowStep
   phase: Phase
   config: Config
@@ -410,11 +410,11 @@ function buildCoderOptions(params: {
   completedSubPhases?: string[]
   logger: SessionLogger
   backend: Backend
-}): CoderOptions {
+}): WorkerOptions {
   return {
     step: params.step,
     phase: params.phase,
-    model: getCoderModel(params.config.coderModel),
+    model: getWorkerModel(params.config.workerModel),
     targetRepoPath: params.config.targetRepoPath,
     houseRulesContent: params.houseRulesContent,
     instructions: params.instructions,
@@ -515,6 +515,6 @@ function extractDirectorResponse(result: BackendResult, logger: SessionLogger): 
   logger.log('Director', `WARNING: No structured output produced (reason: ${reason}). Defaulting to 'done'.`)
   return {
     action: 'done',
-    message: `Director review completed without structured response (reason: ${reason}). Proceeding based on Coder self-report.`,
+    message: `Director review completed without structured response (reason: ${reason}). Proceeding based on Worker self-report.`,
   }
 }

@@ -8,7 +8,7 @@ vi.mock('../src/shared/plan-parser.js')
 vi.mock('../src/shared/spec-writer.js')
 vi.mock('../src/director/director.js')
 vi.mock('../src/cli/prompt.js')
-vi.mock('../src/coder/coder.js')
+vi.mock('../src/worker/worker.js')
 vi.mock('../src/shared/git.js')
 vi.mock('../src/shared/logger.js', () => ({
   createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' }),
@@ -233,13 +233,13 @@ describe('handleResume', () => {
 
     await handleResume('spec.md', {
       directorModel: 'opus',
-      withCoder: true,
+      withWorker: true,
       withReviews: true,
     })
 
     const configPassed = vi.mocked(runPhase).mock.calls[0][2]
     expect(configPassed.directorModel).toBe('opus')
-    expect(configPassed.withCoder).toBe(true)
+    expect(configPassed.withWorker).toBe(true)
     expect(configPassed.withReviews).toBe(true)
   })
 })
@@ -262,7 +262,7 @@ describe('CLI flag wiring', () => {
     await handleRun('spec.md', {})
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
-    expect(configPassed.withCoder).toBe(true)
+    expect(configPassed.withWorker).toBe(true)
     expect(configPassed.withReviews).toBe(true)
     expect(configPassed.withBashReviews).toBe(true)
     expect(configPassed.withHumanValidation).toBe(false)
@@ -282,11 +282,11 @@ describe('CLI flag wiring', () => {
       .mockReturnValueOnce(plan)
       .mockReturnValueOnce(donePlan)
 
-    await handleRun('spec.md', { directorModel: 'opus', coderModel: 'sonnet' })
+    await handleRun('spec.md', { directorModel: 'opus', workerModel: 'sonnet' })
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
     expect(configPassed.directorModel).toBe('opus')
-    expect(configPassed.coderModel).toBe('sonnet')
+    expect(configPassed.workerModel).toBe('sonnet')
   })
 
   // KF4: --with-bash-reviews implies --with-reviews
@@ -303,14 +303,14 @@ describe('CLI flag wiring', () => {
       .mockReturnValueOnce(plan)
       .mockReturnValueOnce(donePlan)
 
-    await handleRun('spec.md', { withCoder: true, withBashReviews: true })
+    await handleRun('spec.md', { withWorker: true, withBashReviews: true })
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
     expect(configPassed.withReviews).toBe(true)
     expect(configPassed.withBashReviews).toBe(true)
   })
 
-  // KF6: --backend sets both director and coder backends
+  // KF6: --backend sets both director and worker backends
   it('--backend sets both backends on config', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
     const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
@@ -328,7 +328,7 @@ describe('CLI flag wiring', () => {
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
     expect(configPassed.directorBackend).toBe('claude-cli')
-    expect(configPassed.coderBackend).toBe('claude-cli')
+    expect(configPassed.workerBackend).toBe('claude-cli')
   })
 
   // KF7: --director-backend overrides --backend
@@ -349,7 +349,7 @@ describe('CLI flag wiring', () => {
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
     expect(configPassed.directorBackend).toBe('agent-sdk')
-    expect(configPassed.coderBackend).toBe('claude-cli')
+    expect(configPassed.workerBackend).toBe('claude-cli')
   })
 
   // KF8: --claude-cli-path sets config field
@@ -372,8 +372,8 @@ describe('CLI flag wiring', () => {
     expect(configPassed.claudeCliPath).toBe('/opt/claude')
   })
 
-  // KF5: --with-reviews without --with-coder warns and disables reviews
-  it('warns when withReviews is set without withCoder', async () => {
+  // KF5: --with-reviews without --with-worker warns and disables reviews
+  it('warns when withReviews is set without withWorker', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
     const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
     vi.mocked(fs.existsSync).mockReturnValue(false)
@@ -387,7 +387,7 @@ describe('CLI flag wiring', () => {
       .mockReturnValueOnce(donePlan)
     const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    await handleRun('spec.md', { withCoder: false, withReviews: true })
+    await handleRun('spec.md', { withWorker: false, withReviews: true })
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--with-reviews'))
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]

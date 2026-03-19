@@ -6,7 +6,7 @@ describe('CostTracker', () => {
   it('starts with all zeros', () => {
     const tracker = new CostTracker()
     const d = tracker.getDirectorTotal()
-    const c = tracker.getCoderTotal()
+    const c = tracker.getWorkerTotal()
     const g = tracker.getGrandTotal()
 
     for (const snap of [d, c, g]) {
@@ -32,23 +32,23 @@ describe('CostTracker', () => {
     expect(d.cacheCreationInputTokens).toBe(15)
   })
 
-  it('accumulates Coder usage across multiple calls', () => {
+  it('accumulates Worker usage across multiple calls', () => {
     const tracker = new CostTracker()
 
-    tracker.recordCoder({ costUsd: 1.00, inputTokens: 50000, outputTokens: 10000, cacheReadInputTokens: 5000, cacheCreationInputTokens: 500 })
-    tracker.recordCoder({ costUsd: 0.50, inputTokens: 25000, outputTokens: 5000, cacheReadInputTokens: 2000, cacheCreationInputTokens: 200 })
+    tracker.recordWorker({ costUsd: 1.00, inputTokens: 50000, outputTokens: 10000, cacheReadInputTokens: 5000, cacheCreationInputTokens: 500 })
+    tracker.recordWorker({ costUsd: 0.50, inputTokens: 25000, outputTokens: 5000, cacheReadInputTokens: 2000, cacheCreationInputTokens: 200 })
 
-    const c = tracker.getCoderTotal()
+    const c = tracker.getWorkerTotal()
     expect(c.costUsd).toBeCloseTo(1.50)
     expect(c.inputTokens).toBe(75000)
     expect(c.outputTokens).toBe(15000)
   })
 
-  it('grand total sums Director and Coder', () => {
+  it('grand total sums Director and Worker', () => {
     const tracker = new CostTracker()
 
     tracker.recordDirector({ costUsd: 0.10, inputTokens: 2000, outputTokens: 500, cacheReadInputTokens: 100, cacheCreationInputTokens: 20 })
-    tracker.recordCoder({ costUsd: 1.00, inputTokens: 50000, outputTokens: 10000, cacheReadInputTokens: 5000, cacheCreationInputTokens: 500 })
+    tracker.recordWorker({ costUsd: 1.00, inputTokens: 50000, outputTokens: 10000, cacheReadInputTokens: 5000, cacheCreationInputTokens: 500 })
 
     const g = tracker.getGrandTotal()
     expect(g.costUsd).toBeCloseTo(1.10)
@@ -58,14 +58,14 @@ describe('CostTracker', () => {
     expect(g.cacheCreationInputTokens).toBe(520)
   })
 
-  it('keeps Director and Coder totals independent', () => {
+  it('keeps Director and Worker totals independent', () => {
     const tracker = new CostTracker()
 
     tracker.recordDirector({ costUsd: 0.10, inputTokens: 2000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
-    tracker.recordCoder({ costUsd: 1.00, inputTokens: 50000, outputTokens: 10000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
+    tracker.recordWorker({ costUsd: 1.00, inputTokens: 50000, outputTokens: 10000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
 
     expect(tracker.getDirectorTotal().inputTokens).toBe(2000)
-    expect(tracker.getCoderTotal().inputTokens).toBe(50000)
+    expect(tracker.getWorkerTotal().inputTokens).toBe(50000)
   })
 })
 
@@ -85,11 +85,11 @@ describe('formatTotals', () => {
   it('formats accumulated totals for both agents', () => {
     const tracker = new CostTracker()
     tracker.recordDirector({ costUsd: 0.15, inputTokens: 5000, outputTokens: 2000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
-    tracker.recordCoder({ costUsd: 1.25, inputTokens: 50000, outputTokens: 15000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
+    tracker.recordWorker({ costUsd: 1.25, inputTokens: 50000, outputTokens: 15000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 })
 
     const line = formatTotals(tracker)
     expect(line).toContain('Director: $0.15')
-    expect(line).toContain('Coder: $1.25')
+    expect(line).toContain('Worker: $1.25')
     expect(line).toContain('Total: $1.40')
     expect(line).toContain('5.0K')
     expect(line).toContain('50.0K')
@@ -99,7 +99,7 @@ describe('formatTotals', () => {
     const tracker = new CostTracker()
     const line = formatTotals(tracker)
     expect(line).toContain('Director: $0.00')
-    expect(line).toContain('Coder: $0.00')
+    expect(line).toContain('Worker: $0.00')
     expect(line).toContain('Total: $0.00')
   })
 })
@@ -108,14 +108,14 @@ describe('formatFinalSummary', () => {
   it('includes time, costs, and token breakdown', () => {
     const tracker = new CostTracker()
     tracker.recordDirector({ costUsd: 1.38, inputTokens: 125300, outputTokens: 4200, cacheReadInputTokens: 89100, cacheCreationInputTokens: 1000 })
-    tracker.recordCoder({ costUsd: 1.65, inputTokens: 200500, outputTokens: 12100, cacheReadInputTokens: 156200, cacheCreationInputTokens: 2000 })
+    tracker.recordWorker({ costUsd: 1.65, inputTokens: 200500, outputTokens: 12100, cacheReadInputTokens: 156200, cacheCreationInputTokens: 2000 })
 
     const summary = formatFinalSummary(tracker, 24 * 60 * 1000 + 37 * 1000) // 24m 37s
     expect(summary).toContain('=== Final Summary ===')
     expect(summary).toContain('24m 37s')
     expect(summary).toContain('Director')
     expect(summary).toContain('$1.38')
-    expect(summary).toContain('Coder')
+    expect(summary).toContain('Worker')
     expect(summary).toContain('$1.65')
     expect(summary).toContain('Grand total: $3.03')
   })

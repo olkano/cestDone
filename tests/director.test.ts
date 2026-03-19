@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { runPhase, runPlanningFlow, executeDirector } from '../src/director/director.js'
 import type { DirectorDeps } from '../src/director/director.js'
 import { WorkflowStep } from '../src/shared/types.js'
-import type { Config, Phase, CoderResult, CoderOptions, FreeFormSpec, Plan, Backend, BackendResult } from '../src/shared/types.js'
+import type { Config, Phase, WorkerResult, WorkerOptions, FreeFormSpec, Plan, Backend, BackendResult } from '../src/shared/types.js'
 import { CostTracker } from '../src/shared/cost-tracker.js'
 
 let directorCallCount = 0
@@ -18,7 +18,7 @@ beforeEach(() => {
   directorCallCount = 0
   vi.clearAllMocks()
   process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-6'
-  process.env.CESTDONE_CODER_MODEL = 'claude-haiku-4-5'
+  process.env.CESTDONE_WORKER_MODEL = 'claude-haiku-4-5'
 })
 
 function makeBackendResult(action: string, message: string, questions?: string[]): BackendResult {
@@ -56,7 +56,7 @@ const TEST_CONFIG: Config = {
   maxTurns: 100,
 }
 
-function makeCoderSuccess(overrides: Partial<CoderResult> = {}): CoderResult {
+function makeWorkerSuccess(overrides: Partial<WorkerResult> = {}): WorkerResult {
   return {
     status: 'success',
     message: 'Implementation complete',
@@ -69,7 +69,7 @@ function makeCoderSuccess(overrides: Partial<CoderResult> = {}): CoderResult {
   }
 }
 
-function makeCoderError(overrides: Partial<CoderResult> = {}): CoderResult {
+function makeWorkerError(overrides: Partial<WorkerResult> = {}): WorkerResult {
   return {
     status: 'failed',
     message: 'Tests failing',
@@ -97,21 +97,21 @@ function createHappyPathDeps(): DirectorDeps {
     createPlanFile: vi.fn(),
     updatePhaseStatus: vi.fn(),
     writePhaseCompletion: vi.fn(),
-    coderExecute: vi.fn().mockResolvedValue(makeCoderSuccess()),
+    workerExecute: vi.fn().mockResolvedValue(makeWorkerSuccess()),
     display: vi.fn(),
     logger: { log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' },
     costTracker: new CostTracker(),
     backend: mockBackend,
-    coderBackend: mockBackend,
+    workerBackend: mockBackend,
   }
 }
 
-// Happy path flow: coder(execute) → review(0) → complete(1)
+// Happy path flow: worker(execute) → review(0) → complete(1)
 // Director calls: 2 (review, complete)
 
 describe('runPhase', () => {
-  // J1: Sets phase to in-progress and sends Coder directly
-  it('sets phase to in-progress and calls Coder directly', async () => {
+  // J1: Sets phase to in-progress and sends Worker directly
+  it('sets phase to in-progress and calls Worker directly', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Phase done. Created scaffold.' },
@@ -121,14 +121,14 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
     expect(deps.updatePhaseStatus).toHaveBeenCalledWith('plan.md', 1, 'in-progress')
-    expect(deps.coderExecute).toHaveBeenCalledTimes(1)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(1)
     // First Director call is Review, not sub-planning
     const firstPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt
-    expect(firstPrompt).toContain('Coder Report')
+    expect(firstPrompt).toContain('Worker Report')
   })
 
-  // R1: Calls coderExecute with plan context (title, tech stack)
-  it('calls coderExecute with plan context at Step 6 (R1)', async () => {
+  // R1: Calls workerExecute with plan context (title, tech stack)
+  it('calls workerExecute with plan context at Step 6 (R1)', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
@@ -137,15 +137,15 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(1)
-    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    expect(deps.workerExecute).toHaveBeenCalledTimes(1)
+    const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
     expect(opts.instructions).toContain('Test Project')
     expect(opts.instructions).toContain('TypeScript, Node.js')
     expect(opts.step).toBe(WorkflowStep.Execute)
   })
 
-  // R2: Passes coder model from getCoderModel()
-  it('passes coder model from getCoderModel() to coderExecute (R2)', async () => {
+  // R2: Passes worker model from getWorkerModel()
+  it('passes worker model from getWorkerModel() to workerExecute (R2)', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
@@ -154,13 +154,13 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
     expect(opts.model).toBeTruthy()
     expect(typeof opts.model).toBe('string')
   })
 
   // R3: Success → review verifies → proceeds to Complete
-  it('proceeds to Complete after review confirms Coder success (R3)', async () => {
+  it('proceeds to Complete after review confirms Worker success (R3)', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Phase done. Created scaffold.' },
@@ -176,27 +176,27 @@ describe('runPhase', () => {
     expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
   })
 
-  // R4: Error → Director formulates fix → retry Coder
-  it('retries Coder with fix instructions on error (R4)', async () => {
+  // R4: Error → Director formulates fix → retry Worker
+  it('retries Worker with fix instructions on error (R4)', async () => {
     setupDirectorResponses(
       { action: 'fix', message: 'Fix the failing test by updating the assertion' },
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
-    deps.coderExecute = vi.fn()
-      .mockResolvedValueOnce(makeCoderError())
-      .mockResolvedValueOnce(makeCoderSuccess())
+    deps.workerExecute = vi.fn()
+      .mockResolvedValueOnce(makeWorkerError())
+      .mockResolvedValueOnce(makeWorkerSuccess())
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(2)
-    const secondOpts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as CoderOptions
+    expect(deps.workerExecute).toHaveBeenCalledTimes(2)
+    const secondOpts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as WorkerOptions
     expect(secondOpts.instructions).toContain('Fix the failing test')
   })
 
   // R5: 3 failures → escalate to human
-  it('escalates to human after 3 Coder failures (R5)', async () => {
+  it('escalates to human after 3 Worker failures (R5)', async () => {
     setupDirectorResponses(
       { action: 'fix', message: 'Fix attempt 1' },
       { action: 'fix', message: 'Fix attempt 2' },
@@ -205,30 +205,30 @@ describe('runPhase', () => {
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
-    deps.coderExecute = vi.fn()
-      .mockResolvedValueOnce(makeCoderError({ message: 'Fail 1' }))
-      .mockResolvedValueOnce(makeCoderError({ message: 'Fail 2' }))
-      .mockResolvedValueOnce(makeCoderError({ message: 'Fail 3' }))
-      .mockResolvedValueOnce(makeCoderSuccess())
+    deps.workerExecute = vi.fn()
+      .mockResolvedValueOnce(makeWorkerError({ message: 'Fail 1' }))
+      .mockResolvedValueOnce(makeWorkerError({ message: 'Fail 2' }))
+      .mockResolvedValueOnce(makeWorkerError({ message: 'Fail 3' }))
+      .mockResolvedValueOnce(makeWorkerSuccess())
     deps.askInput = vi.fn().mockResolvedValue('Try a different approach')
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(4)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(4)
     const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
     const escalationCall = askInputCalls.find((c: string[]) => c[0].includes('3'))
     expect(escalationCall).toBeTruthy()
   })
 
-  // R6: Displays Coder summary
-  it('displays Coder summary to human (R6)', async () => {
+  // R6: Displays Worker summary
+  it('displays Worker summary to human (R6)', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
-    deps.coderExecute = vi.fn().mockResolvedValue(
-      makeCoderSuccess({ report: { status: 'success', summary: 'Built login form with tests' } })
+    deps.workerExecute = vi.fn().mockResolvedValue(
+      makeWorkerSuccess({ report: { status: 'success', summary: 'Built login form with tests' } })
     )
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
@@ -238,8 +238,8 @@ describe('runPhase', () => {
     )
   })
 
-  // R7: CoderOptions has all required fields — houseRulesContent from phase.applicableRules
-  it('passes complete CoderOptions to coderExecute (R7)', async () => {
+  // R7: WorkerOptions has all required fields — houseRulesContent from phase.applicableRules
+  it('passes complete WorkerOptions to workerExecute (R7)', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
@@ -248,7 +248,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
     expect(opts.step).toBe(WorkflowStep.Execute)
     expect(opts.phase).toEqual(TEST_PHASE)
     expect(opts.targetRepoPath).toBe('/tmp/repo')
@@ -270,25 +270,25 @@ describe('runPhase', () => {
 
     await runPhase(plan, phaseNoRules, TEST_CONFIG, 'plan.md', deps)
 
-    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
     expect(opts.houseRulesContent).toBe('Use TDD.')
   })
 
   // R8: Cost accumulation across retries
-  it('displays accumulated Coder cost (R8)', async () => {
+  it('displays accumulated Worker cost (R8)', async () => {
     setupDirectorResponses(
       { action: 'fix', message: 'Fix it' },
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
-    deps.coderExecute = vi.fn()
-      .mockResolvedValueOnce(makeCoderError({ cost: 0.50 }))
-      .mockResolvedValueOnce(makeCoderSuccess({ cost: 0.75 }))
+    deps.workerExecute = vi.fn()
+      .mockResolvedValueOnce(makeWorkerError({ cost: 0.50 }))
+      .mockResolvedValueOnce(makeWorkerSuccess({ cost: 0.75 }))
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(2)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(2)
     const allDisplayText = (deps.display as ReturnType<typeof vi.fn>).mock.calls.map((c: string[]) => c[0]).join('\n')
     expect(allDisplayText).toContain('1.25')
   })
@@ -367,9 +367,9 @@ describe('runPhase', () => {
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
-    deps.coderExecute = vi.fn()
-      .mockResolvedValueOnce(makeCoderError())
-      .mockResolvedValueOnce(makeCoderSuccess())
+    deps.workerExecute = vi.fn()
+      .mockResolvedValueOnce(makeWorkerError())
+      .mockResolvedValueOnce(makeWorkerSuccess())
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
@@ -390,16 +390,16 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(2)
-    const secondOpts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as CoderOptions
+    expect(deps.workerExecute).toHaveBeenCalledTimes(2)
+    const secondOpts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as WorkerOptions
     expect(secondOpts.instructions).toContain('Sub-phase B')
     expect(deps.display).toHaveBeenCalledWith(
       expect.stringContaining('Sub-phase 1 complete')
     )
   })
 
-  // J14: Sub-phase context is passed to Coder
-  it('passes completedSubPhases to Coder on subsequent sub-phases', async () => {
+  // J14: Sub-phase context is passed to Worker
+  it('passes completedSubPhases to Worker on subsequent sub-phases', async () => {
     setupDirectorResponses(
       { action: 'continue', message: 'Next sub-phase instructions' },
       { action: 'done', message: 'All verified.' },
@@ -409,10 +409,10 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    const firstOpts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    const firstOpts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
     expect(firstOpts.completedSubPhases).toEqual([])
 
-    const secondOpts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as CoderOptions
+    const secondOpts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as WorkerOptions
     expect(secondOpts.completedSubPhases).toHaveLength(1)
     expect(secondOpts.completedSubPhases![0]).toBe('Implementation complete')
   })
@@ -427,15 +427,15 @@ describe('runPhase', () => {
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
-    deps.coderExecute = vi.fn()
-      .mockResolvedValueOnce(makeCoderError({ message: 'Sub-phase A fail' }))
-      .mockResolvedValueOnce(makeCoderSuccess({ message: 'Sub-phase A done' }))
-      .mockResolvedValueOnce(makeCoderError({ message: 'Sub-phase B fail' }))
-      .mockResolvedValueOnce(makeCoderSuccess({ message: 'Sub-phase B done' }))
+    deps.workerExecute = vi.fn()
+      .mockResolvedValueOnce(makeWorkerError({ message: 'Sub-phase A fail' }))
+      .mockResolvedValueOnce(makeWorkerSuccess({ message: 'Sub-phase A done' }))
+      .mockResolvedValueOnce(makeWorkerError({ message: 'Sub-phase B fail' }))
+      .mockResolvedValueOnce(makeWorkerSuccess({ message: 'Sub-phase B done' }))
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(4)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(4)
     const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
     const escalationCall = askInputCalls.find((c: string[]) => c[0].includes('failed'))
     expect(escalationCall).toBeUndefined()
@@ -457,8 +457,8 @@ describe('runPhase', () => {
     expect(secondReviewPrompt).toContain('Previously Completed Sub-phases')
   })
 
-  // J17: Review always runs — even on Coder success
-  it('always runs review after Coder execution', async () => {
+  // J17: Review always runs — even on Worker success
+  it('always runs review after Worker execution', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
@@ -545,7 +545,7 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(1)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(1)
     // Only 1 Director call: complete (no review)
     expect(mockBackend.invoke).toHaveBeenCalledTimes(1)
     expect(deps.writePhaseCompletion).toHaveBeenCalled()
@@ -579,18 +579,18 @@ describe('runPhase', () => {
     expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
   })
 
-  // RV4: Without reviews, Coder runs exactly once (no retry loop)
-  it('without reviews, Coder runs exactly once per phase', async () => {
+  // RV4: Without reviews, Worker runs exactly once (no retry loop)
+  it('without reviews, Worker runs exactly once per phase', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'Phase done.' },
     )
     const deps = createHappyPathDeps()
-    deps.coderExecute = vi.fn().mockResolvedValueOnce(makeCoderError())
+    deps.workerExecute = vi.fn().mockResolvedValueOnce(makeWorkerError())
     const config = { ...TEST_CONFIG, withReviews: false }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(1)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(1)
   })
 
   // RV5: Review tools exclude Bash when withBashReviews is false
@@ -637,18 +637,18 @@ describe('runPhase', () => {
     expect(reviewOpts.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash'])
   })
 
-  // DO1: Director-only mode does NOT call coderExecute
-  it('does not call coderExecute when withCoder is false', async () => {
+  // DO1: Director-only mode does NOT call workerExecute
+  it('does not call workerExecute when withWorker is false', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'Phase executed and complete.' },
       { action: 'done', message: 'Summary.' },
     )
     const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withCoder: false }
+    const config = { ...TEST_CONFIG, withWorker: false }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    expect(deps.coderExecute).not.toHaveBeenCalled()
+    expect(deps.workerExecute).not.toHaveBeenCalled()
   })
 
   // DO2: Director gets full tools in director-only mode
@@ -658,7 +658,7 @@ describe('runPhase', () => {
       { action: 'done', message: 'Summary.' },
     )
     const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withCoder: false }
+    const config = { ...TEST_CONFIG, withWorker: false }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
@@ -673,14 +673,14 @@ describe('runPhase', () => {
       { action: 'done', message: 'Summary.' },
     )
     const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withCoder: false }
+    const config = { ...TEST_CONFIG, withWorker: false }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
     const execPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt
     expect(execPrompt).toContain('Phase 1')
     expect(execPrompt).toContain('Setup')
-    expect(execPrompt).not.toContain('Coder Report')
+    expect(execPrompt).not.toContain('Worker Report')
   })
 
   // DO4: No review step in director-only mode (2 calls: execute + complete)
@@ -690,7 +690,7 @@ describe('runPhase', () => {
       { action: 'done', message: 'Summary.' },
     )
     const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withCoder: false }
+    const config = { ...TEST_CONFIG, withWorker: false }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
@@ -704,15 +704,15 @@ describe('runPhase', () => {
       { action: 'done', message: 'Built the scaffold.' },
     )
     const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withCoder: false }
+    const config = { ...TEST_CONFIG, withWorker: false }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
     expect(deps.writePhaseCompletion).toHaveBeenCalledWith('plan.md', 1, 'Built the scaffold.')
   })
 
-  // DO6: withCoder undefined (legacy) uses Coder
-  it('uses Coder when withCoder is undefined (legacy)', async () => {
+  // DO6: withWorker undefined (legacy) uses Worker
+  it('uses Worker when withWorker is undefined (legacy)', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Phase done.' },
@@ -721,17 +721,17 @@ describe('runPhase', () => {
 
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
-    expect(deps.coderExecute).toHaveBeenCalledTimes(1)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(1)
   })
 
   // DO7: Director-only uses director model for execution
-  it('uses director model (not coder model) in director-only mode', async () => {
+  it('uses director model (not worker model) in director-only mode', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'Done.' },
       { action: 'done', message: 'Summary.' },
     )
     const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withCoder: false }
+    const config = { ...TEST_CONFIG, withWorker: false }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
@@ -746,7 +746,7 @@ describe('runPhase', () => {
       { action: 'done', message: 'Summary.' },
     )
     const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withCoder: false }
+    const config = { ...TEST_CONFIG, withWorker: false }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
@@ -1191,18 +1191,18 @@ describe('executeDirector', () => {
     expect(invocation.model).toBe('claude-haiku-4-5')
   })
 
-  // MO3: buildCoderOptions uses config.coderModel override
-  it('passes coderModel from config to Coder', async () => {
+  // MO3: buildWorkerOptions uses config.workerModel override
+  it('passes workerModel from config to Worker', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'All verified.' },
       { action: 'done', message: 'Done.' },
     )
     const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, coderModel: 'sonnet' }
+    const config = { ...TEST_CONFIG, workerModel: 'sonnet' }
 
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
-    const opts = (deps.coderExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as CoderOptions
+    const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
     expect(opts.model).toBe('claude-sonnet-4-6')
   })
 })

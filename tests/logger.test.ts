@@ -55,7 +55,7 @@ describe('createSessionLogger', () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const logger = createSessionLogger()
 
-    logger.log('Coder', 'Working')
+    logger.log('Worker', 'Working')
 
     const writtenLine = vi.mocked(fs.appendFileSync).mock.calls[0][1] as string
     expect(writtenLine).toMatch(/^\[\d{4}-\d{2}-\d{2}T/)
@@ -66,7 +66,7 @@ describe('createSessionLogger', () => {
     delete process.env.VERBOSE_LOGGING
     const logger = createSessionLogger()
 
-    logger.logVerbose('Coder', 'Full prompt here')
+    logger.logVerbose('Worker', 'Full prompt here')
 
     expect(fs.appendFileSync).not.toHaveBeenCalled()
   })
@@ -75,11 +75,11 @@ describe('createSessionLogger', () => {
     process.env.VERBOSE_LOGGING = 'true'
     const logger = createSessionLogger()
 
-    logger.logVerbose('Coder', 'Full prompt here')
+    logger.logVerbose('Worker', 'Full prompt here')
 
     expect(fs.appendFileSync).toHaveBeenCalledWith(
       expect.stringMatching(/\.log$/),
-      expect.stringContaining('[VERBOSE] Coder: Full prompt here'),
+      expect.stringContaining('[VERBOSE] Worker: Full prompt here'),
       'utf-8'
     )
   })
@@ -89,7 +89,7 @@ describe('createSessionLogger', () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     const logger = createSessionLogger()
 
-    logger.logVerbose('Coder', 'Verbose data')
+    logger.logVerbose('Worker', 'Verbose data')
 
     expect(consoleSpy).not.toHaveBeenCalled()
     consoleSpy.mockRestore()

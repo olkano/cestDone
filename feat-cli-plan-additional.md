@@ -21,11 +21,11 @@ Current delivery target:
 Must remain supported for Claude runs:
 
 1. Director model configurable independently
-2. Coder model configurable independently
+2. Worker model configurable independently
 
 Examples that must work:
 
-1. `--director-model opus --coder-model sonnet`
+1. `--director-model opus --worker-model sonnet`
 2. full model IDs also accepted
 
 Model resolution for Claude backend:
@@ -36,7 +36,7 @@ Model resolution for Claude backend:
 ## 2.2 Session behavior
 
 1. Director keeps continuous session across planning + execution
-2. Coder uses fresh session per phase
+2. Worker uses fresh session per phase
 
 For `claude-cli` specifically:
 
@@ -89,7 +89,7 @@ interface AgentBackend {
 
 `BackendTurnInput` must include:
 
-1. role (`director` or `coder`)
+1. role (`director` or `worker`)
 2. step
 3. prompt
 4. system prompt text
@@ -128,7 +128,7 @@ CLI flags:
 
 1. `--agent-backend <anthropic-sdk|claude-cli>`
 2. `--claude-cli-path <path>`
-3. existing `--director-model` and `--coder-model` unchanged
+3. existing `--director-model` and `--worker-model` unchanged
 
 Precedence:
 
@@ -187,8 +187,8 @@ Retry transient CLI failures with exponential backoff:
 ## Iteration 2: backend wiring + model guarantees
 
 1. add shared `agentBackend` selection
-2. preserve independent `directorModel` and `coderModel` handling
-3. validate `--director-model opus --coder-model sonnet` path
+2. preserve independent `directorModel` and `workerModel` handling
+3. validate `--director-model opus --worker-model sonnet` path
 
 ## Iteration 3: Claude CLI backend
 
@@ -206,8 +206,8 @@ Retry transient CLI failures with exponential backoff:
 ## 8. Test Checklist (Now)
 
 1. Director flow works end-to-end with `claude-cli`
-2. Coder flow works end-to-end with `claude-cli`
-3. model split works (`opus` director, `sonnet` coder)
+2. Worker flow works end-to-end with `claude-cli`
+3. model split works (`opus` director, `sonnet` worker)
 4. malformed JSON from model triggers repair path
 5. resume continuity works across multiple Director turns
 6. tool restrictions by step are correctly enforced in command args
@@ -230,7 +230,7 @@ Deferred until Claude-first rollout is stable.
 Future phase scope:
 
 1. add `codex-cli` backend implementation
-2. move backend selection from shared (`agentBackend`) to per-role (`directorBackend` / `coderBackend`) if needed
+2. move backend selection from shared (`agentBackend`) to per-role (`directorBackend` / `workerBackend`) if needed
 3. implement `thread_id` resume guard (invalid resume can silently start new thread)
 4. parse structured results via `--output-schema` + `-o` file
 5. apply platform sandbox policy (Windows write path via `danger-full-access`)

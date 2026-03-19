@@ -8,7 +8,7 @@ cestDone is an AI-orchestrated task runner. The user writes a free-form spec (a 
 
 **Single-agent (Director only):** The Director plans the task, then executes each phase itself. Suited for non-coding work: browsing the web, researching topics, writing content, monitoring Reddit, summarizing documents. Cheap and fast.
 
-**Two-agent (Director + Coder):** The Director plans and optionally reviews; a separate Coder agent executes each phase. Suited for software development. The Coder gets full edit/bash tools; the Director acts as a senior engineer reviewing the output. More expensive, higher quality for coding.
+**Two-agent (Director + Worker):** The Director plans and optionally reviews; a separate Worker agent executes each phase. Suited for software development. The Worker gets full edit/bash tools; the Director acts as a senior engineer reviewing the output. More expensive, higher quality for coding.
 
 ### Architecture (relevant to understanding parameter impact)
 
@@ -16,11 +16,11 @@ cestDone is an AI-orchestrated task runner. The user writes a free-form spec (a 
 
 **Phase execution** (per phase in `.plan.md`):
 - Director-only mode: Director executes the phase directly
-- Two-agent mode: Coder executes → optionally Director reviews → Director marks complete
+- Two-agent mode: Worker executes → optionally Director reviews → Director marks complete
 
-**Session continuity:** The Director maintains a single continuous conversation across all planning and execution steps (via `resume: sessionId`). The Coder starts fresh for each phase — no cross-phase context pollution.
+**Session continuity:** The Director maintains a single continuous conversation across all planning and execution steps (via `resume: sessionId`). The Worker starts fresh for each phase — no cross-phase context pollution.
 
-**Structured output:** Both agents produce schema-validated JSON responses. Director returns `{ action, message, questions? }`. Coder returns `{ status, summary, filesChanged?, testsRun?, issues? }`. This is enforced by the Agent SDK's `outputFormat: json_schema` — not a soft instruction.
+**Structured output:** Both agents produce schema-validated JSON responses. Director returns `{ action, message, questions? }`. Worker returns `{ status, summary, filesChanged?, testsRun?, issues? }`. This is enforced by the Agent SDK's `outputFormat: json_schema` — not a soft instruction.
 
 **Tools:** The Agent SDK's `tools: string[]` parameter restricts what tools the model can see and use. This is a hard constraint, not an instruction the model can ignore.
 
@@ -32,8 +32,8 @@ cestDone is an AI-orchestrated task runner. The user writes a free-form spec (a 
 | V2 | Haiku+Haiku, optimized | $3.13 | 24 min | 6.5/10 |
 
 **Where money goes (V2 breakdown):**
-- Coder execution: $1.65 (53%) — the actual coding work
-- Director reviews: $0.84 (27%) — reviewing Coder output after each phase
+- Worker execution: $1.65 (53%) — the actual coding work
+- Director reviews: $0.84 (27%) — reviewing Worker output after each phase
 - Director completions: $0.38 (12%) — writing phase summaries
 - Director planning: $0.07 (2%) — analyzing spec, clarifying, creating plan
 - Other Director: $0.19 (6%)
@@ -84,38 +84,38 @@ The cost estimates are relative to V2 Haiku baseline ($1.48 Director cost). Sonn
 
 ---
 
-### `--coder-model <model>`
+### `--worker-model <model>`
 
 **Values:** `haiku`, `sonnet`, `opus`
 **Default:** `haiku`
-**Env var fallback:** `cestDone_CODER_MODEL`
-**Relevant only with:** `--with-coder`
+**Env var fallback:** `cestDone_WORKER_MODEL`
+**Relevant only with:** `--with-worker`
 
-The model used by the Coder agent for phase execution.
+The model used by the Worker agent for phase execution.
 
 **Cost tradeoffs:**
 
-| Model | Coder cost est. (per run) | Output quality |
+| Model | Worker cost est. (per run) | Output quality |
 |-------|--------------------------|---------------|
 | **haiku (default)** | ~$1.65 | Good — follows house rules, functional code, smaller scope |
 | sonnet | ~$6.00 | Better architecture, larger output, more thorough |
 | opus | ~$25.00 | Not worth it for routine coding |
 
-**Why haiku is the default Coder:** V2 showed Haiku as Coder follows house rules well, produces functional code, and is 2.5× faster than Sonnet. It outputs less code (2,258 vs 7,216 lines in V1) but this is often appropriate. Use Sonnet Coder when the spec requires complex architecture or multi-file coordination.
+**Why haiku is the default Worker:** V2 showed Haiku as Worker follows house rules well, produces functional code, and is 2.5× faster than Sonnet. It outputs less code (2,258 vs 7,216 lines in V1) but this is often appropriate. Use Sonnet Worker when the spec requires complex architecture or multi-file coordination.
 
 ---
 
-### `--with-coder`
+### `--with-worker`
 
 **Default:** off (Director-only mode)
 
-Enables the two-agent architecture: Director plans, a separate Coder agent executes each phase, and (if `--with-reviews` is also set) Director reviews.
+Enables the two-agent architecture: Director plans, a separate Worker agent executes each phase, and (if `--with-reviews` is also set) Director reviews.
 
 **Without this flag:** Director executes phases itself. It gets full tools (Read, Glob, Grep, Write, Edit, Bash, WebFetch) per phase. This is the natural mode for non-coding tasks: researching, browsing, writing, summarizing.
 
-**With this flag:** Coder gets full coding tools (Read, Write, Edit, MultiEdit, Bash, Glob, Grep). Director remains read-only during execution (Read, Glob, Grep only). Separation of concerns: Director thinks, Coder acts.
+**With this flag:** Worker gets full coding tools (Read, Write, Edit, MultiEdit, Bash, Glob, Grep). Director remains read-only during execution (Read, Glob, Grep only). Separation of concerns: Director thinks, Worker acts.
 
-**Cost impact:** Adds ~$1.65 Coder cost per run (Haiku) on top of Director cost. Worthwhile for multi-phase software development. Not worthwhile for simple or non-coding tasks.
+**Cost impact:** Adds ~$1.65 Worker cost per run (Haiku) on top of Director cost. Worthwhile for multi-phase software development. Not worthwhile for simple or non-coding tasks.
 
 **When to use:** Any coding task spanning multiple files, tests, or build steps. Not needed for research, browsing, writing, or single-pass transformations.
 
@@ -124,17 +124,17 @@ Enables the two-agent architecture: Director plans, a separate Coder agent execu
 ### `--with-reviews`
 
 **Default:** off
-**Requires:** `--with-coder`
+**Requires:** `--with-worker`
 
-After each Coder phase completes, the Director evaluates the work using read-only tools (Read, Glob, Grep) and decides: `done` (phase accepted), `continue` (Coder needs to do more work), or `fix` (Coder made mistakes, retry).
+After each Worker phase completes, the Director evaluates the work using read-only tools (Read, Glob, Grep) and decides: `done` (phase accepted), `continue` (Worker needs to do more work), or `fix` (Worker made mistakes, retry).
 
-**What read-only review actually does:** Director reads the files Coder changed, reads Coder's self-report (which includes test output, issues found, files modified), and searches the codebase for problems. It cannot run anything itself — but this is often enough. In V2, the `https:https` ternary bug was caught by Director reading the code, not by running it.
+**What read-only review actually does:** Director reads the files Worker changed, reads Worker's self-report (which includes test output, issues found, files modified), and searches the codebase for problems. It cannot run anything itself — but this is often enough. In V2, the `https:https` ternary bug was caught by Director reading the code, not by running it.
 
 **Why no Bash by default:** V2 showed that when Director had Bash available, Haiku re-ran tests in every review (15 unnecessary runs) despite explicit "do NOT re-run" instructions. Removing Bash is a hard tool constraint, not a soft instruction the model can override. Read-only reviews are more predictable and sufficient for most cases.
 
 **Cost impact:** Reviews cost ~$0.84 per run (27% of V2 total).
 
-**Quality impact:** Without this flag, Director trusts the Coder's self-reported status entirely. The Coder's self-report can be wrong — V2 caught a real bug that Coder missed.
+**Quality impact:** Without this flag, Director trusts the Worker's self-reported status entirely. The Worker's self-report can be wrong — V2 caught a real bug that Worker missed.
 
 **When to use:** Any run where correctness matters. Skip for prototyping or when you plan to manually review the output yourself.
 
@@ -144,7 +144,7 @@ After each Coder phase completes, the Director evaluates the work using read-onl
 
 **Default:** off
 **Implies:** `--with-reviews` automatically — no need to pass both
-**Requires:** `--with-coder`
+**Requires:** `--with-worker`
 
 Upgrades reviews to include Bash alongside the read-only tools. Director can run tests, start servers, check runtime behavior, verify ports — not just read files.
 
@@ -179,9 +179,9 @@ Pauses after the plan is created and displays the `.plan.md` to the user. Waits 
 | Flags | Mode | What runs |
 |-------|------|-----------|
 | *(none)* | Director only | Plan → Director executes each phase |
-| `--with-coder` | Two-agent | Plan → Coder executes, Director marks complete |
-| `--with-coder --with-reviews` | Two-agent + QA | Plan → Coder executes → Director reviews (read-only) |
-| `--with-coder --with-bash-reviews` | Two-agent + runtime QA | Plan → Coder executes → Director reviews (with Bash) |
+| `--with-worker` | Two-agent | Plan → Worker executes, Director marks complete |
+| `--with-worker --with-reviews` | Two-agent + QA | Plan → Worker executes → Director reviews (read-only) |
+| `--with-worker --with-bash-reviews` | Two-agent + runtime QA | Plan → Worker executes → Director reviews (with Bash) |
 | `--with-human-validation` | Any mode + pause | Plan created → human approves → execute |
 
 Any combination of the above is valid. `--with-bash-reviews` includes `--with-reviews` automatically.
@@ -192,8 +192,8 @@ Any combination of the above is valid. `--with-bash-reviews` includes `--with-re
 
 The following flags are designed above but not yet implemented in the codebase:
 
-- `--director-model` / `--coder-model` — currently set via env vars only (`cestDone_DIRECTOR_MODEL`, `cestDone_CODER_MODEL`)
-- `--with-coder` — two-agent mode is currently the only mode; Director-only execution does not exist yet
+- `--director-model` / `--worker-model` — currently set via env vars only (`cestDone_DIRECTOR_MODEL`, `cestDone_WORKER_MODEL`)
+- `--with-worker` — two-agent mode is currently the only mode; Director-only execution does not exist yet
 - `--with-reviews` — reviews currently always run; making them opt-in requires a flag to be threaded through `runPhase()`
 - `--with-bash-reviews` — Bash is currently always included in Director's Review step; read-only should become the default
 - `--with-human-validation` — `askApproval()` exists in `DirectorDeps` but plan approval auto-proceeds based on Director's `approve` action

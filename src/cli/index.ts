@@ -9,7 +9,7 @@ import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
 import { createPlanFile, updatePhaseStatus, writePhaseCompletion } from '../shared/spec-writer.js'
 import { runPlanningFlow, runPhase, type DirectorDeps } from '../director/director.js'
 import { askApproval, askInput, ensureTTY } from './prompt.js'
-import { executeCoder } from '../coder/coder.js'
+import { executeWorker } from '../worker/worker.js'
 import { ensureGitRepo } from '../shared/git.js'
 import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
 import { CostTracker, formatFinalSummary } from '../shared/cost-tracker.js'
@@ -21,16 +21,16 @@ export interface RunOptions {
   target?: string
   houseRules?: string
   directorModel?: string
-  coderModel?: string
+  workerModel?: string
   directorMaxTurns?: string
   maxTurns?: string
-  withCoder?: boolean
+  withWorker?: boolean
   withReviews?: boolean
   withBashReviews?: boolean
   withHumanValidation?: boolean
   backend?: string
   directorBackend?: string
-  coderBackend?: string
+  workerBackend?: string
   claudeCliPath?: string
   nonInteractive?: boolean
 }
@@ -38,29 +38,29 @@ export interface RunOptions {
 export interface ResumeOptions {
   target?: string
   directorModel?: string
-  coderModel?: string
+  workerModel?: string
   directorMaxTurns?: string
   maxTurns?: string
-  withCoder?: boolean
+  withWorker?: boolean
   withReviews?: boolean
   withBashReviews?: boolean
   withHumanValidation?: boolean
   backend?: string
   directorBackend?: string
-  coderBackend?: string
+  workerBackend?: string
   claudeCliPath?: string
   nonInteractive?: boolean
 }
 
 function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void {
   if (options?.directorModel) config.directorModel = options.directorModel
-  if (options?.coderModel) config.coderModel = options.coderModel
+  if (options?.workerModel) config.workerModel = options.workerModel
   if (options?.directorMaxTurns) config.directorMaxTurns = parseInt(options.directorMaxTurns, 10)
   if (options?.maxTurns) config.maxTurns = parseInt(options.maxTurns, 10)
 
   // Only override booleans when CLI flag was explicitly passed
-  if (options?.withCoder !== undefined) config.withCoder = options.withCoder
-  else config.withCoder = config.withCoder ?? DEFAULTS.withCoder
+  if (options?.withWorker !== undefined) config.withWorker = options.withWorker
+  else config.withWorker = config.withWorker ?? DEFAULTS.withWorker
 
   if (options?.withReviews !== undefined) config.withReviews = options.withReviews
   else config.withReviews = config.withReviews ?? DEFAULTS.withReviews
@@ -74,9 +74,9 @@ function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void 
   // --with-bash-reviews implies --with-reviews
   if (config.withBashReviews) config.withReviews = true
 
-  // --with-reviews without --with-coder is invalid
-  if (config.withReviews && !config.withCoder) {
-    console.warn('Warning: --with-reviews requires --with-coder. Reviews will be ignored.')
+  // --with-reviews without --with-worker is invalid
+  if (config.withReviews && !config.withWorker) {
+    console.warn('Warning: --with-reviews requires --with-worker. Reviews will be ignored.')
     config.withReviews = false
     config.withBashReviews = false
   }
@@ -84,10 +84,10 @@ function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void 
   // Backend flags
   if (options && 'backend' in options && options.backend) {
     config.directorBackend = options.backend as BackendType
-    config.coderBackend = options.backend as BackendType
+    config.workerBackend = options.backend as BackendType
   }
   if (options?.directorBackend) config.directorBackend = options.directorBackend as BackendType
-  if (options?.coderBackend) config.coderBackend = options.coderBackend as BackendType
+  if (options?.workerBackend) config.workerBackend = options.workerBackend as BackendType
   if (options && 'claudeCliPath' in options && options.claudeCliPath) {
     config.claudeCliPath = options.claudeCliPath
   }
@@ -230,7 +230,7 @@ function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Co
     createPlanFile: (p, c) => createPlanFile(p, c),
     updatePhaseStatus: (fp, pn, st) => updatePhaseStatus(fp, pn, st),
     writePhaseCompletion: (fp, pn, ds) => writePhaseCompletion(fp, pn, ds),
-    coderExecute: executeCoder,
+    workerExecute: executeWorker,
     display: (text: string) => console.log(text),
     logger,
     costTracker: costTracker ?? new CostTracker(),
@@ -238,8 +238,8 @@ function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Co
       config?.directorBackend ?? DEFAULTS.backend,
       effectiveConfig
     ),
-    coderBackend: createBackend(
-      config?.coderBackend ?? DEFAULTS.backend,
+    workerBackend: createBackend(
+      config?.workerBackend ?? DEFAULTS.backend,
       effectiveConfig
     ),
   }
@@ -291,19 +291,19 @@ function addCommonOptions(cmd: Command): Command {
   return cmd
     .option('--target <path>', `Target repository path (default: "${DEFAULTS.targetRepoPath}")`)
     .option('--director-model <model>', `Director model: haiku | sonnet | opus (default: "${DEFAULTS.directorModel}")`)
-    .option('--coder-model <model>', `Coder model: haiku | sonnet | opus (default: "${DEFAULTS.coderModel}")`)
+    .option('--worker-model <model>', `Worker model: haiku | sonnet | opus (default: "${DEFAULTS.workerModel}")`)
     .option('--director-max-turns <n>', `Max turns for Director steps (default: ${DEFAULTS.directorMaxTurnsDefault})`)
-    .option('--max-turns <n>', `Max turns for Coder (default: ${DEFAULTS.maxTurns})`)
-    .option('--with-coder', `Two-agent mode: Director plans, Coder implements (default: ${DEFAULTS.withCoder})`)
-    .option('--no-with-coder', 'Disable two-agent mode (director-only)')
-    .option('--with-reviews', `Director reviews after Coder execution (default: ${DEFAULTS.withReviews})`)
+    .option('--max-turns <n>', `Max turns for Worker (default: ${DEFAULTS.maxTurns})`)
+    .option('--with-worker', `Two-agent mode: Director plans, Worker implements (default: ${DEFAULTS.withWorker})`)
+    .option('--no-with-worker', 'Disable two-agent mode (director-only)')
+    .option('--with-reviews', `Director reviews after Worker execution (default: ${DEFAULTS.withReviews})`)
     .option('--no-with-reviews', 'Disable Director reviews')
     .option('--with-bash-reviews', `Allow Bash in reviews, implies --with-reviews (default: ${DEFAULTS.withBashReviews})`)
     .option('--no-with-bash-reviews', 'Disable Bash in reviews')
     .option('--with-human-validation', `Require human approval of plan (default: ${DEFAULTS.withHumanValidation})`)
     .option('--backend <type>', `Backend for both agents: agent-sdk (API billing) | claude-cli (subscription) (default: "${DEFAULTS.backend}")`)
     .option('--director-backend <type>', 'Override Director backend: agent-sdk | claude-cli')
-    .option('--coder-backend <type>', 'Override Coder backend: agent-sdk | claude-cli')
+    .option('--worker-backend <type>', 'Override Worker backend: agent-sdk | claude-cli')
     .option('--claude-cli-path <path>', `Path to claude binary (default: "${DEFAULTS.claudeCliPath}")`)
     .option('--non-interactive', `Run without TTY, auto-approve plans (default: ${DEFAULTS.nonInteractive})`)
 }
@@ -333,21 +333,21 @@ if (isCliEntryPoint()) {
     .requiredOption('--spec <path>', 'Path to spec file (required)')
     .option('--house-rules <path>', 'Path to house rules file')
   addCommonOptions(runCmd)
-    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; coderModel?: string; directorMaxTurns?: string; maxTurns?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
+    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
       await handleRun(opts.spec, {
         target: opts.target,
         houseRules: opts.houseRules,
         directorModel: opts.directorModel,
-        coderModel: opts.coderModel,
+        workerModel: opts.workerModel,
         directorMaxTurns: opts.directorMaxTurns,
         maxTurns: opts.maxTurns,
-        withCoder: opts.withCoder,
+        withWorker: opts.withWorker,
         withReviews: opts.withReviews,
         withBashReviews: opts.withBashReviews,
         withHumanValidation: opts.withHumanValidation,
         backend: opts.backend,
         directorBackend: opts.directorBackend,
-        coderBackend: opts.coderBackend,
+        workerBackend: opts.workerBackend,
         claudeCliPath: opts.claudeCliPath,
         nonInteractive: opts.nonInteractive,
       })
@@ -357,20 +357,20 @@ if (isCliEntryPoint()) {
     .description('Resume execution from an existing .plan.md file')
     .requiredOption('--spec <path>', 'Path to spec file (required)')
   addCommonOptions(resumeCmd)
-    .action(async (opts: { spec: string; target?: string; directorModel?: string; coderModel?: string; directorMaxTurns?: string; maxTurns?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
+    .action(async (opts: { spec: string; target?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
       await handleResume(opts.spec, {
         target: opts.target,
         directorModel: opts.directorModel,
-        coderModel: opts.coderModel,
+        workerModel: opts.workerModel,
         directorMaxTurns: opts.directorMaxTurns,
         maxTurns: opts.maxTurns,
-        withCoder: opts.withCoder,
+        withWorker: opts.withWorker,
         withReviews: opts.withReviews,
         withBashReviews: opts.withBashReviews,
         withHumanValidation: opts.withHumanValidation,
         backend: opts.backend,
         directorBackend: opts.directorBackend,
-        coderBackend: opts.coderBackend,
+        workerBackend: opts.workerBackend,
         claudeCliPath: opts.claudeCliPath,
         nonInteractive: opts.nonInteractive,
       })
@@ -448,7 +448,7 @@ if (isCliEntryPoint()) {
     })
 
   program.command('send-email')
-    .description('Send an email (used by Coder agent via Bash)')
+    .description('Send an email (used by Worker agent via Bash)')
     .requiredOption('--to <address>', 'Recipient email address')
     .requiredOption('--subject <subject>', 'Email subject line')
     .requiredOption('--body <body>', 'Email body (plain text)')

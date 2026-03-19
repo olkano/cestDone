@@ -1,8 +1,8 @@
-// src/coder/coder-prompt.ts
+// src/worker/worker-prompt.ts
 import { WorkflowStep } from '../shared/types.js'
 import type { Phase } from '../shared/types.js'
 
-export interface CoderPromptInput {
+export interface WorkerPromptInput {
   instructions: string
   phase: Phase
   step: WorkflowStep
@@ -11,7 +11,7 @@ export interface CoderPromptInput {
 
 const READ_ONLY_STEPS = [WorkflowStep.Analyze]
 
-export function buildCoderPrompt(input: CoderPromptInput): string {
+export function buildWorkerPrompt(input: WorkerPromptInput): string {
   const parts: string[] = []
 
   parts.push(`## Phase ${input.phase.number}: ${input.phase.name}`)

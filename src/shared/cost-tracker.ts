@@ -21,26 +21,26 @@ function addSnapshots(a: UsageSnapshot, b: UsageSnapshot): UsageSnapshot {
 
 export class CostTracker {
   private directorTotal: UsageSnapshot = emptySnapshot()
-  private coderTotal: UsageSnapshot = emptySnapshot()
+  private workerTotal: UsageSnapshot = emptySnapshot()
 
   recordDirector(snapshot: UsageSnapshot): void {
     this.directorTotal = addSnapshots(this.directorTotal, snapshot)
   }
 
-  recordCoder(snapshot: UsageSnapshot): void {
-    this.coderTotal = addSnapshots(this.coderTotal, snapshot)
+  recordWorker(snapshot: UsageSnapshot): void {
+    this.workerTotal = addSnapshots(this.workerTotal, snapshot)
   }
 
   getDirectorTotal(): Readonly<UsageSnapshot> {
     return this.directorTotal
   }
 
-  getCoderTotal(): Readonly<UsageSnapshot> {
-    return this.coderTotal
+  getWorkerTotal(): Readonly<UsageSnapshot> {
+    return this.workerTotal
   }
 
   getGrandTotal(): Readonly<UsageSnapshot> {
-    return addSnapshots(this.directorTotal, this.coderTotal)
+    return addSnapshots(this.directorTotal, this.workerTotal)
   }
 }
 
@@ -55,9 +55,9 @@ export function formatUsage(label: string, snap: UsageSnapshot): string {
 
 export function formatTotals(tracker: CostTracker): string {
   const d = tracker.getDirectorTotal()
-  const c = tracker.getCoderTotal()
+  const c = tracker.getWorkerTotal()
   const g = tracker.getGrandTotal()
-  return `Totals — Director: $${d.costUsd.toFixed(2)} (in:${fmtTokens(d.inputTokens)} out:${fmtTokens(d.outputTokens)}) | Coder: $${c.costUsd.toFixed(2)} (in:${fmtTokens(c.inputTokens)} out:${fmtTokens(c.outputTokens)}) | Total: $${g.costUsd.toFixed(2)}`
+  return `Totals — Director: $${d.costUsd.toFixed(2)} (in:${fmtTokens(d.inputTokens)} out:${fmtTokens(d.outputTokens)}) | Worker: $${c.costUsd.toFixed(2)} (in:${fmtTokens(c.inputTokens)} out:${fmtTokens(c.outputTokens)}) | Total: $${g.costUsd.toFixed(2)}`
 }
 
 function formatDuration(ms: number): string {
@@ -71,13 +71,13 @@ function formatDuration(ms: number): string {
 
 export function formatFinalSummary(tracker: CostTracker, elapsedMs: number): string {
   const d = tracker.getDirectorTotal()
-  const c = tracker.getCoderTotal()
+  const c = tracker.getWorkerTotal()
   const g = tracker.getGrandTotal()
   return [
     '=== Final Summary ===',
     `Total time: ${formatDuration(elapsedMs)}`,
     `Director — $${d.costUsd.toFixed(2)} | tokens: ${fmtTokens(d.inputTokens)} in, ${fmtTokens(d.outputTokens)} out, ${fmtTokens(d.cacheReadInputTokens)} cache-read`,
-    `Coder    — $${c.costUsd.toFixed(2)} | tokens: ${fmtTokens(c.inputTokens)} in, ${fmtTokens(c.outputTokens)} out, ${fmtTokens(c.cacheReadInputTokens)} cache-read`,
+    `Worker    — $${c.costUsd.toFixed(2)} | tokens: ${fmtTokens(c.inputTokens)} in, ${fmtTokens(c.outputTokens)} out, ${fmtTokens(c.cacheReadInputTokens)} cache-read`,
     `Grand total: $${g.costUsd.toFixed(2)}`,
   ].join('\n')
 }

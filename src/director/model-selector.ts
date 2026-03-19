@@ -31,12 +31,12 @@ export function getDirectorModel(override?: string): string {
 }
 
 /**
- * Returns the model for Coder calls.
- * Priority: override param → CESTDONE_CODER_MODEL env var → default from DEFAULTS.
+ * Returns the model for Worker calls.
+ * Priority: override param → CESTDONE_WORKER_MODEL env var → default from DEFAULTS.
  */
-export function getCoderModel(override?: string): string {
+export function getWorkerModel(override?: string): string {
   if (override) return resolveModelAlias(override)
-  const env = process.env.CESTDONE_CODER_MODEL
+  const env = process.env.CESTDONE_WORKER_MODEL
   if (env) return resolveModelAlias(env)
-  return resolveModelAlias(DEFAULTS.coderModel)
+  return resolveModelAlias(DEFAULTS.workerModel)
 }

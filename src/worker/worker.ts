@@ -1,12 +1,12 @@
-// src/coder/coder.ts
+// src/worker/worker.ts
 import path from 'node:path'
 import { getTools } from './permissions.js'
-import { buildCoderPrompt } from './coder-prompt.js'
-import { parseCoderResult } from './result-parser.js'
-import type { CoderOptions, CoderResult } from '../shared/types.js'
+import { buildWorkerPrompt } from './worker-prompt.js'
+import { parseWorkerResult } from './result-parser.js'
+import type { WorkerOptions, WorkerResult } from '../shared/types.js'
 import { formatDuration } from '../shared/types.js'
 
-export const CODER_REPORT_SCHEMA = {
+export const WORKER_REPORT_SCHEMA = {
   type: 'object' as const,
   properties: {
     status: { type: 'string', enum: ['success', 'partial', 'failed'] },
@@ -25,20 +25,20 @@ export const CODER_REPORT_SCHEMA = {
   required: ['status', 'summary'],
 }
 
-export async function executeCoder(options: CoderOptions): Promise<CoderResult> {
+export async function executeWorker(options: WorkerOptions): Promise<WorkerResult> {
   const { logger, backend } = options
   const tools = getTools(options.step)
 
-  logger.log('Coder', `Call starting (step: ${options.step}, model: ${options.model}, phase: ${options.phase.number})`)
+  logger.log('Worker', `Call starting (step: ${options.step}, model: ${options.model}, phase: ${options.phase.number})`)
 
-  const prompt = buildCoderPrompt({
+  const prompt = buildWorkerPrompt({
     instructions: options.instructions,
     phase: options.phase,
     step: options.step,
     completedSubPhases: options.completedSubPhases,
   })
 
-  logger.logVerbose('Coder', `Full prompt:\n${prompt}`)
+  logger.logVerbose('Worker', `Full prompt:\n${prompt}`)
 
   let result
   try {
@@ -47,7 +47,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
       systemPrompt: options.houseRulesContent,
       model: options.model,
       tools,
-      outputSchema: CODER_REPORT_SCHEMA,
+      outputSchema: WORKER_REPORT_SCHEMA,
       cwd: path.resolve(options.targetRepoPath),
       maxTurns: options.maxTurns,
       maxBudgetUsd: options.maxBudgetUsd,
@@ -56,7 +56,7 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
     })
   } catch (err) {
     const errorMsg = (err as Error).message ?? String(err)
-    logger.log('Coder', `Backend error: ${errorMsg}`)
+    logger.log('Worker', `Backend error: ${errorMsg}`)
     return {
       status: 'failed',
       message: errorMsg,
@@ -68,13 +68,13 @@ export async function executeCoder(options: CoderOptions): Promise<CoderResult> 
     }
   }
 
-  logger.log('Coder', `Call completed (cost: $${(result.costUsd ?? 0).toFixed(2)}, turns: ${result.numTurns}, duration: ${formatDuration(result.durationMs)})`)
-  logger.log('Coder', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
+  logger.log('Worker', `Call completed (cost: $${(result.costUsd ?? 0).toFixed(2)}, turns: ${result.numTurns}, duration: ${formatDuration(result.durationMs)})`)
+  logger.log('Worker', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
 
-  const coderResult = parseCoderResult(result)
+  const workerResult = parseWorkerResult(result)
 
-  logger.log('Coder', `Result: ${coderResult.status} (cost: $${coderResult.cost.toFixed(2)}, turns: ${coderResult.numTurns})`)
-  logger.logVerbose('Coder', `Parsed report: ${JSON.stringify(coderResult.report, null, 2)}`)
+  logger.log('Worker', `Result: ${workerResult.status} (cost: $${workerResult.cost.toFixed(2)}, turns: ${workerResult.numTurns})`)
+  logger.logVerbose('Worker', `Parsed report: ${JSON.stringify(workerResult.report, null, 2)}`)
 
-  return coderResult
+  return workerResult
 }

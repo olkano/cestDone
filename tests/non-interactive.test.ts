@@ -9,7 +9,7 @@ vi.mock('../src/shared/plan-parser.js')
 vi.mock('../src/shared/spec-writer.js')
 vi.mock('../src/director/director.js')
 vi.mock('../src/cli/prompt.js')
-vi.mock('../src/coder/coder.js')
+vi.mock('../src/worker/worker.js')
 vi.mock('../src/shared/git.js')
 vi.mock('../src/shared/logger.js', () => ({
   createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' }),

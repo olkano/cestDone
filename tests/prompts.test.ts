@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildDirectorTools,
   buildClarifyPrompt,
-  buildInitialCoderInstructions,
+  buildInitialWorkerInstructions,
   buildReviewPrompt,
   buildCompletePrompt,
   buildPlanningSystemPrompt,
@@ -139,9 +139,9 @@ describe('buildClarifyPrompt', () => {
   })
 })
 
-describe('buildInitialCoderInstructions', () => {
+describe('buildInitialWorkerInstructions', () => {
   it('includes plan context and phase task', () => {
-    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[1], [])
+    const prompt = buildInitialWorkerInstructions(TEST_PLAN, TEST_PLAN.phases[1], [])
 
     expect(prompt).toContain('Dashboard Project')
     expect(prompt).toContain('Express, Cheerio, EJS')
@@ -150,7 +150,7 @@ describe('buildInitialCoderInstructions', () => {
 
   it('includes completed phases when present', () => {
     const completedPhases = [TEST_PLAN.phases[0]]
-    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[1], completedPhases)
+    const prompt = buildInitialWorkerInstructions(TEST_PLAN, TEST_PLAN.phases[1], completedPhases)
 
     expect(prompt).toContain('Previously Completed Phases')
     expect(prompt).toContain('Phase 1: Scraper')
@@ -158,13 +158,13 @@ describe('buildInitialCoderInstructions', () => {
   })
 
   it('omits completed phases section when none exist', () => {
-    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[0], [])
+    const prompt = buildInitialWorkerInstructions(TEST_PLAN, TEST_PLAN.phases[0], [])
 
     expect(prompt).not.toContain('Previously Completed Phases')
   })
 
   it('includes environment info when provided', () => {
-    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[1], [], TEST_ENV)
+    const prompt = buildInitialWorkerInstructions(TEST_PLAN, TEST_PLAN.phases[1], [], TEST_ENV)
 
     expect(prompt).toContain('## Environment')
     expect(prompt).toContain('OS: Linux')
@@ -172,7 +172,7 @@ describe('buildInitialCoderInstructions', () => {
   })
 
   it('includes non-interactive test and kill instructions', () => {
-    const prompt = buildInitialCoderInstructions(TEST_PLAN, TEST_PLAN.phases[0], [])
+    const prompt = buildInitialWorkerInstructions(TEST_PLAN, TEST_PLAN.phases[0], [])
 
     expect(prompt).toContain('non-interactive mode')
     expect(prompt).toContain('no watch mode')
@@ -181,7 +181,7 @@ describe('buildInitialCoderInstructions', () => {
 })
 
 describe('buildReviewPrompt', () => {
-  it('includes phase identity, spec, and coder report', () => {
+  it('includes phase identity, spec, and worker report', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
 
     expect(prompt).toContain('Phase 1')
@@ -190,7 +190,7 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('success')
   })
 
-  it('does NOT instruct Director to re-run tests (Coder already did)', () => {
+  it('does NOT instruct Director to re-run tests (Worker already did)', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
 
     expect(prompt).not.toContain('npm test')
@@ -258,7 +258,7 @@ describe('buildReviewPrompt', () => {
 
     expect(prompt).toContain('git add -A')
     expect(prompt).toContain('git commit')
-    expect(prompt).toContain('Do NOT commit if the Coder reported test failures')
+    expect(prompt).toContain('Do NOT commit if the Worker reported test failures')
   })
 })
 

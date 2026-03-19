@@ -1,6 +1,6 @@
 // tests/model-selector.test.ts
 import { describe, it, expect, afterEach } from 'vitest'
-import { getDirectorModel, getCoderModel, resolveModelAlias, SONNET, HAIKU, OPUS } from '../src/director/model-selector.js'
+import { getDirectorModel, getWorkerModel, resolveModelAlias, SONNET, HAIKU, OPUS } from '../src/director/model-selector.js'
 
 describe('resolveModelAlias', () => {
   // MA1
@@ -71,38 +71,38 @@ describe('getDirectorModel', () => {
   })
 })
 
-describe('getCoderModel', () => {
-  const orig = process.env.CESTDONE_CODER_MODEL
+describe('getWorkerModel', () => {
+  const orig = process.env.CESTDONE_WORKER_MODEL
 
   afterEach(() => {
     if (orig !== undefined) {
-      process.env.CESTDONE_CODER_MODEL = orig
+      process.env.CESTDONE_WORKER_MODEL = orig
     } else {
-      delete process.env.CESTDONE_CODER_MODEL
+      delete process.env.CESTDONE_WORKER_MODEL
     }
   })
 
   // MC1
   it('uses override when provided', () => {
-    process.env.CESTDONE_CODER_MODEL = SONNET
-    expect(getCoderModel('haiku')).toBe(HAIKU)
+    process.env.CESTDONE_WORKER_MODEL = SONNET
+    expect(getWorkerModel('haiku')).toBe(HAIKU)
   })
 
   // MC2
   it('falls back to env var when override is undefined', () => {
-    process.env.CESTDONE_CODER_MODEL = SONNET
-    expect(getCoderModel(undefined)).toBe(SONNET)
+    process.env.CESTDONE_WORKER_MODEL = SONNET
+    expect(getWorkerModel(undefined)).toBe(SONNET)
   })
 
   // MC3
   it('defaults to opus when no override and no env var', () => {
-    delete process.env.CESTDONE_CODER_MODEL
-    expect(getCoderModel(undefined)).toBe(OPUS)
+    delete process.env.CESTDONE_WORKER_MODEL
+    expect(getWorkerModel(undefined)).toBe(OPUS)
   })
 
   // MC4 (backward compat: no-arg call)
   it('returns env var value when called with no arguments', () => {
-    process.env.CESTDONE_CODER_MODEL = HAIKU
-    expect(getCoderModel()).toBe(HAIKU)
+    process.env.CESTDONE_WORKER_MODEL = HAIKU
+    expect(getWorkerModel()).toBe(HAIKU)
   })
 })

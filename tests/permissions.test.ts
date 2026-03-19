@@ -1,6 +1,6 @@
 // tests/permissions.test.ts
 import { describe, it, expect } from 'vitest'
-import { getTools } from '../src/coder/permissions.js'
+import { getTools } from '../src/worker/permissions.js'
 import { WorkflowStep } from '../src/shared/types.js'
 
 describe('getTools', () => {
@@ -11,7 +11,7 @@ describe('getTools', () => {
 
   // N2: Step 3 is Director-only (orchestrator writes spec directly)
   it('throws for CreatePlan step (Director-only)', () => {
-    expect(() => getTools(WorkflowStep.CreatePlan)).toThrow('no Coder call')
+    expect(() => getTools(WorkflowStep.CreatePlan)).toThrow('no Worker call')
   })
 
   // N3: Execute returns full auto-edit tools
@@ -23,14 +23,14 @@ describe('getTools', () => {
 
   // N4: Director-only steps throw
   it('throws for Clarify step (Director-only)', () => {
-    expect(() => getTools(WorkflowStep.Clarify)).toThrow('no Coder call')
+    expect(() => getTools(WorkflowStep.Clarify)).toThrow('no Worker call')
   })
 
   it('throws for Review step (Director-only)', () => {
-    expect(() => getTools(WorkflowStep.Review)).toThrow('no Coder call')
+    expect(() => getTools(WorkflowStep.Review)).toThrow('no Worker call')
   })
 
   it('throws for Complete step (Director-only)', () => {
-    expect(() => getTools(WorkflowStep.Complete)).toThrow('no Coder call')
+    expect(() => getTools(WorkflowStep.Complete)).toThrow('no Worker call')
   })
 })

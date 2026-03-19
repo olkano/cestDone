@@ -60,7 +60,7 @@ export function buildClarifyPrompt(questions: string[], answers: string[]): stri
   ].join('\n')
 }
 
-export function buildInitialCoderInstructions(plan: Plan, phase: Phase, completedPhases: Phase[], env?: EnvironmentInfo): string {
+export function buildInitialWorkerInstructions(plan: Plan, phase: Phase, completedPhases: Phase[], env?: EnvironmentInfo): string {
   const parts: string[] = [
     '## Project: ' + plan.title,
     '',
@@ -95,15 +95,15 @@ export function buildInitialCoderInstructions(plan: Plan, phase: Phase, complete
   return parts.join('\n')
 }
 
-export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, coderReport: string, completedSubPhases: string[] = []): string {
+export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, workerReport: string, completedSubPhases: string[] = []): string {
   const parts: string[] = [
     `## You are reviewing: Phase ${phaseNumber} — ${phaseName}`,
     '',
     '## Phase Spec',
     phaseSpec,
     '',
-    '## Coder Report',
-    coderReport,
+    '## Worker Report',
+    workerReport,
   ]
 
   if (completedSubPhases.length > 0) {
@@ -116,8 +116,8 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
   parts.push(
     '',
     '## Task',
-    'Review the Coder\'s work. The Coder already ran tests and type checks — do NOT re-run them.',
-    'Focus on what the Coder cannot self-verify: code quality, spec compliance, and integration.',
+    'Review the Worker\'s work. The Worker already ran tests and type checks — do NOT re-run them.',
+    'Focus on what the Worker cannot self-verify: code quality, spec compliance, and integration.',
     '',
     '### 1. Code Review (mandatory)',
     'Read the diff (`cestdone-diff.txt`) or changed files. Assess:',
@@ -134,7 +134,7 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     '- Verify the behavior works as specified',
     '- **IMPORTANT: Kill all servers and background processes when done**',
     '',
-    'Skip this step entirely if the Coder\'s test results already cover the functionality.',
+    'Skip this step entirely if the Worker\'s test results already cover the functionality.',
     '',
     '### 3. Requirements Check',
     'Compare delivered code against the phase spec. Flag anything missing or divergent.',
@@ -145,13 +145,13 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     'git add -A',
     'git commit -m "cestDone: <concise description of what was built>"',
     '```',
-    'Do NOT commit if the Coder reported test failures or the implementation is incomplete.',
+    'Do NOT commit if the Worker reported test failures or the implementation is incomplete.',
     '',
     '## Response Actions',
     `Your scope is ONLY Phase ${phaseNumber} (${phaseName}). Do NOT plan or include work for subsequent phases.`,
     '',
     'IMPORTANT: You MUST use one of these three actions ONLY — no other action is valid for a review:',
-    '- **fix**: Issues found. Do NOT commit. Return specific fix instructions for the Coder.',
+    '- **fix**: Issues found. Do NOT commit. Return specific fix instructions for the Worker.',
     '- **continue**: Current sub-phase correct and committed, but more sub-phases remain WITHIN THIS PHASE.',
     '  Do NOT use "continue" to advance to the next plan phase — that is handled automatically.',
     `- **done**: Phase ${phaseNumber} is complete — all deliverables verified and committed.`,
@@ -218,12 +218,12 @@ export function buildPlanningSystemPrompt(spec: FreeFormSpec, env?: EnvironmentI
     'Your role spans the full project lifecycle:',
     '1. Analyze specs and ask clarifying questions',
     '2. Create structured implementation plans',
-    '3. Oversee Coder execution of each phase',
+    '3. Oversee Worker execution of each phase',
     '4. Review code quality and verify functionality',
     '5. Track progress and provide completion summaries',
     '',
     'This is a continuous session — you retain full context from prior steps.',
-    'Do not re-read files you have already seen unless checking for changes made by the Coder.',
+    'Do not re-read files you have already seen unless checking for changes made by the Worker.',
   ]
 
   if (env) {
@@ -274,7 +274,7 @@ export function buildFreeFormAnalyzePrompt(spec: FreeFormSpec): string {
     '- Focus on functionality assumptions: if the spec says "authentication" but doesn\'t say how,',
     '  that\'s essential. If the spec says "use JWT", don\'t ask about JWT — it\'s already decided.',
     '- Do NOT ask about things you can infer from the codebase or house rules.',
-    '- Do NOT ask about implementation details the Coder can figure out (file structure, naming, etc.).',
+    '- Do NOT ask about implementation details the Worker can figure out (file structure, naming, etc.).',
     '',
     'If the spec + codebase + house rules leave no critical ambiguities, say so and proceed.',
     'Do NOT make any file changes.',
@@ -325,7 +325,7 @@ export function buildCreatePlanPrompt(spec: FreeFormSpec, clarifications: string
     '- Each phase should be a discrete, testable deliverable',
     '- Include only the relevant house rules in each phase\'s ### Applicable Rules',
     '- Number phases starting from 1',
-    '- Each phase spec should be self-contained enough for a Coder to work on independently',
+    '- Each phase spec should be self-contained enough for a Worker to work on independently',
     '',
     'IMPORTANT:',
     '- Return the plan directly in your message field as markdown text.',
