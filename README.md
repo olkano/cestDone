@@ -116,6 +116,7 @@ Commands:
   daemon [options]     Start daemon with schedules and triggers from .cestdonerc.json
   daemon status        Show daemon status
   daemon stop          Stop running daemon
+  send-email           Send an email (used by Coder agent via Bash)
 ```
 
 ### `run` options
@@ -430,6 +431,52 @@ WantedBy=multi-user.target
 | Poll command fails | Logged, skipped, keeps polling next interval |
 | Escalation needed | `NonInteractiveEscalationError` caught, job marked failed |
 | Daemon already running | Prints error with PID, exits |
+
+## Email Notifications
+
+cestDone can send emails via the `send-email` CLI command. This is designed for the Coder agent to invoke via Bash when a spec says "send an email when finished."
+
+### Configuration
+
+Set these environment variables (or add to `.env`):
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `MAIL_PROVIDER` | No | `smtp` | Mail provider (`smtp`) |
+| `MAIL_FROM` | Yes | — | Sender email address |
+| `SMTP_HOST` | Yes | — | SMTP server hostname |
+| `SMTP_PORT` | No | `587` | SMTP port (587 for STARTTLS, 465 for SSL) |
+| `SMTP_USER` | Yes | — | SMTP username |
+| `SMTP_PASS` | Yes | — | SMTP password or app password |
+| `SMTP_SECURE` | No | auto | `true` for SSL (port 465), `false` for STARTTLS |
+
+### Example: Zoho Mail
+
+```bash
+MAIL_FROM=you@yourdomain.com
+SMTP_HOST=smtp.zoho.com
+SMTP_PORT=587
+SMTP_USER=you@yourdomain.com
+SMTP_PASS=your-app-password
+```
+
+### Usage
+
+```bash
+cestdone send-email \
+  --to recipient@example.com \
+  --subject "Build complete" \
+  --body "All phases finished successfully."
+```
+
+In a spec file, you can instruct the Coder to send an email:
+
+```markdown
+When all tasks are complete, send a notification email:
+cestdone send-email --to team@example.com --subject "Deploy done" --body "All phases completed."
+```
+
+The provider abstraction supports adding new providers (SendGrid, SES, etc.) by implementing the `MailProvider` interface.
 
 ## Spec File Format
 

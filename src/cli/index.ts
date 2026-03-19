@@ -245,6 +245,27 @@ function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Co
   }
 }
 
+export interface SendEmailOptions {
+  to: string
+  subject: string
+  body: string
+  html?: string
+}
+
+export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
+  const { sendEmail } = await import('../email/index.js')
+  const result = await sendEmail({
+    to: opts.to,
+    subject: opts.subject,
+    body: opts.body,
+    html: opts.html,
+  })
+  if (!result.success) {
+    throw new Error(result.error ?? 'Failed to send email')
+  }
+  console.log(`Email sent successfully (messageId: ${result.messageId ?? 'N/A'})`)
+}
+
 function logFinalSummary(
   logger: SessionLogger,
   costTracker: CostTracker,
@@ -424,6 +445,16 @@ if (isCliEntryPoint()) {
         console.error(`Failed to stop daemon: ${(err as Error).message}`)
         process.exit(1)
       }
+    })
+
+  program.command('send-email')
+    .description('Send an email (used by Coder agent via Bash)')
+    .requiredOption('--to <address>', 'Recipient email address')
+    .requiredOption('--subject <subject>', 'Email subject line')
+    .requiredOption('--body <body>', 'Email body (plain text)')
+    .option('--html <html>', 'Optional HTML body')
+    .action(async (opts: { to: string; subject: string; body: string; html?: string }) => {
+      await handleSendEmail(opts)
     })
 
   program.parseAsync().catch((err: Error) => {
