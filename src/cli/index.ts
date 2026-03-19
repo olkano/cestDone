@@ -15,6 +15,7 @@ import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
 import { CostTracker, formatFinalSummary } from '../shared/cost-tracker.js'
 import type { FreeFormSpec, Config, BackendType } from '../shared/types.js'
 import { createBackend } from '../backends/index.js'
+import { NonInteractiveEscalationError } from '../daemon/errors.js'
 
 export interface RunOptions {
   target?: string
@@ -31,6 +32,7 @@ export interface RunOptions {
   directorBackend?: string
   coderBackend?: string
   claudeCliPath?: string
+  nonInteractive?: boolean
 }
 
 export interface ResumeOptions {
@@ -47,6 +49,7 @@ export interface ResumeOptions {
   directorBackend?: string
   coderBackend?: string
   claudeCliPath?: string
+  nonInteractive?: boolean
 }
 
 function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void {
@@ -88,13 +91,15 @@ function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void 
   if (options && 'claudeCliPath' in options && options.claudeCliPath) {
     config.claudeCliPath = options.claudeCliPath
   }
+
+  if (options?.nonInteractive !== undefined) config.nonInteractive = options.nonInteractive
+  else config.nonInteractive = config.nonInteractive ?? DEFAULTS.nonInteractive
 }
 
 export async function handleRun(
   specPath: string,
   options?: RunOptions
 ): Promise<void> {
-  ensureTTY()
   const startTime = Date.now()
   const specName = path.basename(specPath, path.extname(specPath))
   const logger = createSessionLogger({ specName })
@@ -103,6 +108,8 @@ export async function handleRun(
   const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
   config.targetRepoPath = targetDir
   applyFlags(config, options)
+
+  if (!config.nonInteractive) ensureTTY()
   ensureGitRepo(targetDir)
 
   const resolvedSpecPath = path.resolve(specPath)
@@ -126,12 +133,17 @@ export async function handleRun(
 
     const inProgress = plan.phases.find(p => p.status === 'in-progress')
     if (inProgress) {
-      const answer = await askInput(
-        `Phase ${inProgress.number} (${inProgress.name}) is in-progress. ` +
-        'Reset to pending or continue? (reset/continue): '
-      )
-      if (answer.trim().toLowerCase() === 'reset') {
-        updatePhaseStatus(planPath, inProgress.number, 'pending')
+      if (config.nonInteractive) {
+        // Auto-continue in non-interactive mode
+        deps.display(`Non-interactive: auto-continuing phase ${inProgress.number} (${inProgress.name})`)
+      } else {
+        const answer = await askInput(
+          `Phase ${inProgress.number} (${inProgress.name}) is in-progress. ` +
+          'Reset to pending or continue? (reset/continue): '
+        )
+        if (answer.trim().toLowerCase() === 'reset') {
+          updatePhaseStatus(planPath, inProgress.number, 'pending')
+        }
       }
     }
 
@@ -155,7 +167,6 @@ export async function handleResume(
   specPath: string,
   options?: ResumeOptions
 ): Promise<void> {
-  ensureTTY()
   const startTime = Date.now()
   const specName = path.basename(specPath, path.extname(specPath))
   const logger = createSessionLogger({ specName })
@@ -164,6 +175,8 @@ export async function handleResume(
   const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
   config.targetRepoPath = targetDir
   applyFlags(config, options)
+
+  if (!config.nonInteractive) ensureTTY()
   ensureGitRepo(targetDir)
 
   const resolvedSpecPath = path.resolve(specPath)
@@ -199,9 +212,21 @@ async function executeAllPhases(
 
 function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Config): DirectorDeps {
   const effectiveConfig = config ?? { targetRepoPath: DEFAULTS.targetRepoPath, maxTurns: DEFAULTS.maxTurns }
+  const ni = effectiveConfig.nonInteractive ?? false
+
   return {
-    askApproval,
-    askInput,
+    askApproval: ni
+      ? async () => ({ approved: true })
+      : askApproval,
+    askInput: ni
+      ? async (prompt: string) => {
+          // Clarification questions get empty answer (skip); escalations throw
+          if (prompt.includes('guidance') || prompt.includes('stuck')) {
+            throw new NonInteractiveEscalationError(prompt)
+          }
+          return ''
+        }
+      : askInput,
     createPlanFile: (p, c) => createPlanFile(p, c),
     updatePhaseStatus: (fp, pn, st) => updatePhaseStatus(fp, pn, st),
     writePhaseCompletion: (fp, pn, ds) => writePhaseCompletion(fp, pn, ds),
@@ -259,11 +284,23 @@ function addCommonOptions(cmd: Command): Command {
     .option('--director-backend <type>', 'Override Director backend: agent-sdk | claude-cli')
     .option('--coder-backend <type>', 'Override Coder backend: agent-sdk | claude-cli')
     .option('--claude-cli-path <path>', `Path to claude binary (default: "${DEFAULTS.claudeCliPath}")`)
+    .option('--non-interactive', `Run without TTY, auto-approve plans (default: ${DEFAULTS.nonInteractive})`)
 }
 
 // Commander setup — only when executed as CLI entry point
+// realpathSync resolves symlinks (e.g. npm link) so the guard works globally
 const __filename = fileURLToPath(import.meta.url)
-if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+function isCliEntryPoint(): boolean {
+  if (!process.argv[1] || process.env.VITEST) return false
+  const argv1 = path.resolve(process.argv[1])
+  if (argv1 === __filename) return true
+  try {
+    return fs.realpathSync(argv1) === fs.realpathSync(__filename)
+  } catch {
+    return false
+  }
+}
+if (isCliEntryPoint()) {
   const program = new Command()
   program
     .name('cestdone')
@@ -275,7 +312,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
     .requiredOption('--spec <path>', 'Path to spec file (required)')
     .option('--house-rules <path>', 'Path to house rules file')
   addCommonOptions(runCmd)
-    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; coderModel?: string; directorMaxTurns?: string; maxTurns?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string }) => {
+    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; coderModel?: string; directorMaxTurns?: string; maxTurns?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
       await handleRun(opts.spec, {
         target: opts.target,
         houseRules: opts.houseRules,
@@ -291,6 +328,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
         directorBackend: opts.directorBackend,
         coderBackend: opts.coderBackend,
         claudeCliPath: opts.claudeCliPath,
+        nonInteractive: opts.nonInteractive,
       })
     })
 
@@ -298,7 +336,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
     .description('Resume execution from an existing .plan.md file')
     .requiredOption('--spec <path>', 'Path to spec file (required)')
   addCommonOptions(resumeCmd)
-    .action(async (opts: { spec: string; target?: string; directorModel?: string; coderModel?: string; directorMaxTurns?: string; maxTurns?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string }) => {
+    .action(async (opts: { spec: string; target?: string; directorModel?: string; coderModel?: string; directorMaxTurns?: string; maxTurns?: string; withCoder?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; coderBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
       await handleResume(opts.spec, {
         target: opts.target,
         directorModel: opts.directorModel,
@@ -313,7 +351,79 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
         directorBackend: opts.directorBackend,
         coderBackend: opts.coderBackend,
         claudeCliPath: opts.claudeCliPath,
+        nonInteractive: opts.nonInteractive,
       })
+    })
+
+  const daemonCmd = program.command('daemon')
+    .description('Start daemon with schedules and triggers from .cestdonerc.json')
+    .option('--log-dir <path>', 'Log directory (default: .cestdone/daemon)')
+    .action(async (opts: { logDir?: string }) => {
+      const { createDaemon } = await import('../daemon/daemon.js')
+      const { createDaemonLogger } = await import('../daemon/daemon-logger.js')
+
+      const config = loadConfig()
+      if (!config.daemon) {
+        console.error('No "daemon" section found in .cestdonerc.json')
+        process.exit(1)
+      }
+
+      if (opts.logDir) config.daemon.logDir = opts.logDir
+      const logDir = config.daemon.logDir ?? '.cestdone/daemon'
+      const logger = createDaemonLogger(logDir)
+
+      const daemon = createDaemon({
+        executeRun: handleRun,
+        logger,
+        config,
+      })
+
+      // Graceful shutdown
+      const shutdown = async () => {
+        await daemon.stop()
+        process.exit(0)
+      }
+      process.on('SIGINT', shutdown)
+      process.on('SIGTERM', shutdown)
+
+      await daemon.start()
+    })
+
+  daemonCmd.command('status')
+    .description('Show daemon status')
+    .action(async () => {
+      const { readPidFile, isDaemonRunning } = await import('../daemon/pid.js')
+      const config = loadConfig()
+      const pidFile = config.daemon?.pidFile ?? '.cestdone/daemon.pid'
+      const pid = readPidFile(pidFile)
+
+      if (pid !== null && isDaemonRunning(pidFile)) {
+        console.log(`Daemon is running (PID: ${pid})`)
+      } else {
+        console.log('Daemon is not running')
+      }
+    })
+
+  daemonCmd.command('stop')
+    .description('Stop running daemon')
+    .action(async () => {
+      const { readPidFile, isDaemonRunning } = await import('../daemon/pid.js')
+      const config = loadConfig()
+      const pidFile = config.daemon?.pidFile ?? '.cestdone/daemon.pid'
+      const pid = readPidFile(pidFile)
+
+      if (pid === null || !isDaemonRunning(pidFile)) {
+        console.log('Daemon is not running')
+        process.exit(1)
+      }
+
+      try {
+        process.kill(pid, 'SIGTERM')
+        console.log(`Sent SIGTERM to daemon (PID: ${pid})`)
+      } catch (err) {
+        console.error(`Failed to stop daemon: ${(err as Error).message}`)
+        process.exit(1)
+      }
     })
 
   program.parseAsync().catch((err: Error) => {

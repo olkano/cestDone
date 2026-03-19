@@ -30,6 +30,8 @@ export interface Config {
   directorBackend?: BackendType
   coderBackend?: BackendType
   claudeCliPath?: string
+  nonInteractive?: boolean
+  daemon?: import('../daemon/types.js').DaemonConfig
 }
 
 

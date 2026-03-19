@@ -19,6 +19,7 @@ export const DEFAULTS = {
   withReviews: true,                     // Director reviews after Coder execution
   withBashReviews: true,                 // Allow Bash in Director reviews (implies withReviews)
   withHumanValidation: false,            // Require human approval of plan before execution
+  nonInteractive: false,                  // Run without TTY (auto-approve, skip clarifications)
 
   // -- Internal limits (not CLI-visible) --
   maxRejections: 3,            // Plan rejections before escalating to human
