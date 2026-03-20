@@ -212,15 +212,15 @@ export class ClaudeCliBackend implements Backend {
     const spawnArgs = [...prefix, ...args]
     const useShell = bin === this.cliPath && IS_WINDOWS // only if we couldn't resolve
 
-    // Log the command for debugging (truncate prompt + system prompt)
+    // Log the command for debugging (truncate system prompt)
     const debugArgs = spawnArgs.map((a, i) => {
       const prev = spawnArgs[i - 1]
-      if ((prev === '-p' || prev === '--append-system-prompt') && a.length > 100) {
+      if (prev === '--append-system-prompt' && a.length > 100) {
         return a.slice(0, 100) + '...'
       }
       return a
     })
-    params.logger.log('CLI', `Spawning: ${bin} ${debugArgs.join(' ')}`)
+    params.logger.log('CLI', `Spawning: ${bin} ${debugArgs.join(' ')} (prompt via stdin: ${params.prompt.length} chars)`)
 
     return new Promise<BackendResult>((resolve) => {
       const startTime = Date.now()
@@ -233,8 +233,8 @@ export class ClaudeCliBackend implements Backend {
 
       params.logger.log('CLI', `Process spawned (PID: ${child.pid ?? 'pending'})`)
 
-      // Close stdin immediately — CLI reads prompt from args, not stdin.
-      // Without this, the CLI may wait for stdin EOF before proceeding.
+      // Write prompt via stdin (avoids ENAMETOOLONG on large specs)
+      child.stdin.write(params.prompt)
       child.stdin.end()
 
       let stderrText = ''
@@ -353,7 +353,7 @@ export class ClaudeCliBackend implements Backend {
 
   private buildArgs(params: BackendInvocation): string[] {
     const args: string[] = [
-      '-p', params.prompt,
+      '-p',
       '--output-format', 'stream-json',
       '--verbose',
       '--dangerously-skip-permissions',

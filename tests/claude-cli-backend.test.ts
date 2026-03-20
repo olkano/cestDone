@@ -82,7 +82,7 @@ function createMockChild(stdout: string, stderr = '', exitCode = 0) {
   }
   child.stdout = new EventEmitter()
   child.stderr = new EventEmitter()
-  child.stdin = { end: vi.fn() }
+  child.stdin = { write: vi.fn(), end: vi.fn() }
 
   // Emit events on next tick so listeners are attached first
   process.nextTick(() => {
@@ -102,7 +102,7 @@ function createMockChildError() {
   }
   child.stdout = new EventEmitter()
   child.stderr = new EventEmitter()
-  child.stdin = { end: vi.fn() }
+  child.stdin = { write: vi.fn(), end: vi.fn() }
 
   process.nextTick(() => {
     const err = Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' })
@@ -319,11 +319,24 @@ describe('ClaudeCliBackend', () => {
       const { cmd, args } = getSpawnArgs()
       expect(cmd).toBe('claude')
       expect(args).toContain('-p')
-      expect(args).toContain('test prompt')
+      // Prompt is sent via stdin, not in args (avoids ENAMETOOLONG)
+      expect(args).not.toContain('test prompt')
       expect(args).toContain('--output-format')
       expect(args).toContain('stream-json')
       expect(args).toContain('--verbose')
       expect(args).toContain('--dangerously-skip-permissions')
+    })
+
+    it('sends prompt via stdin', async () => {
+      mockSpawnSuccess(makeStreamOutput())
+      const backend = new ClaudeCliBackend()
+      const child = (spawn as unknown as ReturnType<typeof vi.fn>).mock.results[0]?.value
+
+      await backend.invoke(makeInvocation({ prompt: 'My long prompt text' }))
+
+      const spawnedChild = (spawn as unknown as ReturnType<typeof vi.fn>).mock.results[0].value
+      expect(spawnedChild.stdin.write).toHaveBeenCalledWith('My long prompt text')
+      expect(spawnedChild.stdin.end).toHaveBeenCalled()
     })
 
     it('includes --model flag', async () => {
