@@ -121,6 +121,7 @@ function createHappyPathDeps(): DirectorDeps {
     writePhaseCompletion: vi.fn(),
     workerExecute: vi.fn().mockResolvedValue(makeWorkerSuccess()),
     readFile: vi.fn().mockReturnValue(VALID_PLAN_CONTENT),
+    writeFile: vi.fn(),
     display: vi.fn(),
     logger: { log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' },
     costTracker: new CostTracker(),
@@ -776,6 +777,23 @@ describe('runPhase', () => {
     const execOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(execOpts.maxTurns).toBeGreaterThanOrEqual(50)
   })
+
+  // PR1: Writes phase prompt to .cestdone/reports/phase-N-prompt.md before Worker execution
+  it('writes phase prompt file before Worker execution', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
+
+    const writeFileCalls = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls
+    const promptCall = writeFileCalls.find((c: string[]) => c[0].includes('phase-1-prompt.md'))
+    expect(promptCall).toBeTruthy()
+    expect(promptCall![1]).toContain('Phase 1')
+    expect(promptCall![1]).toContain('Setup')
+  })
 })
 
 // === runPlanningFlow tests ===
@@ -949,6 +967,18 @@ describe('runPlanningFlow', () => {
     await expect(runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps))
       .rejects.toThrow(/plan file/)
   })
+
+  // PW15: Writes planning prompt to phase-0-prompt.md
+  it('writes planning prompt to phase-0-prompt.md', async () => {
+    const deps = createHappyPathDeps()
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    const writeFileCalls = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls
+    const promptCall = writeFileCalls.find((c: string[]) => c[0].includes('phase-0-prompt.md'))
+    expect(promptCall).toBeTruthy()
+    expect(promptCall![1]).toContain('Build a widget app')
+  })
 })
 
 // === executeDirector session tracking tests ===
@@ -1095,5 +1125,56 @@ describe('executeDirector', () => {
 
     const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
     expect(opts.model).toBe('claude-sonnet-4-6')
+  })
+
+  // EXT1: rawText fallback uses 'done' action (not 'analyze')
+  it('falls back to done action when rawText is not structured JSON', async () => {
+    ;(mockBackend.invoke as ReturnType<typeof vi.fn>).mockResolvedValue({
+      output: null,
+      rawText: 'Phase complete. Built the scaffold with tests.',
+      sessionId: 'sess-dir',
+      costUsd: 0.05,
+      numTurns: 3,
+      durationMs: 2000,
+      usage: { inputTokens: 500, outputTokens: 200, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+      success: true,
+    })
+
+    const result = await executeDirector({
+      prompt: 'Write a summary',
+      step: WorkflowStep.Complete,
+      systemPromptText: 'system',
+      config: TEST_CONFIG,
+      logger: mockLogger,
+      backend: mockBackend,
+    })
+
+    expect(result.response.action).toBe('done')
+    expect(result.response.message).toContain('Phase complete')
+  })
+
+  // EXT2: rawText fallback preserves full text as message
+  it('preserves full rawText as message in fallback', async () => {
+    ;(mockBackend.invoke as ReturnType<typeof vi.fn>).mockResolvedValue({
+      output: null,
+      rawText: 'A detailed summary of everything that happened.',
+      sessionId: 'sess-dir',
+      costUsd: 0.01,
+      numTurns: 1,
+      durationMs: 500,
+      usage: { inputTokens: 100, outputTokens: 50, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+      success: true,
+    })
+
+    const result = await executeDirector({
+      prompt: 'test',
+      step: WorkflowStep.Review,
+      systemPromptText: 'system',
+      config: TEST_CONFIG,
+      logger: mockLogger,
+      backend: mockBackend,
+    })
+
+    expect(result.response.message).toBe('A detailed summary of everything that happened.')
   })
 })

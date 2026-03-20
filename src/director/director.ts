@@ -25,6 +25,7 @@ export interface DirectorDeps {
   askInput: (prompt: string) => Promise<string>
   createPlanFile: (planPath: string, content: string) => void
   readFile: (path: string) => string
+  writeFile: (path: string, content: string) => void
   updatePhaseStatus: (filePath: string, phaseNumber: number, status: PhaseStatus) => void
   writePhaseCompletion: (filePath: string, phaseNumber: number, doneSummary: string) => void
   workerExecute: (options: WorkerOptions) => Promise<WorkerResult>
@@ -74,6 +75,10 @@ export async function runPlanningFlow(
   logger.log('Director', 'Planning: Spawning Planning Worker')
   const rawPrompt = buildPlanningWorkerPrompt(spec, env, planPath)
   const syntheticPhase: Phase = { number: 0, name: 'Planning', status: 'in-progress', spec: spec.text, applicableRules: '', done: '' }
+
+  // Write prompt file for traceability
+  const promptPath = path.join(config.targetRepoPath, '.cestdone', 'reports', 'phase-0-prompt.md')
+  try { deps.writeFile(promptPath, rawPrompt) } catch { /* best-effort */ }
 
   const planningResult = await deps.workerExecute({
     step: WorkflowStep.Plan,
@@ -256,6 +261,11 @@ async function executeTwoAgentPhase(
 
   while (true) {
     logger.log('Director', `Executing via Worker (attempt ${workerRetries + 1}, sub-phase ${completedSubPhases.length + 1})`)
+
+    // Write prompt file for traceability
+    const promptPath = path.join(config.targetRepoPath, '.cestdone', 'reports', `phase-${phase.number}-prompt.md`)
+    try { deps.writeFile(promptPath, instructions) } catch { /* best-effort */ }
+
     const workerResult = await deps.workerExecute(buildWorkerOptions({
       step: WorkflowStep.Execute,
       phase,
@@ -499,7 +509,7 @@ function extractDirectorResponse(result: BackendResult, logger: SessionLogger): 
       // Not JSON — fall through
     }
 
-    return { action: 'analyze', message: result.rawText }
+    return { action: 'done', message: result.rawText }
   }
 
   const reason = result.errorMessage ?? 'unknown'

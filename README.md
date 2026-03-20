@@ -43,12 +43,32 @@ spec.md ──► DIRECTOR                                        .plan.md
 
 **Execution** (per phase):
 1. **Execute** — Worker implements the phase (or the Director, in director-only mode)
-2. **Review** — Director reads files and optionally runs tests to verify
+2. **Review** — Director reads the Worker's report and code diff to verify
 3. **Complete** — Director updates `.plan.md`, commits verified work, moves to next phase
+
+### File-Based Communication
+
+The Director and Workers communicate exclusively through markdown files in `.cestdone/reports/`:
+
+```
+.cestdone/reports/
+  phase-0-prompt.md      ← Planning Worker's prompt (what the Director asked)
+  phase-1-prompt.md      ← Phase 1 Worker's instructions
+  phase-1-report.md      ← Phase 1 Worker's report (status, summary, files changed)
+  phase-2-prompt.md      ← Phase 2 Worker's instructions
+  phase-2-report.md      ← Phase 2 Worker's report
+  ...
+```
+
+Additionally:
+- `spec.plan.md` — the plan file (written by Planning Worker, read by Director)
+- `cestdone-diff.txt` — git diff of changes (written by Worker, read by Director during review)
+
+This gives full traceability of every Director↔Worker interaction. You can inspect these files to understand exactly what was asked and what was delivered.
 
 ### Two Modes
 
-- **Two-agent mode** (default): Director plans and reviews, Worker implements. The Worker gets a fresh session per phase — clean context, no cross-phase pollution.
+- **Two-agent mode** (default): Director delegates planning and implementation to Workers. The Director is a thin orchestrator — it never reads code directly, only reviews through report files and diffs.
 - **Director-only mode** (`--no-with-worker`): The Director does everything. Simpler, but the Director's context carries more weight.
 
 ### Two Backends

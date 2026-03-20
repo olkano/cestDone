@@ -120,6 +120,20 @@ describe('formatFinalSummary', () => {
     expect(summary).toContain('Grand total: $3.03')
   })
 
+  it('shows total context (input + cache-read) as the input number', () => {
+    const tracker = new CostTracker()
+    tracker.recordDirector({ costUsd: 0, inputTokens: 28, outputTokens: 2000, cacheReadInputTokens: 222100, cacheCreationInputTokens: 5000 })
+    tracker.recordWorker({ costUsd: 0, inputTokens: 8, outputTokens: 1900, cacheReadInputTokens: 183500, cacheCreationInputTokens: 3000 })
+
+    const summary = formatFinalSummary(tracker, 1196000) // ~20m
+    // Should show total context consumed, not just non-cached input
+    expect(summary).toContain('222.1K in')
+    expect(summary).toContain('183.5K in')
+    // Should NOT show the tiny non-cached numbers as the headline
+    expect(summary).not.toMatch(/tokens: 28 in/)
+    expect(summary).not.toMatch(/tokens: 8 in/)
+  })
+
   it('formats hours when elapsed > 60 minutes', () => {
     const tracker = new CostTracker()
     const summary = formatFinalSummary(tracker, 2 * 3600 * 1000 + 15 * 60 * 1000 + 30 * 1000)

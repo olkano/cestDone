@@ -53,11 +53,16 @@ export function formatUsage(label: string, snap: UsageSnapshot): string {
   return `${label}: $${snap.costUsd.toFixed(4)} | in:${snap.inputTokens} out:${snap.outputTokens} cache-r:${snap.cacheReadInputTokens} cache-w:${snap.cacheCreationInputTokens}`
 }
 
+/** Total context = non-cached input + cache-read input */
+function totalIn(snap: UsageSnapshot): number {
+  return snap.inputTokens + snap.cacheReadInputTokens
+}
+
 export function formatTotals(tracker: CostTracker): string {
   const d = tracker.getDirectorTotal()
   const c = tracker.getWorkerTotal()
   const g = tracker.getGrandTotal()
-  return `Totals — Director: $${d.costUsd.toFixed(2)} (in:${fmtTokens(d.inputTokens)} out:${fmtTokens(d.outputTokens)}) | Worker: $${c.costUsd.toFixed(2)} (in:${fmtTokens(c.inputTokens)} out:${fmtTokens(c.outputTokens)}) | Total: $${g.costUsd.toFixed(2)}`
+  return `Totals — Director: $${d.costUsd.toFixed(2)} (in:${fmtTokens(totalIn(d))} out:${fmtTokens(d.outputTokens)}) | Worker: $${c.costUsd.toFixed(2)} (in:${fmtTokens(totalIn(c))} out:${fmtTokens(c.outputTokens)}) | Total: $${g.costUsd.toFixed(2)}`
 }
 
 function formatDuration(ms: number): string {
@@ -76,8 +81,8 @@ export function formatFinalSummary(tracker: CostTracker, elapsedMs: number): str
   return [
     '=== Final Summary ===',
     `Total time: ${formatDuration(elapsedMs)}`,
-    `Director — $${d.costUsd.toFixed(2)} | tokens: ${fmtTokens(d.inputTokens)} in, ${fmtTokens(d.outputTokens)} out, ${fmtTokens(d.cacheReadInputTokens)} cache-read`,
-    `Worker    — $${c.costUsd.toFixed(2)} | tokens: ${fmtTokens(c.inputTokens)} in, ${fmtTokens(c.outputTokens)} out, ${fmtTokens(c.cacheReadInputTokens)} cache-read`,
+    `Director — $${d.costUsd.toFixed(2)} | tokens: ${fmtTokens(totalIn(d))} in, ${fmtTokens(d.outputTokens)} out`,
+    `Worker    — $${c.costUsd.toFixed(2)} | tokens: ${fmtTokens(totalIn(c))} in, ${fmtTokens(c.outputTokens)} out`,
     `Grand total: $${g.costUsd.toFixed(2)}`,
   ].join('\n')
 }

@@ -228,6 +228,7 @@ function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Co
       : askInput,
     createPlanFile: (p, c) => createPlanFile(p, c),
     readFile: (p) => fs.readFileSync(p, 'utf-8'),
+    writeFile: (p, c) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, c, 'utf-8') },
     updatePhaseStatus: (fp, pn, st) => updatePhaseStatus(fp, pn, st),
     writePhaseCompletion: (fp, pn, ds) => writePhaseCompletion(fp, pn, ds),
     workerExecute: executeWorker,
