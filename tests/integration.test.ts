@@ -119,7 +119,7 @@ describe('integration', () => {
       // Planning Worker writes the plan file as a side effect
       if (idx === 0) {
         const specPath = path.join(tmpDir, 'spec.md')
-        const planPath = specPath.replace('.md', '.plan.md')
+        const planPath = path.join(tmpDir, '.cestdone', 'spec.plan.md')
         fs.mkdirSync(path.dirname(planPath), { recursive: true })
         fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
       }
@@ -129,10 +129,10 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build a simple project with tests.', 'utf-8')
 
-    await handleRun(specPath, { withWorker: true, withReviews: true, withHumanValidation: true })
+    await handleRun(specPath, { target: tmpDir, withWorker: true, withReviews: true, withHumanValidation: true })
 
     // Plan file created by Planning Worker
-    const planPath = specPath.replace('.md', '.plan.md')
+    const planPath = path.join(tmpDir, '.cestdone', 'spec.plan.md')
     expect(fs.existsSync(planPath)).toBe(true)
     const planContent = fs.readFileSync(planPath, 'utf-8')
     expect(planContent).toContain('# Plan: Integration Test')
@@ -164,8 +164,8 @@ describe('integration', () => {
     mockQuery.mockImplementation(() => {
       const idx = queryCallIndex++
       if (idx === 0) {
-        const specPath = path.join(tmpDir, 'spec.md')
-        const planPath = specPath.replace('.md', '.plan.md')
+        const planPath = path.join(tmpDir, '.cestdone', 'spec.plan.md')
+        fs.mkdirSync(path.dirname(planPath), { recursive: true })
         fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
       }
       return createMockQuery(responses[idx])
@@ -174,7 +174,7 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build something.', 'utf-8')
 
-    await handleRun(specPath, { withWorker: true, withReviews: true })
+    await handleRun(specPath, { target: tmpDir, withWorker: true, withReviews: true })
 
     // 4 query() calls: planning Worker + execution Worker + review + complete
     expect(mockQuery).toHaveBeenCalledTimes(4)
@@ -189,8 +189,9 @@ describe('integration', () => {
   it('resumes from existing plan without re-planning', async () => {
     // Write plan file directly
     const specPath = path.join(tmpDir, 'spec.md')
-    const planPath = specPath.replace('.md', '.plan.md')
+    const planPath = path.join(tmpDir, '.cestdone', 'spec.plan.md')
     fs.writeFileSync(specPath, 'Original spec.', 'utf-8')
+    fs.mkdirSync(path.join(tmpDir, '.cestdone'), { recursive: true })
     fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
 
     // Phase execution only: Worker(execute), Director(review), Director(complete)
@@ -205,7 +206,7 @@ describe('integration', () => {
       return createMockQuery(responses[idx])
     })
 
-    await handleResume(specPath, { withWorker: true, withReviews: true })
+    await handleResume(specPath, { target: tmpDir, withWorker: true, withReviews: true })
 
     // Only 3 calls — no planning flow, no sub-plan
     expect(mockQuery).toHaveBeenCalledTimes(3)
@@ -228,8 +229,8 @@ describe('integration', () => {
     mockQuery.mockImplementation(() => {
       const idx = queryCallIndex++
       if (idx === 0) {
-        const specPath = path.join(tmpDir, 'spec.md')
-        const planPath = specPath.replace('.md', '.plan.md')
+        const planPath = path.join(tmpDir, '.cestdone', 'spec.plan.md')
+        fs.mkdirSync(path.dirname(planPath), { recursive: true })
         fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
       }
       return createMockQuery(responses[idx])
@@ -238,7 +239,7 @@ describe('integration', () => {
     const specPath = path.join(tmpDir, 'spec.md')
     fs.writeFileSync(specPath, 'Build a simple project with tests.', 'utf-8')
 
-    await handleRun(specPath, { withWorker: true, withReviews: true, withHumanValidation: true })
+    await handleRun(specPath, { target: tmpDir, withWorker: true, withReviews: true, withHumanValidation: true })
 
     expect(mockQuery).toHaveBeenCalledTimes(4)
 
@@ -260,8 +261,9 @@ describe('integration', () => {
   // I5: Resume starts a fresh Director session (no planning history)
   it('resume starts fresh Director session without planning history', async () => {
     const specPath = path.join(tmpDir, 'spec.md')
-    const planPath = specPath.replace('.md', '.plan.md')
+    const planPath = path.join(tmpDir, '.cestdone', 'spec.plan.md')
     fs.writeFileSync(specPath, 'Original spec.', 'utf-8')
+    fs.mkdirSync(path.join(tmpDir, '.cestdone'), { recursive: true })
     fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
 
     const responses = [
@@ -275,7 +277,7 @@ describe('integration', () => {
       return createMockQuery(responses[idx])
     })
 
-    await handleResume(specPath, { withWorker: true, withReviews: true })
+    await handleResume(specPath, { target: tmpDir, withWorker: true, withReviews: true })
 
     // Call 0 (Worker): fresh session (Worker always fresh)
     // Call 1 (Review): fresh Director session — no resume (first Director call in resume flow)
@@ -292,13 +294,14 @@ describe('integration', () => {
       .replace('_(to be filled)_', 'Already completed.')
 
     const specPath = path.join(tmpDir, 'spec.md')
-    const planPath = specPath.replace('.md', '.plan.md')
+    const planPath = path.join(tmpDir, '.cestdone', 'spec.plan.md')
     fs.writeFileSync(specPath, 'Done spec.', 'utf-8')
+    fs.mkdirSync(path.join(tmpDir, '.cestdone'), { recursive: true })
     fs.writeFileSync(planPath, donePlan, 'utf-8')
 
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
-    await handleRun(specPath)
+    await handleRun(specPath, { target: tmpDir })
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('All phases complete'))
     expect(mockQuery).not.toHaveBeenCalled()

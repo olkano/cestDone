@@ -122,7 +122,7 @@ export async function handleRun(
     houseRulesContent = fs.readFileSync(houseRulesPath, 'utf-8')
   }
 
-  const planPath = getPlanPath(resolvedSpecPath)
+  const planPath = getPlanPath(resolvedSpecPath, targetDir)
   const costTracker = new CostTracker()
   const deps = buildDeps(logger, costTracker, config)
 
@@ -180,7 +180,7 @@ export async function handleResume(
   ensureGitRepo(targetDir)
 
   const resolvedSpecPath = path.resolve(specPath)
-  const planPath = getPlanPath(resolvedSpecPath)
+  const planPath = getPlanPath(resolvedSpecPath, targetDir)
 
   if (!fs.existsSync(planPath)) {
     throw new Error(`No plan file found at ${planPath}. Run 'cestdone run' first to create a plan.`)

@@ -1,5 +1,6 @@
 // tests/director.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import path from 'node:path'
 import { runPhase, runPlanningFlow, executeDirector } from '../src/director/director.js'
 import type { DirectorDeps } from '../src/director/director.js'
 import { WorkflowStep } from '../src/shared/types.js'
@@ -811,7 +812,7 @@ describe('runPlanningFlow', () => {
 
     const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
 
-    expect(result.planPath).toBe('/tmp/spec.plan.md')
+    expect(result.planPath).toBe(path.join('/tmp/repo', '.cestdone', 'spec.plan.md'))
     expect(result.plan.title).toBe('Test Project')
     expect(result.plan.phases).toHaveLength(1)
     expect(deps.workerExecute).toHaveBeenCalledTimes(1)
@@ -827,7 +828,7 @@ describe('runPlanningFlow', () => {
 
     await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
 
-    expect(deps.readFile).toHaveBeenCalledWith('/tmp/spec.plan.md')
+    expect(deps.readFile).toHaveBeenCalledWith(path.join('/tmp/repo', '.cestdone', 'spec.plan.md'))
   })
 
   // PW3: Spawns Revision Worker when plan format is invalid
@@ -945,7 +946,7 @@ describe('runPlanningFlow', () => {
 
     const result = await runPlanningFlow(spec, TEST_CONFIG, deps)
 
-    expect(result.planPath).toBe('/project/my-spec.plan.md')
+    expect(result.planPath).toBe(path.join('/tmp/repo', '.cestdone', 'my-spec.plan.md'))
   })
 
   // PW13: No Director backend calls during planning

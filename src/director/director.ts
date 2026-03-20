@@ -68,7 +68,7 @@ export async function runPlanningFlow(
   deps: DirectorDeps
 ): Promise<{ planPath: string; plan: Plan }> {
   const { logger } = deps
-  const planPath = getPlanPath(spec.specFilePath)
+  const planPath = getPlanPath(spec.specFilePath, config.targetRepoPath)
   const env = detectEnvironment(config.targetRepoPath)
 
   // Delegate planning to a Worker

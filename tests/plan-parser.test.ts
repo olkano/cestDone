@@ -1,5 +1,6 @@
 // tests/plan-parser.test.ts
 import { describe, it, expect } from 'vitest'
+import path from 'node:path'
 import { parsePlan, getPlanPath } from '../src/shared/plan-parser.js'
 
 const VALID_PLAN = `# Plan: Dashboard Project
@@ -158,17 +159,21 @@ _(tbd)_
 })
 
 describe('getPlanPath', () => {
-  it('derives plan path from spec path', () => {
-    expect(getPlanPath('/tmp/spec.md')).toBe('/tmp/spec.plan.md')
+  it('places plan in .cestdone/ under target repo', () => {
+    expect(getPlanPath('/tmp/spec.md', '/project')).toBe(path.join('/project', '.cestdone', 'spec.plan.md'))
+  })
+
+  it('uses spec basename only (ignores spec directory)', () => {
+    expect(getPlanPath('/home/user/specs/auth.md', '/project')).toBe(path.join('/project', '.cestdone', 'auth.plan.md'))
   })
 
   it('handles paths without .md extension', () => {
-    expect(getPlanPath('/tmp/myspec')).toBe('/tmp/myspec.plan.md')
+    expect(getPlanPath('/tmp/myspec', '/project')).toBe(path.join('/project', '.cestdone', 'myspec.plan.md'))
   })
 
-  it('handles complex paths', () => {
-    expect(getPlanPath('C:\\Users\\dpire\\Code\\project\\my-spec.md')).toBe(
-      'C:\\Users\\dpire\\Code\\project\\my-spec.plan.md'
+  it('handles Windows paths', () => {
+    expect(getPlanPath('C:\\Users\\dpire\\specs\\my-spec.md', 'C:\\Code\\project')).toBe(
+      path.join('C:\\Code\\project', '.cestdone', 'my-spec.plan.md')
     )
   })
 })

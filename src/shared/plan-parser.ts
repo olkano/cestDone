@@ -29,12 +29,13 @@ export function parsePlan(content: string): Plan {
   return { title, context, techStack, houseRules, phases }
 }
 
-export function getPlanPath(specFilePath: string): string {
-  const ext = path.extname(specFilePath)
-  if (ext) {
-    return specFilePath.replace(new RegExp(`${escapeRegExp(ext)}$`), `.plan${ext}`)
-  }
-  return specFilePath + '.plan.md'
+export function getPlanPath(specFilePath: string, targetRepoPath: string): string {
+  const basename = path.basename(specFilePath)
+  const ext = path.extname(basename)
+  const planName = ext
+    ? basename.replace(new RegExp(`${escapeRegExp(ext)}$`), `.plan${ext}`)
+    : basename + '.plan.md'
+  return path.join(targetRepoPath, '.cestdone', planName)
 }
 
 function escapeRegExp(str: string): string {
