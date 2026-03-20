@@ -42,6 +42,7 @@ export enum WorkflowStep {
   Execute = 4,
   Review = 5,
   Complete = 6,
+  Plan = 7,
 }
 
 export type DirectorActionType = 'analyze' | 'ask_human' | 'approve' | 'fix' | 'continue' | 'done' | 'escalate'
@@ -87,6 +88,7 @@ export interface WorkerOptions {
   targetRepoPath: string
   houseRulesContent: string
   instructions: string
+  rawPrompt?: string
   maxTurns: number
   maxBudgetUsd?: number
   logger: SessionLogger

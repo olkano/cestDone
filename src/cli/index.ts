@@ -156,8 +156,8 @@ export async function handleRun(
       specFilePath: resolvedSpecPath,
     }
 
-    const { planPath: createdPlanPath, sessionId } = await runPlanningFlow(freeFormSpec, config, deps)
-    await executeAllPhases(createdPlanPath, config, deps, sessionId)
+    const { planPath: createdPlanPath } = await runPlanningFlow(freeFormSpec, config, deps)
+    await executeAllPhases(createdPlanPath, config, deps)
   }
 
   logFinalSummary(logger, costTracker, startTime, targetDir)
@@ -196,9 +196,8 @@ async function executeAllPhases(
   planPath: string,
   config: Config,
   deps: DirectorDeps,
-  sessionId?: string,
 ): Promise<void> {
-  let currentSessionId = sessionId
+  let currentSessionId: string | undefined
   while (true) {
     const planContent = fs.readFileSync(planPath, 'utf-8')
     const plan = parsePlan(planContent)
@@ -228,6 +227,7 @@ function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Co
         }
       : askInput,
     createPlanFile: (p, c) => createPlanFile(p, c),
+    readFile: (p) => fs.readFileSync(p, 'utf-8'),
     updatePhaseStatus: (fp, pn, st) => updatePhaseStatus(fp, pn, st),
     writePhaseCompletion: (fp, pn, ds) => writePhaseCompletion(fp, pn, ds),
     workerExecute: executeWorker,

@@ -105,7 +105,6 @@ describe('handleRun', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)     // executeAllPhases loop 1 → finds pending
@@ -127,7 +126,7 @@ describe('handleRun', () => {
       MOCK_CONFIG,
       '/tmp/spec.plan.md',
       expect.anything(),
-      'sess-planning', // sessionId flows from planning to execution
+      undefined, // no sessionId from planning — Worker-based planning has no Director session
     )
   })
 
@@ -142,7 +141,6 @@ describe('handleRun', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -253,7 +251,6 @@ describe('CLI flag wiring', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -276,7 +273,6 @@ describe('CLI flag wiring', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -297,7 +293,6 @@ describe('CLI flag wiring', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -318,7 +313,6 @@ describe('CLI flag wiring', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -339,7 +333,6 @@ describe('CLI flag wiring', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -360,7 +353,6 @@ describe('CLI flag wiring', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -380,7 +372,6 @@ describe('CLI flag wiring', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)

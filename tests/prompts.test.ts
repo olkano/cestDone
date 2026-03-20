@@ -12,6 +12,9 @@ import {
   buildRevisePlanPrompt,
   buildExecutionSystemPrompt,
   buildDirectorExecutionPrompt,
+  buildPlanningWorkerPrompt,
+  buildPlanRevisionWorkerPrompt,
+  buildPlanningWorkerSystemPrompt,
   DIRECTOR_RESPONSE_SCHEMA,
 } from '../src/director/prompts.js'
 import { WorkflowStep } from '../src/shared/types.js'
@@ -457,5 +460,116 @@ describe('buildExecutionSystemPrompt', () => {
     const prompt = buildExecutionSystemPrompt(TEST_PLAN, [])
 
     expect(prompt).not.toContain('## Environment')
+  })
+})
+
+// === Planning Worker prompt tests ===
+
+describe('buildPlanningWorkerPrompt', () => {
+  it('includes spec text', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, undefined, '/tmp/spec.plan.md')
+    expect(prompt).toContain('Build a web dashboard that scrapes metrics')
+  })
+
+  it('includes plan format template', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, undefined, '/tmp/spec.plan.md')
+    expect(prompt).toContain('# Plan:')
+    expect(prompt).toContain('## Context')
+    expect(prompt).toContain('## Phase')
+    expect(prompt).toContain('### Status: pending')
+    expect(prompt).toContain('### Spec')
+    expect(prompt).toContain('### Applicable Rules')
+    expect(prompt).toContain('### Done')
+  })
+
+  it('includes target plan path and instructs to write it', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, undefined, '/tmp/spec.plan.md')
+    expect(prompt).toContain('/tmp/spec.plan.md')
+    expect(prompt).toContain('Write')
+  })
+
+  it('instructs not to ask questions', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, undefined, '/tmp/spec.plan.md')
+    expect(prompt).toMatch(/do NOT ask questions/i)
+  })
+
+  it('includes environment info when provided', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, TEST_ENV, '/tmp/spec.plan.md')
+    expect(prompt).toContain('## Environment')
+    expect(prompt).toContain('OS: Linux')
+  })
+
+  it('omits environment section when not provided', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, undefined, '/tmp/spec.plan.md')
+    expect(prompt).not.toContain('## Environment')
+  })
+
+  it('includes house rules when present', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, undefined, '/tmp/spec.plan.md')
+    expect(prompt).toContain('Use TDD. Update docs at the end.')
+  })
+
+  it('omits house rules section from prompt body when empty (format template still references it)', () => {
+    const noRules: FreeFormSpec = { text: 'Build something.', houseRulesContent: '', specFilePath: '/tmp/s.md' }
+    const prompt = buildPlanningWorkerPrompt(noRules, undefined, '/tmp/s.plan.md')
+    // The format template always mentions "## House Rules" as a placeholder,
+    // but there should be no separate "## House Rules" section with actual content
+    const beforeTemplate = prompt.split('```')[0]
+    expect(beforeTemplate).not.toContain('House Rules')
+  })
+})
+
+describe('buildPlanRevisionWorkerPrompt', () => {
+  it('includes plan path', () => {
+    const prompt = buildPlanRevisionWorkerPrompt('/tmp/spec.plan.md', 'Missing Tech Stack section')
+    expect(prompt).toContain('/tmp/spec.plan.md')
+  })
+
+  it('includes feedback', () => {
+    const prompt = buildPlanRevisionWorkerPrompt('/tmp/spec.plan.md', 'Split into 3 phases')
+    expect(prompt).toContain('Split into 3 phases')
+  })
+
+  it('includes plan format reference', () => {
+    const prompt = buildPlanRevisionWorkerPrompt('/tmp/spec.plan.md', 'fix it')
+    expect(prompt).toContain('# Plan:')
+    expect(prompt).toContain('## Phase')
+    expect(prompt).toContain('### Status: pending')
+  })
+
+  it('instructs to read and overwrite the plan file', () => {
+    const prompt = buildPlanRevisionWorkerPrompt('/tmp/spec.plan.md', 'fix it')
+    expect(prompt).toContain('Read')
+    expect(prompt).toContain('/tmp/spec.plan.md')
+  })
+})
+
+describe('buildPlanningWorkerSystemPrompt', () => {
+  it('includes house rules', () => {
+    const prompt = buildPlanningWorkerSystemPrompt(TEST_SPEC)
+    expect(prompt).toContain('Use TDD. Update docs at the end.')
+  })
+
+  it('includes environment info', () => {
+    const prompt = buildPlanningWorkerSystemPrompt(TEST_SPEC, TEST_ENV)
+    expect(prompt).toContain('OS: Linux')
+  })
+
+  it('omits house rules when empty', () => {
+    const noRules: FreeFormSpec = { text: 'Build something.', houseRulesContent: '', specFilePath: '/tmp/s.md' }
+    const prompt = buildPlanningWorkerSystemPrompt(noRules)
+    expect(prompt).not.toContain('House Rules')
+  })
+
+  it('does not mention Director role', () => {
+    const prompt = buildPlanningWorkerSystemPrompt(TEST_SPEC)
+    expect(prompt).not.toContain('Director')
+  })
+})
+
+describe('buildReviewPrompt — report file reference', () => {
+  it('mentions report file path in Worker Report section', () => {
+    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}')
+    expect(prompt).toContain('.cestdone/reports/phase-2-report.md')
   })
 })

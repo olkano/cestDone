@@ -209,4 +209,36 @@ describe('executeWorker', () => {
     const params = backend.invoke.mock.calls[0][0]
     expect(params.env).toBeDefined()
   })
+
+  // Q14: rawPrompt bypasses buildWorkerPrompt
+  it('uses rawPrompt when provided, bypasses buildWorkerPrompt', async () => {
+    const backend = makeMockBackend()
+    const rawPrompt = 'You are a planning agent. Create a plan and write it to plan.md.'
+    await executeWorker(makeOptions({ backend, rawPrompt }))
+
+    const params = backend.invoke.mock.calls[0][0]
+    expect(params.prompt).toBe(rawPrompt)
+    // Should NOT contain buildWorkerPrompt markers like "### Phase Spec" or "### Testing"
+    expect(params.prompt).not.toContain('### Phase Spec')
+    expect(params.prompt).not.toContain('### Testing')
+  })
+
+  // Q15: rawPrompt skips output schema (file is the output, not structured JSON)
+  it('skips output schema when rawPrompt is set', async () => {
+    const backend = makeMockBackend()
+    await executeWorker(makeOptions({ backend, rawPrompt: 'Plan something.' }))
+
+    const params = backend.invoke.mock.calls[0][0]
+    expect(params.outputSchema).toBeUndefined()
+  })
+
+  // Q16: without rawPrompt, output schema is still set (existing behavior)
+  it('sets output schema when rawPrompt is not set', async () => {
+    const backend = makeMockBackend()
+    await executeWorker(makeOptions({ backend }))
+
+    const params = backend.invoke.mock.calls[0][0]
+    expect(params.outputSchema).toBeDefined()
+    expect(params.outputSchema).toEqual(expect.objectContaining({ type: 'object' }))
+  })
 })

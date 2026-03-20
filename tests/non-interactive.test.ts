@@ -88,7 +88,6 @@ describe('non-interactive mode', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -142,7 +141,6 @@ describe('non-interactive mode', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -164,7 +162,6 @@ describe('non-interactive mode', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
@@ -228,7 +225,6 @@ describe('non-interactive mode', () => {
     vi.mocked(runPlanningFlow).mockResolvedValue({
       planPath: '/tmp/spec.plan.md',
       plan,
-      sessionId: 'sess-planning',
     })
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)

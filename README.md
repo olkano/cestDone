@@ -8,16 +8,15 @@ The bottleneck in AI-assisted development isn't the AI — it's the human sittin
 
 **cestDone removes that bottleneck.** A Director AI reads your spec, explores the codebase, creates a phased plan, and either implements it directly or delegates to a Worker AI. The human intervenes only when explicitly opted in.
 
-There's a second, subtler problem: **context window exhaustion.** When you drive an AI agent manually through a large project, the conversation fills up — the model forgets earlier decisions, loses track of files, and quality degrades. cestDone sidesteps this by giving the Director a fresh, focused context per step (read-only tools during planning, scoped phase specs during execution) while maintaining continuity through a resumed session. The Worker gets an even cleaner deal: a fresh session per phase with only the relevant slice of the plan. Neither agent's context window fills up, even on large projects.
+There's a second, subtler problem: **context window exhaustion.** When you drive an AI agent manually through a large project, the conversation fills up — the model forgets earlier decisions, loses track of files, and quality degrades. cestDone sidesteps this by keeping the Director thin — it orchestrates via markdown files and never does deep code analysis itself. Workers get fresh sessions per task with only the relevant context. All handoffs happen through `.plan.md` and `.cestdone/reports/` files, so nothing is lost and everything is traceable.
 
 ## How It Works
 
 ```
 spec.md ──► DIRECTOR                                        .plan.md
              │                                                  │
-             ├─ Analyze (read-only)                             │
-             ├─ Clarify (asks you questions)                    │
-             └─ Create Plan ──────────────────────────────────► │
+             └─ Planning Worker ──────────────────────────────► │
+                (explores codebase, writes .plan.md)            │
                                                                 │
              For each phase:                                    │
              ┌──────────────────────────────────────────────┐   │
@@ -25,11 +24,11 @@ spec.md ──► DIRECTOR                                        .plan.md
              │  WORKER (fresh session per phase)             │   │
              │  ├─ Reads phase spec from plan               │   │
              │  ├─ Implements: edit files, run tests        │   │
-             │  └─ Reports result                           │   │
+             │  └─ Writes report to .cestdone/reports/       │   │
              │         │                                    │   │
              │         ▼                                    │   │
              │  DIRECTOR (review)                           │   │
-             │  ├─ Reads code, runs tests                   │   │
+             │  ├─ Reads report + code diff                 │   │
              │  ├─ fix ──► retry Worker (max 3, then human)  │   │
              │  ├─ continue ──► Worker keeps going           │   │
              │  └─ done ──► commit, update plan ───────────►│   │
@@ -38,9 +37,9 @@ spec.md ──► DIRECTOR                                        .plan.md
 ```
 
 **Planning** (once per spec):
-1. **Analyze** — Director reads the spec, explores the target repo
-2. **Clarify** — Director asks questions if needed, you answer in the terminal
-3. **Create Plan** — Director writes a structured `.plan.md` with numbered phases
+1. **Planning Worker** — A Worker explores the codebase and writes a structured `.plan.md` with numbered phases
+2. **Validation** — The plan format is validated; if invalid, a revision Worker fixes it
+3. **Approval** — If `--with-human-validation`, the plan is shown for approval before execution
 
 **Execution** (per phase):
 1. **Execute** — Worker implements the phase (or the Director, in director-only mode)

@@ -31,7 +31,7 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
 
   logger.log('Worker', `Call starting (step: ${options.step}, model: ${options.model}, phase: ${options.phase.number})`)
 
-  const prompt = buildWorkerPrompt({
+  const prompt = options.rawPrompt ?? buildWorkerPrompt({
     instructions: options.instructions,
     phase: options.phase,
     step: options.step,
@@ -47,7 +47,7 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
       systemPrompt: options.houseRulesContent,
       model: options.model,
       tools,
-      outputSchema: WORKER_REPORT_SCHEMA,
+      outputSchema: options.rawPrompt ? undefined : WORKER_REPORT_SCHEMA,
       cwd: path.resolve(options.targetRepoPath),
       maxTurns: options.maxTurns,
       maxBudgetUsd: options.maxBudgetUsd,

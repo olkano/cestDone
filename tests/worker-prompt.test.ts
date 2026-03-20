@@ -58,7 +58,7 @@ describe('buildWorkerPrompt', () => {
     })
 
     expect(result).toContain('cestdone-diff.txt')
-    expect(result).toContain('test results')
+    expect(result).toContain('Test Results')
   })
 
   // O5: Read-only steps include constraint about not modifying files
@@ -106,5 +106,28 @@ describe('buildWorkerPrompt', () => {
     })
 
     expect(result).not.toContain('Previously Completed Sub-phases')
+  })
+
+  // O7: Includes phase report file path in reporting section
+  it('includes phase report file path in reporting section', () => {
+    const result = buildWorkerPrompt({
+      instructions: 'Implement the feature.',
+      phase: TEST_PHASE,
+      step: WorkflowStep.Execute,
+    })
+
+    expect(result).toContain('.cestdone/reports/phase-1-report.md')
+  })
+
+  // O8: Report path uses correct phase number
+  it('uses correct phase number in report file path', () => {
+    const phase3 = { ...TEST_PHASE, number: 3 }
+    const result = buildWorkerPrompt({
+      instructions: 'Implement the feature.',
+      phase: phase3,
+      step: WorkflowStep.Execute,
+    })
+
+    expect(result).toContain('.cestdone/reports/phase-3-report.md')
   })
 })

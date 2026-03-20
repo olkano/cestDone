@@ -102,7 +102,7 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     '## Phase Spec',
     phaseSpec,
     '',
-    '## Worker Report',
+    `## Worker Report (from .cestdone/reports/phase-${phaseNumber}-report.md)`,
     workerReport,
   ]
 
@@ -210,7 +210,107 @@ export function buildCompletePrompt(phase: Phase): string {
   ].join('\n')
 }
 
-// === Planning flow prompts ===
+// === Planning Worker prompts ===
+
+const PLAN_FORMAT_TEMPLATE = [
+  '# Plan: <project title>',
+  '',
+  '## Context',
+  '<description derived from spec and codebase analysis>',
+  '',
+  '## Tech Stack',
+  '<extracted/decided technologies>',
+  '',
+  '## House Rules',
+  '<house rules that apply to this project>',
+  '',
+  '## Phase 1: <name>',
+  '### Status: pending',
+  '### Spec',
+  '<detailed phase specification>',
+  '### Applicable Rules',
+  '<only the house rules relevant to THIS phase>',
+  '### Done',
+  '_(to be filled)_',
+].join('\n')
+
+export function buildPlanningWorkerPrompt(spec: FreeFormSpec, env: EnvironmentInfo | undefined, planPath: string): string {
+  const parts: string[] = [
+    '## Spec',
+    spec.text,
+  ]
+
+  if (spec.houseRulesContent) {
+    parts.push('', '## House Rules', spec.houseRulesContent)
+  }
+
+  if (env) {
+    parts.push('', '## Environment', env.summary)
+  }
+
+  parts.push(
+    '',
+    '## Task',
+    'Create a structured implementation plan for the spec above.',
+    '',
+    '1. Explore the codebase using Read/Glob/Grep/Bash to understand the existing code, architecture, and conventions.',
+    '2. Analyze the spec and determine how to break it into phases.',
+    '3. Write the plan to `' + planPath + '` using the Write tool.',
+    '',
+    'The plan must follow this exact format:',
+    '',
+    '```',
+    PLAN_FORMAT_TEMPLATE,
+    '```',
+    '',
+    'Guidelines:',
+    '- Each phase should be a discrete, testable deliverable',
+    '- Include only the relevant house rules in each phase\'s ### Applicable Rules',
+    '- Number phases starting from 1',
+    '- Each phase spec should be self-contained enough for a Worker to implement independently',
+    '- Make reasonable assumptions when the spec is ambiguous — document them in the Context section',
+    '',
+    'Do NOT ask questions. Do NOT write code. Only explore the codebase and write the plan file.',
+  )
+
+  return parts.join('\n')
+}
+
+export function buildPlanRevisionWorkerPrompt(planPath: string, feedback: string): string {
+  return [
+    '## Task',
+    `Read the current plan at \`${planPath}\`, fix the issues described below, and overwrite the file with the corrected plan.`,
+    '',
+    '## Feedback',
+    feedback,
+    '',
+    '## Required Plan Format',
+    '```',
+    PLAN_FORMAT_TEMPLATE,
+    '```',
+    '',
+    'Keep the same structure. Fix only what the feedback requires.',
+  ].join('\n')
+}
+
+export function buildPlanningWorkerSystemPrompt(spec: FreeFormSpec, env?: EnvironmentInfo): string {
+  const parts: string[] = [
+    'You are a planning agent for cestDone, an AI-orchestrated development system.',
+    'Your job is to analyze the codebase and create a structured implementation plan.',
+  ]
+
+  if (env) {
+    parts.push('', '## Environment', env.summary)
+  }
+
+  if (spec.houseRulesContent) {
+    parts.push('', '## House Rules', spec.houseRulesContent)
+  }
+
+  return parts.join('\n')
+}
+
+// === Director planning flow prompts (deprecated — used only by --no-with-worker mode) ===
 
 export function buildPlanningSystemPrompt(spec: FreeFormSpec, env?: EnvironmentInfo): string {
   const parts: string[] = [

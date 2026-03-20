@@ -46,9 +46,15 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
   parts.push('')
 
   parts.push('### Reporting')
-  parts.push('After modifications, write the diff to `cestdone-diff.txt` in the repo root:')
+  parts.push(`After modifications, write your report to \`.cestdone/reports/phase-${input.phase.number}-report.md\`:`)
+  parts.push('- Status: success | partial | failed')
+  parts.push('- Summary: what was implemented')
+  parts.push('- Files Changed: list of files')
+  parts.push('- Test Results: raw output from test runner')
+  parts.push('- Issues: any blockers or concerns')
+  parts.push('')
+  parts.push('Also write the diff to `cestdone-diff.txt` in the repo root:')
   parts.push('`git --no-pager diff > cestdone-diff.txt`')
-  parts.push('Also report: test results (raw output from test runner), type check output (if applicable), and a list of files changed.')
 
   return parts.join('\n')
 }

@@ -9,6 +9,7 @@ export function getTools(step: WorkflowStep): string[] {
     case WorkflowStep.Analyze:
       return READ_ONLY
     case WorkflowStep.Execute:
+    case WorkflowStep.Plan:
       return FULL_EDIT
     default:
       throw new Error(`Step ${step} is Director-only — no Worker call`)

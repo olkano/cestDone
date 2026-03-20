@@ -82,6 +82,28 @@ function makeWorkerError(overrides: Partial<WorkerResult> = {}): WorkerResult {
   }
 }
 
+const VALID_PLAN_CONTENT = [
+  '# Plan: Test Project',
+  '',
+  '## Context',
+  'A test project for widgets.',
+  '',
+  '## Tech Stack',
+  'TypeScript, Node.js',
+  '',
+  '## House Rules',
+  'Use TDD.',
+  '',
+  '## Phase 1: Setup',
+  '### Status: pending',
+  '### Spec',
+  'Set up the project structure.',
+  '### Applicable Rules',
+  'Use TDD.',
+  '### Done',
+  '_(to be filled)_',
+].join('\n')
+
 function setupDirectorResponses(...responses: Array<{ action: string; message: string; questions?: string[] }>) {
   ;(mockBackend.invoke as ReturnType<typeof vi.fn>).mockImplementation(() => {
     const idx = directorCallCount++
@@ -98,6 +120,7 @@ function createHappyPathDeps(): DirectorDeps {
     updatePhaseStatus: vi.fn(),
     writePhaseCompletion: vi.fn(),
     workerExecute: vi.fn().mockResolvedValue(makeWorkerSuccess()),
+    readFile: vi.fn().mockReturnValue(VALID_PLAN_CONTENT),
     display: vi.fn(),
     logger: { log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' },
     costTracker: new CostTracker(),
@@ -757,28 +780,6 @@ describe('runPhase', () => {
 
 // === runPlanningFlow tests ===
 
-const VALID_PLAN_CONTENT = [
-  '# Plan: Test Project',
-  '',
-  '## Context',
-  'A test project for widgets.',
-  '',
-  '## Tech Stack',
-  'TypeScript, Node.js',
-  '',
-  '## House Rules',
-  'Use TDD.',
-  '',
-  '## Phase 1: Setup',
-  '### Status: pending',
-  '### Spec',
-  'Set up the project structure.',
-  '### Applicable Rules',
-  'Use TDD.',
-  '### Done',
-  '_(to be filled)_',
-].join('\n')
-
 const TEST_FREE_FORM_SPEC: FreeFormSpec = {
   text: 'Build a widget app with login and dashboard.',
   houseRulesContent: 'Use TDD. Follow REST conventions.',
@@ -786,12 +787,8 @@ const TEST_FREE_FORM_SPEC: FreeFormSpec = {
 }
 
 describe('runPlanningFlow', () => {
-  // P1: Happy path — no questions, plan approved on first try
-  it('creates a plan file when spec is clear and plan is approved', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear. No questions.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
+  // PW1: Happy path — Planning Worker writes plan, validated, returned
+  it('spawns Planning Worker to create plan', async () => {
     const deps = createHappyPathDeps()
 
     const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
@@ -799,221 +796,49 @@ describe('runPlanningFlow', () => {
     expect(result.planPath).toBe('/tmp/spec.plan.md')
     expect(result.plan.title).toBe('Test Project')
     expect(result.plan.phases).toHaveLength(1)
-    expect(deps.createPlanFile).toHaveBeenCalledWith('/tmp/spec.plan.md', VALID_PLAN_CONTENT)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(1)
+    const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
+    expect(opts.step).toBe(WorkflowStep.Plan)
+    expect(opts.rawPrompt).toBeDefined()
+    expect(opts.rawPrompt).toContain('Build a widget app')
   })
 
-  // P2: Director asks clarifying questions
-  it('handles clarifying questions via askInput', async () => {
-    setupDirectorResponses(
-      { action: 'ask_human', message: 'Need info', questions: ['What DB?', 'Auth method?'] },
-      { action: 'approve', message: 'Understood.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
+  // PW2: Reads plan from disk after Worker completes
+  it('reads plan from disk after Worker completes', async () => {
     const deps = createHappyPathDeps()
-    deps.askInput = vi.fn()
-      .mockResolvedValueOnce('PostgreSQL')
-      .mockResolvedValueOnce('JWT')
-      .mockResolvedValue('done')
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    expect(deps.readFile).toHaveBeenCalledWith('/tmp/spec.plan.md')
+  })
+
+  // PW3: Spawns Revision Worker when plan format is invalid
+  it('spawns Revision Worker when plan format is invalid', async () => {
+    const deps = createHappyPathDeps()
+    ;(deps.readFile as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce('Not a valid plan')
+      .mockReturnValue(VALID_PLAN_CONTENT)
 
     const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
 
-    const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
-    expect(askInputCalls[0][0]).toContain('What DB?')
-    expect(askInputCalls[1][0]).toContain('Auth method?')
+    expect(deps.workerExecute).toHaveBeenCalledTimes(2)
+    const revisionOpts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as WorkerOptions
+    expect(revisionOpts.step).toBe(WorkflowStep.Plan)
+    expect(revisionOpts.rawPrompt).toBeDefined()
     expect(result.plan.title).toBe('Test Project')
   })
 
-  // P2b: Director asks follow-up questions after initial clarification
-  it('handles follow-up questions triggered by answers', async () => {
-    setupDirectorResponses(
-      // Analyze: initial questions
-      { action: 'ask_human', message: 'Need info', questions: ['Want polling?'] },
-      // Clarify round 1: answer triggers follow-up
-      { action: 'ask_human', message: 'Follow-up needed', questions: ['Polling interval? (Recommended: 30s)'] },
-      // Clarify round 2: satisfied
-      { action: 'approve', message: 'All clear.' },
-      // CreatePlan
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
+  // PW4: Throws after MAX_PLAN_FIX_ATTEMPTS revision failures
+  it('throws after MAX_PLAN_FIX_ATTEMPTS revision failures', async () => {
     const deps = createHappyPathDeps()
-    deps.askInput = vi.fn()
-      .mockResolvedValueOnce('Yes')       // round 1: Want polling?
-      .mockResolvedValueOnce('30 seconds') // round 2: Polling interval?
-      .mockResolvedValue('done')
+    ;(deps.readFile as ReturnType<typeof vi.fn>).mockReturnValue('Not a valid plan')
 
-    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
-
-    // 2 rounds of questions answered
-    const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
-    expect(askInputCalls[0][0]).toContain('Want polling?')
-    expect(askInputCalls[1][0]).toContain('Polling interval?')
-    // 4 Director calls: analyze, clarify round 1, clarify round 2, createPlan
-    expect(mockBackend.invoke).toHaveBeenCalledTimes(4)
+    await expect(runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps))
+      .rejects.toThrow(/invalid after/)
   })
 
-  // P3: Plan revision — human provides feedback, Director revises
-  it('revises plan when human provides feedback', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-    deps.askApproval = vi.fn()
-      .mockResolvedValueOnce({ approved: false, feedback: 'Add a testing phase' })
-      .mockResolvedValueOnce({ approved: true })
-
-    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
-
-    expect(deps.askApproval).toHaveBeenCalledTimes(2)
-    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
-    const revisionPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[2][0].prompt
-    expect(revisionPrompt).toContain('Add a testing phase')
-  })
-
-  // P4: Plan validation — Director produces invalid plan, gets asked to fix
-  it('asks Director to fix invalid plan format', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: 'This is not a valid plan' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-
-    const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
-
-    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
-    const fixPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[2][0].prompt
-    expect(fixPrompt).toContain('format error')
-    expect(result.plan.title).toBe('Test Project')
-  })
-
-  // P5: Escalation after 3 plan rejections
-  it('escalates to human after 3 plan rejections', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-    deps.askApproval = vi.fn()
-      .mockResolvedValueOnce({ approved: false, feedback: 'F1' })
-      .mockResolvedValueOnce({ approved: false, feedback: 'F2' })
-      .mockResolvedValueOnce({ approved: false, feedback: 'F3' })
-      .mockResolvedValueOnce({ approved: true })
-    deps.askInput = vi.fn().mockResolvedValue('Try a simpler approach')
-
-    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
-
-    const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
-    const escalationCall = askInputCalls.find((c: string[]) => c[0].includes("I'm stuck"))
-    expect(escalationCall).toBeTruthy()
-    expect(escalationCall![0]).toContain('3 plan rejections')
-  })
-
-  // P6: Plan is displayed to human before approval
-  it('displays plan to human for approval', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-
-    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
-
-    expect(deps.display).toHaveBeenCalledWith(
-      expect.stringContaining('Test Project')
-    )
-  })
-
-  // P7: System prompt includes spec text and house rules
-  it('includes spec text and house rules in system prompt', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-
-    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
-
-    const firstOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    expect(firstOpts.systemPrompt).toContain('Build a widget app')
-    expect(firstOpts.systemPrompt).toContain('Use TDD')
-  })
-
-  // P8: createPlanFile is called with correct path derived from spec file path
-  it('derives plan path from spec file path', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-    const spec: FreeFormSpec = { ...TEST_FREE_FORM_SPEC, specFilePath: '/project/my-spec.md' }
-
-    const result = await runPlanningFlow(spec, TEST_CONFIG, deps)
-
-    expect(result.planPath).toBe('/project/my-spec.plan.md')
-    expect(deps.createPlanFile).toHaveBeenCalledWith('/project/my-spec.plan.md', VALID_PLAN_CONTENT)
-  })
-
-  // P9: First Director call has no resume, subsequent calls resume session
-  it('uses continuous session — first call fresh, subsequent calls resume', async () => {
-    setupDirectorResponses(
-      { action: 'ask_human', message: 'Need info', questions: ['What DB?'] },
-      { action: 'approve', message: 'Understood.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-    deps.askInput = vi.fn().mockResolvedValueOnce('PostgreSQL').mockResolvedValue('done')
-
-    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
-
-    // 3 calls: analyze, clarify, createPlan
-    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
-    // First call: no resume
-    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].resumeSessionId).toBeUndefined()
-    // Second call: resumes from first session
-    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[1][0].resumeSessionId).toBe('sess-dir')
-    // Third call: also resumes
-    expect((mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[2][0].resumeSessionId).toBe('sess-dir')
-  })
-
-  // P10: Returns sessionId for execution flow to continue
-  it('returns sessionId for execution flow to continue', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-
-    const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
-
-    expect(result.sessionId).toBe('sess-dir')
-  })
-
-  // PV1: Auto-approves plan when withHumanValidation is false
-  it('auto-approves plan when config.withHumanValidation is false', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withHumanValidation: false }
-
-    await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
-
-    expect(deps.askApproval).not.toHaveBeenCalled()
-    expect(deps.createPlanFile).toHaveBeenCalledWith('/tmp/spec.plan.md', VALID_PLAN_CONTENT)
-  })
-
-  // PV2: Asks for approval when withHumanValidation is true
-  it('asks for plan approval when config.withHumanValidation is true', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
+  // PW5: Shows plan for human approval when withHumanValidation
+  it('shows plan for human approval when withHumanValidation is true', async () => {
     const deps = createHappyPathDeps()
     const config = { ...TEST_CONFIG, withHumanValidation: true }
 
@@ -1023,40 +848,106 @@ describe('runPlanningFlow', () => {
     expect(deps.display).toHaveBeenCalledWith(expect.stringContaining('Test Project'))
   })
 
-  // PV3: Still fixes invalid plan format even without human validation
-  it('fixes invalid plan format even when withHumanValidation is false', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: 'Not a valid plan' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
-    const deps = createHappyPathDeps()
-    const config = { ...TEST_CONFIG, withHumanValidation: false }
-
-    const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
-
-    expect(deps.askApproval).not.toHaveBeenCalled()
-    expect(result.plan.title).toBe('Test Project')
-    // 3 calls: analyze, createPlan(invalid), fix
-    expect(mockBackend.invoke).toHaveBeenCalledTimes(3)
-  })
-
-  // PV4: Plan revision loop works when withHumanValidation is true
-  it('handles plan revision when withHumanValidation is true', async () => {
-    setupDirectorResponses(
-      { action: 'analyze', message: 'Spec is clear.' },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-      { action: 'done', message: VALID_PLAN_CONTENT },
-    )
+  // PW6: Spawns Revision Worker when human rejects plan
+  it('spawns Revision Worker when human rejects plan', async () => {
     const deps = createHappyPathDeps()
     deps.askApproval = vi.fn()
-      .mockResolvedValueOnce({ approved: false, feedback: 'Add tests' })
+      .mockResolvedValueOnce({ approved: false, feedback: 'Add a testing phase' })
       .mockResolvedValueOnce({ approved: true })
     const config = { ...TEST_CONFIG, withHumanValidation: true }
 
     await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
 
-    expect(deps.askApproval).toHaveBeenCalledTimes(2)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(2)
+    const revisionOpts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as WorkerOptions
+    expect(revisionOpts.rawPrompt).toContain('Add a testing phase')
+  })
+
+  // PW7: Escalates after 3 human rejections
+  it('escalates after 3 human rejections', async () => {
+    const deps = createHappyPathDeps()
+    deps.askApproval = vi.fn()
+      .mockResolvedValueOnce({ approved: false, feedback: 'F1' })
+      .mockResolvedValueOnce({ approved: false, feedback: 'F2' })
+      .mockResolvedValueOnce({ approved: false, feedback: 'F3' })
+      .mockResolvedValueOnce({ approved: true })
+    deps.askInput = vi.fn().mockResolvedValue('Try a simpler approach')
+    const config = { ...TEST_CONFIG, withHumanValidation: true }
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
+
+    const askInputCalls = (deps.askInput as ReturnType<typeof vi.fn>).mock.calls
+    const escalationCall = askInputCalls.find((c: string[]) => c[0].includes('stuck') || c[0].includes('rejections'))
+    expect(escalationCall).toBeTruthy()
+  })
+
+  // PW8: Does not return sessionId (no Director LLM calls during planning)
+  it('does not return sessionId', async () => {
+    const deps = createHappyPathDeps()
+
+    const result = await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    expect(result).not.toHaveProperty('sessionId')
+  })
+
+  // PW9: Records Worker cost in costTracker
+  it('records Worker cost in costTracker', async () => {
+    const deps = createHappyPathDeps()
+    deps.workerExecute = vi.fn().mockResolvedValue(makeWorkerSuccess({ cost: 1.50 }))
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    expect(deps.costTracker.getWorkerTotal().costUsd).toBeGreaterThan(0)
+  })
+
+  // PW10: Auto-approves when withHumanValidation is false
+  it('auto-approves when withHumanValidation is false', async () => {
+    const deps = createHappyPathDeps()
+    const config = { ...TEST_CONFIG, withHumanValidation: false }
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, config, deps)
+
+    expect(deps.askApproval).not.toHaveBeenCalled()
+  })
+
+  // PW11: Passes house rules as houseRulesContent
+  it('passes house rules as houseRulesContent', async () => {
+    const deps = createHappyPathDeps()
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
+    expect(opts.houseRulesContent).toBe('Use TDD. Follow REST conventions.')
+  })
+
+  // PW12: Derives plan path from spec file path
+  it('derives plan path from spec file path', async () => {
+    const deps = createHappyPathDeps()
+    const spec: FreeFormSpec = { ...TEST_FREE_FORM_SPEC, specFilePath: '/project/my-spec.md' }
+
+    const result = await runPlanningFlow(spec, TEST_CONFIG, deps)
+
+    expect(result.planPath).toBe('/project/my-spec.plan.md')
+  })
+
+  // PW13: No Director backend calls during planning
+  it('does not call Director backend during planning', async () => {
+    const deps = createHappyPathDeps()
+
+    await runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps)
+
+    expect(mockBackend.invoke).not.toHaveBeenCalled()
+  })
+
+  // PW14: Throws when Worker fails to write plan file
+  it('throws when Worker fails to write plan file', async () => {
+    const deps = createHappyPathDeps()
+    ;(deps.readFile as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('ENOENT: no such file')
+    })
+
+    await expect(runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps))
+      .rejects.toThrow(/plan file/)
   })
 })
 

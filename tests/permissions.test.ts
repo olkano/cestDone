@@ -33,4 +33,11 @@ describe('getTools', () => {
   it('throws for Complete step (Director-only)', () => {
     expect(() => getTools(WorkflowStep.Complete)).toThrow('no Worker call')
   })
+
+  // N5: Plan step returns full edit tools (Planning Worker needs Write to create .plan.md)
+  it('returns full auto-edit tools for Plan step', () => {
+    expect(getTools(WorkflowStep.Plan)).toEqual(
+      ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
+    )
+  })
 })

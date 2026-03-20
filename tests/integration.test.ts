@@ -103,13 +103,12 @@ afterEach(() => {
 })
 
 describe('integration', () => {
-  // I1: Full flow — no plan exists → planning flow → phase execution
+  // I1: Full flow — no plan exists → planning Worker → phase execution
   it('runs full workflow: planning → phase execution → completion', async () => {
-    // Planning flow: Director(analyze), Director(createPlan)
+    // Planning flow: Worker(plan) writes .plan.md directly
     // Phase execution: Worker(execute), Director(review), Director(complete)
     const responses = [
-      makeDirectorResult('analyze', 'Spec is clear. No questions.'),
-      makeDirectorResult('done', VALID_PLAN_CONTENT),
+      makeWorkerResult({ structured_output: { status: 'success', summary: 'Plan created' } }),
       makeWorkerResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Phase done. Created scaffold.'),
@@ -117,6 +116,13 @@ describe('integration', () => {
 
     mockQuery.mockImplementation(() => {
       const idx = queryCallIndex++
+      // Planning Worker writes the plan file as a side effect
+      if (idx === 0) {
+        const specPath = path.join(tmpDir, 'spec.md')
+        const planPath = specPath.replace('.md', '.plan.md')
+        fs.mkdirSync(path.dirname(planPath), { recursive: true })
+        fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
+      }
       return createMockQuery(responses[idx])
     })
 
@@ -125,7 +131,7 @@ describe('integration', () => {
 
     await handleRun(specPath, { withWorker: true, withReviews: true, withHumanValidation: true })
 
-    // Plan file created
+    // Plan file created by Planning Worker
     const planPath = specPath.replace('.md', '.plan.md')
     expect(fs.existsSync(planPath)).toBe(true)
     const planContent = fs.readFileSync(planPath, 'utf-8')
@@ -139,18 +145,17 @@ describe('integration', () => {
     const specContent = fs.readFileSync(specPath, 'utf-8')
     expect(specContent).toBe('Build a simple project with tests.')
 
-    // 5 query() calls: 2 planning + 3 execution
-    expect(mockQuery).toHaveBeenCalledTimes(5)
+    // 4 query() calls: 1 planning Worker + 3 execution (Worker + Review + Complete)
+    expect(mockQuery).toHaveBeenCalledTimes(4)
 
-    // askApproval called once: for plan approval only (no sub-plan approval)
+    // askApproval called once: for plan approval only
     expect(askApproval).toHaveBeenCalledTimes(1)
   })
 
   // I2: Worker receives correct tools for Execute step
   it('passes correct tools to Worker for Execute step', async () => {
     const responses = [
-      makeDirectorResult('analyze', 'Spec is clear.'),
-      makeDirectorResult('done', VALID_PLAN_CONTENT),
+      makeWorkerResult({ structured_output: { status: 'success', summary: 'Plan created' } }),
       makeWorkerResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Done.'),
@@ -158,6 +163,11 @@ describe('integration', () => {
 
     mockQuery.mockImplementation(() => {
       const idx = queryCallIndex++
+      if (idx === 0) {
+        const specPath = path.join(tmpDir, 'spec.md')
+        const planPath = specPath.replace('.md', '.plan.md')
+        fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
+      }
       return createMockQuery(responses[idx])
     })
 
@@ -166,9 +176,10 @@ describe('integration', () => {
 
     await handleRun(specPath, { withWorker: true, withReviews: true })
 
-    // The 3rd query() call (index 2) is the Worker (execute step)
-    expect(mockQuery).toHaveBeenCalledTimes(5)
-    const workerParams = mockQuery.mock.calls[2][0]
+    // 4 query() calls: planning Worker + execution Worker + review + complete
+    expect(mockQuery).toHaveBeenCalledTimes(4)
+    // The 2nd call (index 1) is the phase execution Worker
+    const workerParams = mockQuery.mock.calls[1][0]
     expect(workerParams.options.tools).toEqual(
       ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
     )
@@ -205,11 +216,10 @@ describe('integration', () => {
     expect(updated).toContain('Resumed and done.')
   })
 
-  // I4: Director session continuity — first call fresh, rest resume
-  it('uses continuous Director session across planning and execution', async () => {
+  // I4: Director session — no planning session, fresh Director at Review
+  it('starts fresh Director session at Review (no planning session)', async () => {
     const responses = [
-      makeDirectorResult('analyze', 'Spec is clear. No questions.'),
-      makeDirectorResult('done', VALID_PLAN_CONTENT),
+      makeWorkerResult({ structured_output: { status: 'success', summary: 'Plan created' } }),
       makeWorkerResult(),
       makeDirectorResult('done', 'All verified.'),
       makeDirectorResult('done', 'Phase done. Created scaffold.'),
@@ -217,6 +227,11 @@ describe('integration', () => {
 
     mockQuery.mockImplementation(() => {
       const idx = queryCallIndex++
+      if (idx === 0) {
+        const specPath = path.join(tmpDir, 'spec.md')
+        const planPath = specPath.replace('.md', '.plan.md')
+        fs.writeFileSync(planPath, VALID_PLAN_CONTENT, 'utf-8')
+      }
       return createMockQuery(responses[idx])
     })
 
@@ -225,26 +240,21 @@ describe('integration', () => {
 
     await handleRun(specPath, { withWorker: true, withReviews: true, withHumanValidation: true })
 
-    expect(mockQuery).toHaveBeenCalledTimes(5)
+    expect(mockQuery).toHaveBeenCalledTimes(4)
 
-    // Call 0 (Analyze): fresh session — no resume
+    // Call 0 (Planning Worker): fresh session
     expect(mockQuery.mock.calls[0][0].options.resume).toBeUndefined()
-    expect(mockQuery.mock.calls[0][0].options.systemPrompt).toBeDefined()
 
-    // Call 1 (CreatePlan): resumes from Analyze session
-    expect(mockQuery.mock.calls[1][0].options.resume).toBe('sess-1')
-    expect(mockQuery.mock.calls[1][0].options.systemPrompt).toBeUndefined()
+    // Call 1 (Phase Worker): fresh session — Workers never resume
+    expect(mockQuery.mock.calls[1][0].options.resume).toBeUndefined()
 
-    // Call 2 (Worker): fresh session — Worker never resumes
-    // (Worker doesn't use Director session)
+    // Call 2 (Review): fresh Director session — no planning session to resume from
+    expect(mockQuery.mock.calls[2][0].options.resume).toBeUndefined()
+    expect(mockQuery.mock.calls[2][0].options.systemPrompt).toBeDefined()
 
-    // Call 3 (Review): resumes Director session
-    expect(mockQuery.mock.calls[3][0].options.resume).toBeDefined()
+    // Call 3 (Complete): resumes from Review session
+    expect(mockQuery.mock.calls[3][0].options.resume).toBe('sess-1')
     expect(mockQuery.mock.calls[3][0].options.systemPrompt).toBeUndefined()
-
-    // Call 4 (Complete): resumes Director session
-    expect(mockQuery.mock.calls[4][0].options.resume).toBeDefined()
-    expect(mockQuery.mock.calls[4][0].options.systemPrompt).toBeUndefined()
   })
 
   // I5: Resume starts a fresh Director session (no planning history)

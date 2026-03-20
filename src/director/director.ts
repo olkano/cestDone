@@ -1,18 +1,16 @@
 // src/director/director.ts
+import path from 'node:path'
 import type { Phase, PhaseStatus, Config, DirectorResponse, WorkerResult, WorkerOptions, FreeFormSpec, Plan, TokenUsage, Backend, BackendResult } from '../shared/types.js'
 import { WorkflowStep } from '../shared/types.js'
 import { CostTracker, formatTotals } from '../shared/cost-tracker.js'
 import {
   buildDirectorTools,
-  buildClarifyPrompt,
   buildInitialWorkerInstructions,
   buildReviewPrompt,
   buildCompletePrompt,
   buildDirectorExecutionPrompt,
-  buildPlanningSystemPrompt,
-  buildFreeFormAnalyzePrompt,
-  buildCreatePlanPrompt,
-  buildRevisePlanPrompt,
+  buildPlanningWorkerPrompt,
+  buildPlanRevisionWorkerPrompt,
   buildExecutionSystemPrompt,
   DIRECTOR_RESPONSE_SCHEMA,
 } from './prompts.js'
@@ -26,6 +24,7 @@ export interface DirectorDeps {
   askApproval: () => Promise<{ approved: boolean; feedback?: string }>
   askInput: (prompt: string) => Promise<string>
   createPlanFile: (planPath: string, content: string) => void
+  readFile: (path: string) => string
   updatePhaseStatus: (filePath: string, phaseNumber: number, status: PhaseStatus) => void
   writePhaseCompletion: (filePath: string, phaseNumber: number, doneSummary: string) => void
   workerExecute: (options: WorkerOptions) => Promise<WorkerResult>
@@ -66,155 +65,137 @@ export async function runPlanningFlow(
   spec: FreeFormSpec,
   config: Config,
   deps: DirectorDeps
-): Promise<{ planPath: string; plan: Plan; sessionId: string }> {
+): Promise<{ planPath: string; plan: Plan }> {
   const { logger } = deps
+  const planPath = getPlanPath(spec.specFilePath)
   const env = detectEnvironment(config.targetRepoPath)
-  const systemPromptText = buildPlanningSystemPrompt(spec, env)
 
-  // Step 1: Analyze free-form spec — first call creates the Director session
-  logger.log('Director', 'Planning: Analyzing free-form spec')
-  const analyzeCallResult = await executeDirector({
-    prompt: buildFreeFormAnalyzePrompt(spec),
-    step: WorkflowStep.Analyze,
-    systemPromptText,
-    config,
+  // Delegate planning to a Worker
+  logger.log('Director', 'Planning: Spawning Planning Worker')
+  const rawPrompt = buildPlanningWorkerPrompt(spec, env, planPath)
+  const syntheticPhase: Phase = { number: 0, name: 'Planning', status: 'in-progress', spec: spec.text, applicableRules: '', done: '' }
+
+  const planningResult = await deps.workerExecute({
+    step: WorkflowStep.Plan,
+    phase: syntheticPhase,
+    model: getWorkerModel(config.workerModel),
+    targetRepoPath: config.targetRepoPath,
+    houseRulesContent: spec.houseRulesContent,
+    instructions: '',
+    rawPrompt,
+    maxTurns: config.maxTurns,
+    maxBudgetUsd: config.maxBudgetUsd,
     logger,
-    backend: deps.backend,
+    backend: deps.workerBackend,
   })
-  const analyzeResult = recordDirectorCall(deps, analyzeCallResult)
-  let sessionId = analyzeCallResult.sessionId
 
-  // Step 2: Clarify (iterative — ask follow-ups until Director is satisfied)
-  let clarificationsText = ''
-  let pendingQuestions = analyzeResult.action === 'ask_human' ? (analyzeResult.questions ?? []) : []
-  const MAX_CLARIFY_ROUNDS = DEFAULTS.maxClarifyRounds
+  deps.costTracker.recordWorker({
+    costUsd: planningResult.cost,
+    inputTokens: planningResult.usage.inputTokens,
+    outputTokens: planningResult.usage.outputTokens,
+    cacheReadInputTokens: planningResult.usage.cacheReadInputTokens,
+    cacheCreationInputTokens: planningResult.usage.cacheCreationInputTokens,
+  })
+  logger.log('Session', formatTotals(deps.costTracker))
+  logger.log('Director', `Planning Worker completed (cost: $${planningResult.cost.toFixed(2)})`)
 
-  for (let round = 0; round < MAX_CLARIFY_ROUNDS && pendingQuestions.length > 0; round++) {
-    logger.log('Director', `Planning: Clarify round ${round + 1} — ${pendingQuestions.length} questions`)
-    const answers: string[] = []
-    for (const q of pendingQuestions) {
-      answers.push(await deps.askInput(`Director asks: ${q}\nYour answer: `))
-    }
-    clarificationsText += (clarificationsText ? '\n\n' : '') +
-      pendingQuestions.map((q, i) => `Q: ${q}\nA: ${answers[i]}`).join('\n\n')
-
-    const clarifyCallResult = await executeDirector({
-      prompt: buildClarifyPrompt(pendingQuestions, answers),
-      step: WorkflowStep.Clarify,
-      systemPromptText,
-      config,
-      logger,
-      backend: deps.backend,
-      resume: sessionId,
-    })
-    const clarifyResult = recordDirectorCall(deps, clarifyCallResult)
-    sessionId = clarifyCallResult.sessionId || sessionId
-
-    // If Director has follow-up questions, loop; otherwise proceed
-    if (clarifyResult.action === 'ask_human' && clarifyResult.questions?.length) {
-      pendingQuestions = clarifyResult.questions
-    } else {
-      pendingQuestions = []
-    }
+  // Read plan from disk — Worker should have written it
+  let currentPlanContent: string
+  try {
+    currentPlanContent = deps.readFile(planPath)
+  } catch {
+    throw new Error(`Planning Worker did not write plan file at ${planPath}`)
   }
 
-  // Step 3: Create plan
-  logger.log('Director', 'Planning: Creating structured plan')
-  const createCallResult = await executeDirector({
-    prompt: buildCreatePlanPrompt(spec, clarificationsText),
-    step: WorkflowStep.CreatePlan,
-    systemPromptText,
-    config,
-    logger,
-    backend: deps.backend,
-    resume: sessionId,
-  })
-  const createResult = recordDirectorCall(deps, createCallResult)
-  sessionId = createCallResult.sessionId || sessionId
-
-  // Validate plan format + optional human approval
-  const needsApproval = config.withHumanValidation !== false
-  let rejectionCount = 0
-  let planFixAttempts = 0
+  // Validate plan format, retry with Revision Worker if invalid
   const MAX_PLAN_FIX_ATTEMPTS = 3
-  let currentPlanContent = createResult.message
+  let planFixAttempts = 0
 
   while (true) {
-    // Validate plan parses correctly (always — even without human validation)
     try {
       parsePlan(currentPlanContent)
+      break
     } catch (err) {
       planFixAttempts++
       if (planFixAttempts > MAX_PLAN_FIX_ATTEMPTS) {
         throw new Error(`Plan format still invalid after ${MAX_PLAN_FIX_ATTEMPTS} fix attempts: ${(err as Error).message}\n\nLast plan content:\n${currentPlanContent.slice(0, 500)}`)
       }
-      logger.log('Director', `Plan format invalid (attempt ${planFixAttempts}/${MAX_PLAN_FIX_ATTEMPTS}): ${(err as Error).message}. Asking Director to fix.`)
-      const fixCallResult = await executeDirector({
-        prompt: `The plan you produced has a format error: ${(err as Error).message}\n\nPlease fix it and return the corrected plan in your message field.\n\nOriginal plan:\n${currentPlanContent}`,
-        step: WorkflowStep.CreatePlan,
-        systemPromptText,
-        config,
-        logger,
-        backend: deps.backend,
-        resume: sessionId,
-      })
-      const fixResult = recordDirectorCall(deps, fixCallResult)
-      sessionId = fixCallResult.sessionId || sessionId
-      currentPlanContent = fixResult.message
-      continue
-    }
+      logger.log('Director', `Plan format invalid (attempt ${planFixAttempts}/${MAX_PLAN_FIX_ATTEMPTS}): ${(err as Error).message}. Spawning Revision Worker.`)
 
-    // Plan format is valid — skip human approval if not requested
-    if (!needsApproval) break
-
-    deps.display(`\n=== Director's Plan ===\n${currentPlanContent}\n======================`)
-    const { approved, feedback } = await deps.askApproval()
-    logger.log('Director', `Plan approval: ${approved ? 'approved' : 'feedback received'}${feedback ? ' — ' + feedback : ''}`)
-    if (approved) break
-
-    rejectionCount++
-    if (rejectionCount >= MAX_REJECTIONS) {
-      logger.log('Director', `Escalating after ${rejectionCount} plan rejections`)
-      const guidance = await deps.askInput(
-        `I'm stuck after ${rejectionCount} plan rejections. Latest feedback: "${feedback}"\n` +
-        'Please provide guidance on how to proceed: '
-      )
-      rejectionCount = 0
-      const escCallResult = await executeDirector({
-        prompt: `Human escalation. Guidance: ${guidance}\nPrevious plan:\n${currentPlanContent}\nPlease revise the plan.`,
-        step: WorkflowStep.CreatePlan,
-        systemPromptText,
-        config,
+      const revisionPrompt = buildPlanRevisionWorkerPrompt(planPath, (err as Error).message)
+      await deps.workerExecute({
+        step: WorkflowStep.Plan,
+        phase: syntheticPhase,
+        model: getWorkerModel(config.workerModel),
+        targetRepoPath: config.targetRepoPath,
+        houseRulesContent: spec.houseRulesContent,
+        instructions: '',
+        rawPrompt: revisionPrompt,
+        maxTurns: config.maxTurns,
         logger,
-        backend: deps.backend,
-        resume: sessionId,
+        backend: deps.workerBackend,
       })
-      const escResult = recordDirectorCall(deps, escCallResult)
-      sessionId = escCallResult.sessionId || sessionId
-      currentPlanContent = escResult.message
-    } else {
-      const revCallResult = await executeDirector({
-        prompt: buildRevisePlanPrompt(currentPlanContent, feedback ?? ''),
-        step: WorkflowStep.CreatePlan,
-        systemPromptText,
-        config,
-        logger,
-        backend: deps.backend,
-        resume: sessionId,
-      })
-      const revResult = recordDirectorCall(deps, revCallResult)
-      sessionId = revCallResult.sessionId || sessionId
-      currentPlanContent = revResult.message
+
+      currentPlanContent = deps.readFile(planPath)
     }
   }
 
-  // Write plan file
-  const planPath = getPlanPath(spec.specFilePath)
-  deps.createPlanFile(planPath, currentPlanContent)
-  const plan = parsePlan(currentPlanContent)
-  logger.log('Director', `Plan written to ${planPath} with ${plan.phases.length} phases`)
+  // Optional human approval
+  const needsApproval = config.withHumanValidation !== false
+  let rejectionCount = 0
 
-  return { planPath, plan, sessionId }
+  if (needsApproval) {
+    while (true) {
+      deps.display(`\n=== Plan ===\n${currentPlanContent}\n======================`)
+      const { approved, feedback } = await deps.askApproval()
+      logger.log('Director', `Plan approval: ${approved ? 'approved' : 'feedback received'}${feedback ? ' — ' + feedback : ''}`)
+      if (approved) break
+
+      rejectionCount++
+      if (rejectionCount >= MAX_REJECTIONS) {
+        logger.log('Director', `Escalating after ${rejectionCount} plan rejections`)
+        const guidance = await deps.askInput(
+          `I'm stuck after ${rejectionCount} plan rejections. Latest feedback: "${feedback}"\n` +
+          'Please provide guidance on how to proceed: '
+        )
+        rejectionCount = 0
+        const escPrompt = buildPlanRevisionWorkerPrompt(planPath, `Human escalation. Guidance: ${guidance}`)
+        await deps.workerExecute({
+          step: WorkflowStep.Plan,
+          phase: syntheticPhase,
+          model: getWorkerModel(config.workerModel),
+          targetRepoPath: config.targetRepoPath,
+          houseRulesContent: spec.houseRulesContent,
+          instructions: '',
+          rawPrompt: escPrompt,
+          maxTurns: config.maxTurns,
+          logger,
+          backend: deps.workerBackend,
+        })
+      } else {
+        const revPrompt = buildPlanRevisionWorkerPrompt(planPath, feedback ?? '')
+        await deps.workerExecute({
+          step: WorkflowStep.Plan,
+          phase: syntheticPhase,
+          model: getWorkerModel(config.workerModel),
+          targetRepoPath: config.targetRepoPath,
+          houseRulesContent: spec.houseRulesContent,
+          instructions: '',
+          rawPrompt: revPrompt,
+          maxTurns: config.maxTurns,
+          logger,
+          backend: deps.workerBackend,
+        })
+      }
+
+      currentPlanContent = deps.readFile(planPath)
+    }
+  }
+
+  const plan = parsePlan(currentPlanContent)
+  logger.log('Director', `Plan at ${planPath} with ${plan.phases.length} phases`)
+
+  return { planPath, plan }
 }
 
 // === Phase execution flow ===
@@ -307,9 +288,19 @@ async function executeTwoAgentPhase(
 
     logger.log('Director', `Reviewing Worker output for Phase ${phase.number} (${phase.name})`)
     logger.logVerbose('Director', `Review state: completedSubPhases=${completedSubPhases.length}, workerRetries=${workerRetries}`)
+
+    // Read Worker report from file if available, fall back to in-memory report
+    const reportPath = path.join(config.targetRepoPath, '.cestdone', 'reports', `phase-${phase.number}-report.md`)
+    let reportContent: string
+    try {
+      reportContent = deps.readFile(reportPath)
+    } catch {
+      reportContent = JSON.stringify(workerResult.report ?? { status: workerResult.status, message: workerResult.message })
+    }
+
     const reviewPrompt = buildReviewPrompt(
       phase.number, phase.name, phase.spec,
-      JSON.stringify(workerResult.report ?? { status: workerResult.status, message: workerResult.message }),
+      reportContent,
       completedSubPhases,
     )
 
