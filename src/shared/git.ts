@@ -7,7 +7,7 @@ const DEFAULT_GITIGNORE = `node_modules/
 dist/
 .env
 *.log
-cestdone-diff.txt
+.cestdone/
 `
 
 export function ensureGitRepo(targetRepoPath: string): void {

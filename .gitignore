@@ -3,7 +3,6 @@ dist
 *.tsbuildinfo
 .env
 nul
-cestdone-diff.txt
 diff.txt
-logs/
 spike/
+logs/

@@ -23,4 +23,4 @@ For the given specifications:
 - Runtime: Node.js + TypeScript
 - Test framework: Vitest
 - Package manager: npm
-- OS: Windows PowerShell — no piping (`| cat`), prefer one-liners
+- **OS:** Windows 11, shell is **bash** (Unix syntax, forward slashes, /dev/null)

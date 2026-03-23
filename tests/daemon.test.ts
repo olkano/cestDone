@@ -98,6 +98,7 @@ function makeMockLogger(): DaemonLogger {
 function makeDeps(daemonConfig?: DaemonConfig): DaemonDeps {
   const config: Config = {
     targetRepoPath: '.',
+    runDir: '.cestdone/test_2026-03-20_120000',
     maxTurns: 100,
     daemon: daemonConfig ?? makeDaemonConfig(),
   }

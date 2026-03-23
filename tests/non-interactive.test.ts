@@ -41,6 +41,7 @@ const IN_PROGRESS_PHASE: Phase = {
 
 const NI_CONFIG: Config = {
   targetRepoPath: '.',
+  runDir: '.cestdone/test_2026-03-20_120000',
   maxTurns: 100,
   nonInteractive: true,
 }
@@ -195,6 +196,7 @@ describe('non-interactive mode', () => {
   it('config loads nonInteractive from file', async () => {
     vi.mocked(loadConfig).mockReturnValue({
       targetRepoPath: '.',
+      runDir: '.cestdone/test_2026-03-20_120000',
       maxTurns: 100,
       nonInteractive: true,
     })
@@ -216,6 +218,7 @@ describe('non-interactive mode', () => {
   it('CLI flag sets nonInteractive on config', async () => {
     vi.mocked(loadConfig).mockReturnValue({
       targetRepoPath: '.',
+      runDir: '.cestdone/test_2026-03-20_120000',
       maxTurns: 100,
       // nonInteractive not set in config
     })

@@ -183,9 +183,11 @@ describe('buildInitialWorkerInstructions', () => {
   })
 })
 
+const TEST_RUN_DIR = '.cestdone/test-spec_2026-03-20_120000'
+
 describe('buildReviewPrompt', () => {
   it('includes phase identity, spec, and worker report', () => {
-    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
+    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}', TEST_RUN_DIR)
 
     expect(prompt).toContain('Phase 1')
     expect(prompt).toContain('Setup')
@@ -194,7 +196,7 @@ describe('buildReviewPrompt', () => {
   })
 
   it('does NOT instruct Director to re-run tests (Worker already did)', () => {
-    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
+    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}', TEST_RUN_DIR)
 
     expect(prompt).not.toContain('npm test')
     expect(prompt).not.toContain('tsc --noEmit')
@@ -202,19 +204,26 @@ describe('buildReviewPrompt', () => {
   })
 
   it('instructs Director to review code quality from diff', () => {
-    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}')
+    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}', TEST_RUN_DIR)
 
     expect(prompt).toContain('Code Review (mandatory')
-    expect(prompt).toContain('cestdone-diff.txt')
+    expect(prompt).toContain(`${TEST_RUN_DIR}/cestdone-diff.txt`)
     expect(prompt).toContain('Correctness')
     expect(prompt).toContain('Completeness')
     expect(prompt).toContain('Quality')
     expect(prompt).toContain('Security')
-    expect(prompt).toContain('Requirements Check')
+    expect(prompt).toContain('Spec Compliance')
+  })
+
+  it('includes test coverage check in review', () => {
+    const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}', TEST_RUN_DIR)
+
+    expect(prompt).toContain('Test Coverage')
+    expect(prompt).toContain('untested scenarios')
   })
 
   it('limits functional testing to when unit tests cannot cover it', () => {
-    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}')
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR)
 
     expect(prompt).toContain('only when needed')
     expect(prompt).toContain('unit tests cannot cover')
@@ -222,7 +231,7 @@ describe('buildReviewPrompt', () => {
   })
 
   it('includes response action instructions for continue/done/fix', () => {
-    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}')
+    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}', TEST_RUN_DIR)
 
     expect(prompt).toContain('continue')
     expect(prompt).toContain('done')
@@ -230,7 +239,7 @@ describe('buildReviewPrompt', () => {
   })
 
   it('scopes response actions to the current phase only', () => {
-    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}')
+    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}', TEST_RUN_DIR)
 
     expect(prompt).toContain('Your scope is ONLY Phase 2 (API)')
     expect(prompt).toContain('Do NOT use "continue" to advance to the next plan phase')
@@ -238,7 +247,7 @@ describe('buildReviewPrompt', () => {
   })
 
   it('includes completed sub-phases when provided', () => {
-    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', [
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR, [
       'Created models and migrations',
       'Added API routes',
     ])
@@ -251,13 +260,13 @@ describe('buildReviewPrompt', () => {
   })
 
   it('omits sub-phases section when none completed', () => {
-    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', [])
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR, [])
 
     expect(prompt).not.toContain('Previously Completed Sub-phases')
   })
 
   it('includes git commit instructions', () => {
-    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}')
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR)
 
     expect(prompt).toContain('git add -A')
     expect(prompt).toContain('git commit')
@@ -509,6 +518,19 @@ describe('buildPlanningWorkerPrompt', () => {
     expect(prompt).toContain('Use TDD. Update docs at the end.')
   })
 
+  it('includes compliance checklist and reference component in format template', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, undefined, '/tmp/spec.plan.md')
+    expect(prompt).toContain('Compliance Checklist')
+    expect(prompt).toContain('Reference Component')
+  })
+
+  it('includes planning guidelines for compliance, reference, and obligations', () => {
+    const prompt = buildPlanningWorkerPrompt(TEST_SPEC, undefined, '/tmp/spec.plan.md')
+    expect(prompt).toContain('Compliance Checklist inside ### Spec')
+    expect(prompt).toContain('#### Reference Component inside ### Spec')
+    expect(prompt).toContain('tracking tables')
+  })
+
   it('omits house rules section from prompt body when empty (format template still references it)', () => {
     const noRules: FreeFormSpec = { text: 'Build something.', houseRulesContent: '', specFilePath: '/tmp/s.md' }
     const prompt = buildPlanningWorkerPrompt(noRules, undefined, '/tmp/s.plan.md')
@@ -569,7 +591,7 @@ describe('buildPlanningWorkerSystemPrompt', () => {
 
 describe('buildReviewPrompt — report file reference', () => {
   it('mentions report file path in Worker Report section', () => {
-    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}')
-    expect(prompt).toContain('.cestdone/reports/phase-2-report.md')
+    const prompt = buildReviewPrompt(2, 'API', 'Plan', '{"status":"success"}', TEST_RUN_DIR)
+    expect(prompt).toContain(`${TEST_RUN_DIR}/phase-2-report.md`)
   })
 })

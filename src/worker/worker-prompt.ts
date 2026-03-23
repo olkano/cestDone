@@ -6,6 +6,7 @@ export interface WorkerPromptInput {
   instructions: string
   phase: Phase
   step: WorkflowStep
+  runDir: string
   completedSubPhases?: string[]
 }
 
@@ -45,16 +46,22 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
   parts.push('If tests require starting a server or background process, kill it when tests are done.')
   parts.push('')
 
+  parts.push('### Compliance Self-Check')
+  parts.push('Before writing your report, re-read the phase spec. If it contains a #### Compliance Checklist,')
+  parts.push('verify each item against your implementation. If it contains a #### Reference Component,')
+  parts.push('confirm you matched the referenced patterns. Flag deviations in your report under Issues.')
+  parts.push('')
+
   parts.push('### Reporting')
-  parts.push(`After modifications, write your report to \`.cestdone/reports/phase-${input.phase.number}-report.md\`:`)
+  parts.push(`After modifications, write your report to \`${input.runDir}/phase-${input.phase.number}-report.md\`:`)
   parts.push('- Status: success | partial | failed')
   parts.push('- Summary: what was implemented')
   parts.push('- Files Changed: list of files')
   parts.push('- Test Results: raw output from test runner')
   parts.push('- Issues: any blockers or concerns')
   parts.push('')
-  parts.push('Also write the diff to `cestdone-diff.txt` in the repo root:')
-  parts.push('`git --no-pager diff > cestdone-diff.txt`')
+  parts.push(`Also write the diff to \`${input.runDir}/cestdone-diff.txt\`:`)
+  parts.push(`\`git --no-pager diff > ${input.runDir}/cestdone-diff.txt\``)
 
   return parts.join('\n')
 }

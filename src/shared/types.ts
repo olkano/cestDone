@@ -18,6 +18,7 @@ export type ModelAlias = 'haiku' | 'sonnet' | 'opus'
 
 export interface Config {
   targetRepoPath: string
+  runDir: string // relative to targetRepoPath, e.g. ".cestdone/spec-name_2026-03-20_144513"
   maxTurns: number
   directorMaxTurns?: number
   maxBudgetUsd?: number
@@ -86,6 +87,7 @@ export interface WorkerOptions {
   phase: Phase
   model: string
   targetRepoPath: string
+  runDir: string
   houseRulesContent: string
   instructions: string
   rawPrompt?: string

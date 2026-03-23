@@ -45,6 +45,7 @@ const DONE_PHASE: Phase = {
 
 const MOCK_CONFIG: Config = {
   targetRepoPath: '.',
+  runDir: '.cestdone/test_2026-03-20_120000',
   maxTurns: 100,
 }
 

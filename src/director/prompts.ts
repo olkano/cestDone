@@ -95,14 +95,14 @@ export function buildInitialWorkerInstructions(plan: Plan, phase: Phase, complet
   return parts.join('\n')
 }
 
-export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, workerReport: string, completedSubPhases: string[] = []): string {
+export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, workerReport: string, runDir: string, completedSubPhases: string[] = []): string {
   const parts: string[] = [
     `## You are reviewing: Phase ${phaseNumber} — ${phaseName}`,
     '',
     '## Phase Spec',
     phaseSpec,
     '',
-    `## Worker Report (from .cestdone/reports/phase-${phaseNumber}-report.md)`,
+    `## Worker Report (from ${runDir}/phase-${phaseNumber}-report.md)`,
     workerReport,
   ]
 
@@ -120,7 +120,7 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     'Focus on what the Worker cannot self-verify: code quality, spec compliance, and integration.',
     '',
     '### 1. Code Review (mandatory)',
-    'Read the diff (`cestdone-diff.txt`) or changed files. Assess:',
+    `Read the diff (\`${runDir}/cestdone-diff.txt\`) or changed files. Assess:`,
     '- **Correctness**: Does the logic implement what the phase spec requires?',
     '- **Completeness**: Missing edge cases, TODO stubs, or unhandled errors?',
     '- **Quality**: Clean, well-structured, consistent with existing codebase?',
@@ -136,8 +136,16 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     '',
     'Skip this step entirely if the Worker\'s test results already cover the functionality.',
     '',
-    '### 3. Requirements Check',
-    'Compare delivered code against the phase spec. Flag anything missing or divergent.',
+    '### 3. Spec Compliance (mandatory)',
+    'Go through the phase spec point by point:',
+    '- If the spec contains a #### Compliance Checklist, verify every item. A failed item is a `fix`.',
+    '- If the spec names a #### Reference Component, compare the implementation against those patterns. Deviations are a `fix`.',
+    '- Compare each stated requirement against delivered code. Spec deviations are a `fix`, not informational — only the human can approve deviations.',
+    '',
+    '### 4. Test Coverage',
+    'Read the phase spec and the Worker\'s test files. Identify untested scenarios:',
+    'edge cases, negative paths, accessibility, guard rails, and boundary conditions.',
+    'If significant gaps exist (core spec requirements untested), respond with `fix` and list them.',
     '',
     '## Git Commits',
     'If the work is correct, commit before responding:',
@@ -228,6 +236,15 @@ const PLAN_FORMAT_TEMPLATE = [
   '### Status: pending',
   '### Spec',
   '<detailed phase specification>',
+  '',
+  '#### Compliance Checklist',
+  '- [ ] <prescriptive code from spec that must be followed exactly>',
+  '- [ ] <mandated component/library choices>',
+  '- [ ] <accessibility requirements>',
+  '- [ ] <documentation obligations>',
+  '',
+  '#### Reference Component (when applicable)',
+  '- Model: `<existing/component/path>` — replicate: <pattern1>, <pattern2>',
   '### Applicable Rules',
   '<only the house rules relevant to THIS phase>',
   '### Done',
@@ -269,6 +286,9 @@ export function buildPlanningWorkerPrompt(spec: FreeFormSpec, env: EnvironmentIn
     '- Number phases starting from 1',
     '- Each phase spec should be self-contained enough for a Worker to implement independently',
     '- Make reasonable assumptions when the spec is ambiguous — document them in the Context section',
+    '- For each phase, include a #### Compliance Checklist inside ### Spec. Extract from the spec: code that must be followed verbatim (mark it), mandated component choices, accessibility requirements, and documentation obligations. The checklist is verified by both the Worker and the Director review',
+    '- When a phase builds something similar to an existing component, include a #### Reference Component inside ### Spec naming the model component and the specific patterns (accessibility, event shape, error handling, test style) the Worker must replicate',
+    '- If the spec contains tracking tables, changelogs, or documentation obligations, add a final lightweight phase for those — do not bury them in implementation phases where they get skipped',
     '',
     'Do NOT ask questions. Do NOT write code. Only explore the codebase and write the plan file.',
   )

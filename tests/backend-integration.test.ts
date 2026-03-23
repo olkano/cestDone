@@ -6,6 +6,7 @@ import { createBackend } from '../src/backends/index.js'
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     targetRepoPath: '.',
+    runDir: '.cestdone/test_2026-03-20_120000',
     maxTurns: 100,
     ...overrides,
   }

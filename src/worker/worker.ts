@@ -35,6 +35,7 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
     instructions: options.instructions,
     phase: options.phase,
     step: options.step,
+    runDir: options.runDir,
     completedSubPhases: options.completedSubPhases,
   })
 

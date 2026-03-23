@@ -8,14 +8,12 @@ export interface SessionLogger {
   readonly logFilePath: string
 }
 
-export function createSessionLogger(options?: { silent?: boolean; specName?: string }): SessionLogger {
+export function createSessionLogger(options?: { silent?: boolean; specName?: string; runDir?: string }): SessionLogger {
   if (options?.silent) {
     return { log: () => {}, logVerbose: () => {}, logFilePath: '' }
   }
 
   const verbose = process.env.VERBOSE_LOGGING === 'true'
-  const logsDir = path.join(process.cwd(), 'logs')
-  fs.mkdirSync(logsDir, { recursive: true })
 
   const now = new Date()
   const dateStr = now.toISOString().slice(0, 10)
@@ -23,6 +21,10 @@ export function createSessionLogger(options?: { silent?: boolean; specName?: str
   const prefix = options?.specName
     ? options.specName.replace(/[^a-zA-Z0-9_-]/g, '-') + '_'
     : ''
+
+  const logsDir = options?.runDir ?? path.join(process.cwd(), '.cestdone', 'logs')
+  fs.mkdirSync(logsDir, { recursive: true })
+
   const logFilePath = path.join(logsDir, `${prefix}${dateStr}_${timeStr}.log`)
 
   function appendToFile(line: string): void {

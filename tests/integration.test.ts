@@ -92,6 +92,7 @@ beforeEach(() => {
   vi.mocked(askInput).mockResolvedValue('done')
   vi.mocked(loadConfig).mockReturnValue({
     targetRepoPath: '.',
+    runDir: '.cestdone/test_2026-03-20_120000',
     maxTurns: 100,
     directorBackend: 'agent-sdk',
     workerBackend: 'agent-sdk',

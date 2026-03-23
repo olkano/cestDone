@@ -77,7 +77,7 @@ export async function runPlanningFlow(
   const syntheticPhase: Phase = { number: 0, name: 'Planning', status: 'in-progress', spec: spec.text, applicableRules: '', done: '' }
 
   // Write prompt file for traceability
-  const promptPath = path.join(config.targetRepoPath, '.cestdone', 'reports', 'phase-0-prompt.md')
+  const promptPath = path.join(config.targetRepoPath, config.runDir, 'phase-0-prompt.md')
   try { deps.writeFile(promptPath, rawPrompt) } catch { /* best-effort */ }
 
   const planningResult = await deps.workerExecute({
@@ -85,6 +85,7 @@ export async function runPlanningFlow(
     phase: syntheticPhase,
     model: getWorkerModel(config.workerModel),
     targetRepoPath: config.targetRepoPath,
+    runDir: config.runDir,
     houseRulesContent: spec.houseRulesContent,
     instructions: '',
     rawPrompt,
@@ -133,6 +134,7 @@ export async function runPlanningFlow(
         phase: syntheticPhase,
         model: getWorkerModel(config.workerModel),
         targetRepoPath: config.targetRepoPath,
+        runDir: config.runDir,
         houseRulesContent: spec.houseRulesContent,
         instructions: '',
         rawPrompt: revisionPrompt,
@@ -170,6 +172,7 @@ export async function runPlanningFlow(
           phase: syntheticPhase,
           model: getWorkerModel(config.workerModel),
           targetRepoPath: config.targetRepoPath,
+          runDir: config.runDir,
           houseRulesContent: spec.houseRulesContent,
           instructions: '',
           rawPrompt: escPrompt,
@@ -184,6 +187,7 @@ export async function runPlanningFlow(
           phase: syntheticPhase,
           model: getWorkerModel(config.workerModel),
           targetRepoPath: config.targetRepoPath,
+          runDir: config.runDir,
           houseRulesContent: spec.houseRulesContent,
           instructions: '',
           rawPrompt: revPrompt,
@@ -263,7 +267,7 @@ async function executeTwoAgentPhase(
     logger.log('Director', `Executing via Worker (attempt ${workerRetries + 1}, sub-phase ${completedSubPhases.length + 1})`)
 
     // Write prompt file for traceability
-    const promptPath = path.join(config.targetRepoPath, '.cestdone', 'reports', `phase-${phase.number}-prompt.md`)
+    const promptPath = path.join(config.targetRepoPath, config.runDir, `phase-${phase.number}-prompt.md`)
     try { deps.writeFile(promptPath, instructions) } catch { /* best-effort */ }
 
     const workerResult = await deps.workerExecute(buildWorkerOptions({
@@ -300,7 +304,7 @@ async function executeTwoAgentPhase(
     logger.logVerbose('Director', `Review state: completedSubPhases=${completedSubPhases.length}, workerRetries=${workerRetries}`)
 
     // Read Worker report from file if available, fall back to in-memory report
-    const reportPath = path.join(config.targetRepoPath, '.cestdone', 'reports', `phase-${phase.number}-report.md`)
+    const reportPath = path.join(config.targetRepoPath, config.runDir, `phase-${phase.number}-report.md`)
     let reportContent: string
     try {
       reportContent = deps.readFile(reportPath)
@@ -311,6 +315,7 @@ async function executeTwoAgentPhase(
     const reviewPrompt = buildReviewPrompt(
       phase.number, phase.name, phase.spec,
       reportContent,
+      config.runDir,
       completedSubPhases,
     )
 
@@ -417,6 +422,7 @@ function buildWorkerOptions(params: {
     phase: params.phase,
     model: getWorkerModel(params.config.workerModel),
     targetRepoPath: params.config.targetRepoPath,
+    runDir: params.config.runDir,
     houseRulesContent: params.houseRulesContent,
     instructions: params.instructions,
     maxTurns: params.config.maxTurns,

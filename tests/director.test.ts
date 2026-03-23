@@ -54,6 +54,7 @@ const TEST_PLAN: Plan = {
 
 const TEST_CONFIG: Config = {
   targetRepoPath: '/tmp/repo',
+  runDir: '.cestdone/test-run_2026-03-20_120000',
   maxTurns: 100,
 }
 

@@ -13,6 +13,8 @@ const TEST_PHASE: Phase = {
   done: '_(to be filled)_',
 }
 
+const TEST_RUN_DIR = '.cestdone/test-spec_2026-03-20_120000'
+
 describe('buildWorkerPrompt', () => {
   // O1: Includes Director's instructions in prompt
   it('includes Director instructions', () => {
@@ -20,6 +22,7 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Implement the login endpoint using TDD.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
     })
 
     expect(result).toContain('Implement the login endpoint using TDD.')
@@ -31,6 +34,7 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Do something.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
     })
 
     expect(result).not.toContain('House Rules')
@@ -42,6 +46,7 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Do something.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
     })
 
     expect(result).toContain('Phase 1')
@@ -49,15 +54,16 @@ describe('buildWorkerPrompt', () => {
     expect(result).toContain('Connect Director to Worker via Agent SDK.')
   })
 
-  // O4: Includes reporting instructions
-  it('includes reporting instructions', () => {
+  // O4: Includes reporting instructions with runDir paths
+  it('includes reporting instructions with runDir paths', () => {
     const result = buildWorkerPrompt({
       instructions: 'Do something.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
     })
 
-    expect(result).toContain('cestdone-diff.txt')
+    expect(result).toContain(`${TEST_RUN_DIR}/cestdone-diff.txt`)
     expect(result).toContain('Test Results')
   })
 
@@ -67,6 +73,7 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Analyze the codebase.',
       phase: TEST_PHASE,
       step: WorkflowStep.Analyze,
+      runDir: TEST_RUN_DIR,
     })
 
     expect(result).toContain('Do NOT modify any files')
@@ -77,6 +84,7 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Implement the feature.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
     })
 
     expect(result).not.toContain('Do NOT modify any files')
@@ -88,6 +96,7 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Implement sub-phase B.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
       completedSubPhases: ['Created models and migrations', 'Added API routes'],
     })
 
@@ -102,10 +111,24 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Implement sub-phase A.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
       completedSubPhases: [],
     })
 
     expect(result).not.toContain('Previously Completed Sub-phases')
+  })
+
+  it('includes compliance self-check section', () => {
+    const result = buildWorkerPrompt({
+      instructions: 'Implement the feature.',
+      phase: TEST_PHASE,
+      step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
+    })
+
+    expect(result).toContain('Compliance Self-Check')
+    expect(result).toContain('Compliance Checklist')
+    expect(result).toContain('Reference Component')
   })
 
   // O7: Includes phase report file path in reporting section
@@ -114,9 +137,10 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Implement the feature.',
       phase: TEST_PHASE,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
     })
 
-    expect(result).toContain('.cestdone/reports/phase-1-report.md')
+    expect(result).toContain(`${TEST_RUN_DIR}/phase-1-report.md`)
   })
 
   // O8: Report path uses correct phase number
@@ -126,8 +150,9 @@ describe('buildWorkerPrompt', () => {
       instructions: 'Implement the feature.',
       phase: phase3,
       step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
     })
 
-    expect(result).toContain('.cestdone/reports/phase-3-report.md')
+    expect(result).toContain(`${TEST_RUN_DIR}/phase-3-report.md`)
   })
 })

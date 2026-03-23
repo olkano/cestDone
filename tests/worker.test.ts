@@ -34,6 +34,7 @@ function makeOptions(overrides: Partial<WorkerOptions> = {}): WorkerOptions {
     phase: { number: 1, name: 'Test Phase', status: 'in-progress', spec: 'Do stuff.', applicableRules: '', done: '' },
     model: 'claude-opus-4-6',
     targetRepoPath: '/tmp/repo',
+    runDir: '.cestdone/test_2026-03-20_120000',
     houseRulesContent: 'Use TDD.',
     instructions: 'Implement the feature.',
     maxTurns: 100,

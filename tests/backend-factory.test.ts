@@ -6,6 +6,7 @@ import type { Config } from '../src/shared/types.js'
 
 const baseConfig: Config = {
   targetRepoPath: '.',
+  runDir: '.cestdone/test_2026-03-20_120000',
   maxTurns: 100,
 }
 

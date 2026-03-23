@@ -32,6 +32,7 @@ export const DEFAULTS = {
 
 const CONFIG_DEFAULTS: Config = {
   targetRepoPath: DEFAULTS.targetRepoPath,
+  runDir: '.cestdone',
   maxTurns: DEFAULTS.maxTurns,
 }
 

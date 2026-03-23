@@ -102,11 +102,15 @@ export async function handleRun(
 ): Promise<void> {
   const startTime = Date.now()
   const specName = path.basename(specPath, path.extname(specPath))
-  const logger = createSessionLogger({ specName })
 
   const config = loadConfig()
   const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
   config.targetRepoPath = targetDir
+  config.runDir = generateRunDir(specName)
+
+  const absRunDir = path.join(targetDir, config.runDir)
+  const logger = createSessionLogger({ specName, runDir: absRunDir })
+
   applyFlags(config, options)
 
   if (!config.nonInteractive) ensureTTY()
@@ -160,7 +164,7 @@ export async function handleRun(
     await executeAllPhases(createdPlanPath, config, deps)
   }
 
-  logFinalSummary(logger, costTracker, startTime, targetDir)
+  logFinalSummary(logger, costTracker, startTime)
 }
 
 export async function handleResume(
@@ -169,11 +173,15 @@ export async function handleResume(
 ): Promise<void> {
   const startTime = Date.now()
   const specName = path.basename(specPath, path.extname(specPath))
-  const logger = createSessionLogger({ specName })
 
   const config = loadConfig()
   const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
   config.targetRepoPath = targetDir
+  config.runDir = generateRunDir(specName)
+
+  const absRunDir = path.join(targetDir, config.runDir)
+  const logger = createSessionLogger({ specName, runDir: absRunDir })
+
   applyFlags(config, options)
 
   if (!config.nonInteractive) ensureTTY()
@@ -189,7 +197,7 @@ export async function handleResume(
   const costTracker = new CostTracker()
   const deps = buildDeps(logger, costTracker, config)
   await executeAllPhases(planPath, config, deps)
-  logFinalSummary(logger, costTracker, startTime, targetDir)
+  logFinalSummary(logger, costTracker, startTime)
 }
 
 async function executeAllPhases(
@@ -210,7 +218,7 @@ async function executeAllPhases(
 }
 
 function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Config): DirectorDeps {
-  const effectiveConfig = config ?? { targetRepoPath: DEFAULTS.targetRepoPath, maxTurns: DEFAULTS.maxTurns }
+  const effectiveConfig = config ?? { targetRepoPath: DEFAULTS.targetRepoPath, runDir: '.cestdone', maxTurns: DEFAULTS.maxTurns }
   const ni = effectiveConfig.nonInteractive ?? false
 
   return {
@@ -267,24 +275,22 @@ export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
   console.log(`Email sent successfully (messageId: ${result.messageId ?? 'N/A'})`)
 }
 
+function generateRunDir(specName: string): string {
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10)
+  const timeStr = now.toISOString().slice(11, 19).replace(/:/g, '')
+  const safeName = specName.replace(/[^a-zA-Z0-9_-]/g, '-')
+  return `.cestdone/${safeName}_${dateStr}_${timeStr}`
+}
+
 function logFinalSummary(
   logger: SessionLogger,
   costTracker: CostTracker,
   startTime: number,
-  targetDir: string,
 ): void {
   const elapsed = Date.now() - startTime
   const summary = formatFinalSummary(costTracker, elapsed)
   logger.log('Session', summary)
-
-  // Copy log to destination project
-  if (logger.logFilePath) {
-    const destDir = path.join(targetDir, '.cestdone')
-    fs.mkdirSync(destDir, { recursive: true })
-    const destPath = path.join(destDir, path.basename(logger.logFilePath))
-    fs.copyFileSync(logger.logFilePath, destPath)
-    logger.log('Session', `Log copied to ${destPath}`)
-  }
 }
 
 // Helper to add common options to both run and resume commands

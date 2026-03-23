@@ -62,7 +62,7 @@ The Director and Workers communicate exclusively through markdown files in `.ces
 
 Additionally:
 - `spec.plan.md` — the plan file (written by Planning Worker, read by Director)
-- `cestdone-diff.txt` — git diff of changes (written by Worker, read by Director during review)
+- `.cestdone/cestdone-diff.txt` — git diff of changes (written by Worker, read by Director during review)
 
 This gives full traceability of every Director↔Worker interaction. You can inspect these files to understand exactly what was asked and what was delivered.
 
