@@ -41,6 +41,10 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
   parts.push(input.instructions)
   parts.push('')
 
+  parts.push('### Available CLI Tools')
+  parts.push('- `cestdone send-email --to <addr> --subject <subj> --body <text> [--html <html>]` — send email notifications via SMTP (pre-configured)')
+  parts.push('')
+
   parts.push('### Testing')
   parts.push('Run tests in non-interactive mode (no watch mode). Run type checks if applicable.')
   parts.push('If tests require starting a server or background process, kill it when tests are done.')

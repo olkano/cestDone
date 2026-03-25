@@ -3,6 +3,11 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
+
+// Load .env from the cestdone installation directory (not cwd),
+// so SMTP credentials work even when invoked from a target repo.
+const __cestdoneRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+try { process.loadEnvFile(path.join(__cestdoneRoot, '.env')) } catch { /* .env is optional */ }
 import { Command } from 'commander'
 import { loadConfig, DEFAULTS } from '../shared/config.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'

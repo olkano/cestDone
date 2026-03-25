@@ -1,0 +1,13 @@
+{
+  "targetRepoPath": ".",
+  "daemon": {
+    "schedules": [
+      {
+        "name": "weekly-blog-update",
+        "cron": "0 6 * * 4",
+        "spec": "C:/Users/dpire/Code/itmplatform.com/Specifications/recurring-cron-tasks/update-a-blog-post.md",
+        "target": "C:/Users/dpire/Code/itmplatform.com"
+      }
+    ]
+  }
+}
