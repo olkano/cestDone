@@ -1,4 +1,5 @@
 # TODO — cestdone
+pm2 restart ecosystem.config.js --only cestdone-daemon add start up logs to see if true
 
 - [ ] Instead of the "CLI: Still waiting... (150s elapsed)", show the "thinking process" asn seen in the CLI itself (assess viability)
 - [ ] Change --target default from cwd (.) to the spec file's parent directory — so users don't need to pass --target when spec is in the target repo
@@ -13,6 +14,60 @@
 - [ ] cestdone-plan.md lifecycle: auto-create at Step 4, auto-delete after Step 8 commit
 - [ ] Parallel session support: conflict detection, file-level locking
 - [ ] Audit Claude session isolation across repos / VS Code surfaces — verify workers never resume cross-repo sessions, and reduce or clearly label session history bleed/visibility from unrelated repos
+
+## Improvements from first real-world run (2026-03-25, weekly blog update)
+
+Each item is self-contained with context for tackling in separate sessions.
+
+### A. Skip-commit flag for phases
+
+The Director's review prompt (`src/director/prompts.ts:150-156`) hardcodes `git add -A && git commit` after every phase. Some workflows (content editing, multi-phase refactors) don't want intermediate commits — the spec might say "commit once at the end."
+
+Current: `buildReviewPrompt()` always includes the git commit block. The Complete step commits after every `done`.
+
+Proposal: `--no-auto-commit` flag + `autoCommit: boolean` config (default `true`). When false, strip git commit from `buildReviewPrompt()` and `buildCompletePrompt()`. Consider `--commit-strategy` with values: `per-phase` (current), `end-only`, `never`.
+
+Files: `src/director/prompts.ts` (lines 150-156), `src/shared/types.ts`, `src/shared/config.ts`, `src/cli/index.ts`.
+
+### B. User-configurable defaults
+
+Many values are hardcoded in `DEFAULTS` (`src/shared/config.ts`). Users who always use the same settings must pass flags every time. `.cestdonerc.json` already supports most fields, but missing: `houseRules` (default path), `autoCommit` (from item A).
+
+Options:
+- **(B1) Minimal:** Add `houseRules` and `autoCommit` to `.cestdonerc.json`. Covers immediate gap.
+- **(B2) Layered:** Project-level `.cestdonerc.json` + user-level `~/.cestdonerc.json`. Project overrides user, CLI overrides both.
+- **(B3) Env vars:** `CESTDONE_MODEL=sonnet` etc. Useful for CI but adds complexity.
+
+Recommendation: B1 first. B2 if multi-repo demand emerges.
+
+Files: `src/shared/config.ts`, `src/shared/types.ts`, `src/cli/index.ts`.
+
+### C. Final summary report (markdown)
+
+Each phase writes `phase-N-report.md`, but no consolidated summary exists. The `.log` has a Final Summary but it's buried in verbose output and has problems:
+- **Wall-clock includes idle time** — the 2h12m run was actually ~21m of compute + ~1h51m waiting for plan approval
+- **No per-phase breakdown** — can't see which phase was expensive/slow
+- **No aggregated file changes or error summary**
+
+Proposals:
+- **(C1) Enrich CostTracker:** Add per-phase cost/tokens/duration, separate `computeTime` vs `wallClockTime`, fix retry counts. Files: `src/shared/cost-tracker.ts`, `src/director/director.ts`.
+- **(C2) Generate `summary.md`:** After all phases, write `.cestdone/{runDir}/summary.md` with: title, spec, wall vs compute time, per-phase table (status, cost, tokens, duration, files), aggregated issues. Pure post-processing, no LLM call. Files: new `src/shared/summary-writer.ts`, `src/cli/index.ts`.
+- **(C3) LLM-generated analysis (opt-in):** Invoke haiku/sonnet to read all reports and produce qualitative assessment. `--with-analysis` flag. Adds cost but gives the "independent review" feel.
+
+Recommendation: C1 + C2 first (no extra cost). C3 as opt-in later.
+
+### D. Centralized log directory
+
+Run logs live inside each target repo's `.cestdone/{runDir}/`. To see all cestDone activity across repos, you must check each repo individually.
+
+Current: `src/shared/logger.ts:25` — `createSessionLogger()` writes to `{targetRepo}/{runDir}/{specName}_{date}_{time}.log`. Uses `fs.appendFileSync` per line, so data survives crashes.
+
+Proposals:
+- **(D1) Dual-write:** `createSessionLogger()` writes to both run dir AND a central dir (`~/.cestdone/logs/` or configurable `centralLogDir`). Both files created at session start — handles crashes. Files: `src/shared/logger.ts`, `src/shared/config.ts`.
+- **(D2) Run registry:** Maintain `~/.cestdone/runs.jsonl` — one JSON line per run (spec, target, start/end, status, log path). Enables a `cestdone history` command without duplicating logs.
+
+Recommendation: D1 first (crash-safe central logs), D2 as follow-up.
+
 
 ## 🟢 Low priority (nice to have)
 _(polish, optimization, edge cases that can wait)_

@@ -25,8 +25,8 @@ export interface DaemonProcess {
   stop(): Promise<void>
 }
 
-const DEFAULT_LOG_DIR = '.cestdone/daemon'
-const DEFAULT_PID_FILE = '.cestdone/daemon.pid'
+const DEFAULT_LOG_DIR = 'logs/daemon'
+const DEFAULT_PID_FILE = 'logs/daemon/daemon.pid'
 const QUEUE_POLL_MS = 500
 const SHUTDOWN_TIMEOUT_MS = 60_000
 

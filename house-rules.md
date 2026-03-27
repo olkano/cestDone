@@ -10,7 +10,6 @@ For the given specifications:
 - Use Uncle Bob's Clean Code guidelines. Simple and scalable, no overengineering
 - Use the existing logging system (pino) for info, warnings, and errors (not console.log unless debugging)
 - Update related documentation. Keep it concise. Don't duplicate across docs
-- All files should have the POSIX path as a comment at the top
 
 ## Acceptance criteria for every deliverable
 

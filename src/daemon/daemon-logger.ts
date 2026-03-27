@@ -19,7 +19,14 @@ export function createDaemonLogger(logDir: string): DaemonLogger {
 
   function write(level: string, message: string): void {
     const timestamp = new Date().toISOString()
-    fs.appendFileSync(logFilePath, `[${timestamp}] [${level}] ${message}\n`, 'utf-8')
+    const line = `[${timestamp}] [${level}] ${message}`
+    fs.appendFileSync(logFilePath, line + '\n', 'utf-8')
+    // Also write to stdout/stderr so pm2 and other process managers capture it
+    if (level === 'ERROR') {
+      console.error(line)
+    } else {
+      console.log(line)
+    }
   }
 
   function info(message: string): void {

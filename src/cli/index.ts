@@ -390,20 +390,25 @@ if (isCliEntryPoint()) {
 
   const daemonCmd = program.command('daemon')
     .description('Start daemon with schedules and triggers from .cestdonerc.json')
-    .option('--log-dir <path>', 'Log directory (default: .cestdone/daemon)')
+    .option('--log-dir <path>', 'Log directory (default: logs/daemon)')
     .action(async (opts: { logDir?: string }) => {
+      console.log(`[cestdone-daemon] Starting (pid: ${process.pid}, cwd: ${process.cwd()})`)
+
       const { createDaemon } = await import('../daemon/daemon.js')
       const { createDaemonLogger } = await import('../daemon/daemon-logger.js')
 
       const config = loadConfig()
       if (!config.daemon) {
-        console.error('No "daemon" section found in .cestdonerc.json')
+        console.error('[cestdone-daemon] No "daemon" section found in .cestdonerc.json')
         process.exit(1)
       }
 
+      console.log(`[cestdone-daemon] Config loaded: ${config.daemon.schedules?.length ?? 0} schedule(s), ${config.daemon.webhooks?.length ?? 0} webhook(s), ${config.daemon.pollers?.length ?? 0} poller(s)`)
+
       if (opts.logDir) config.daemon.logDir = opts.logDir
-      const logDir = config.daemon.logDir ?? '.cestdone/daemon'
+      const logDir = config.daemon.logDir ?? 'logs/daemon'
       const logger = createDaemonLogger(logDir)
+      console.log(`[cestdone-daemon] Log file: ${path.resolve(logDir, 'daemon.log')}`)
 
       const daemon = createDaemon({
         executeRun: handleRun,
@@ -427,7 +432,7 @@ if (isCliEntryPoint()) {
     .action(async () => {
       const { readPidFile, isDaemonRunning } = await import('../daemon/pid.js')
       const config = loadConfig()
-      const pidFile = config.daemon?.pidFile ?? '.cestdone/daemon.pid'
+      const pidFile = config.daemon?.pidFile ?? 'logs/daemon/daemon.pid'
       const pid = readPidFile(pidFile)
 
       if (pid !== null && isDaemonRunning(pidFile)) {
@@ -442,7 +447,7 @@ if (isCliEntryPoint()) {
     .action(async () => {
       const { readPidFile, isDaemonRunning } = await import('../daemon/pid.js')
       const config = loadConfig()
-      const pidFile = config.daemon?.pidFile ?? '.cestdone/daemon.pid'
+      const pidFile = config.daemon?.pidFile ?? 'logs/daemon/daemon.pid'
       const pid = readPidFile(pidFile)
 
       if (pid === null || !isDaemonRunning(pidFile)) {

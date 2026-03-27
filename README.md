@@ -295,7 +295,7 @@ Now, when someone opens an issue, GitHub POSTs the event to your daemon. The dae
 2. **You start the daemon**: `cestdone daemon` — it runs in the foreground, listening for events
 3. **When a trigger fires**, it creates a job in an in-memory FIFO queue
 4. **The run loop** processes jobs one at a time, calling `handleRun` with `--non-interactive` (auto-approves plans, skips clarifications)
-5. **Results are logged** to `.cestdone/daemon/` — one daemon log + one log per job
+5. **Results are logged** to `logs/daemon/` — one daemon log + one log per job
 
 The daemon stays running until you stop it (`cestdone daemon stop` or Ctrl+C). It is not a background service by itself — use systemd, pm2, or similar to daemonize it if needed.
 
@@ -307,8 +307,8 @@ Add a `daemon` section to `.cestdonerc.json`:
 {
   "targetRepoPath": "./my-app",
   "daemon": {
-    "logDir": ".cestdone/daemon",
-    "pidFile": ".cestdone/daemon.pid",
+    "logDir": "logs/daemon",
+    "pidFile": "logs/daemon/daemon.pid",
     "schedules": [
       {
         "name": "nightly-report",
