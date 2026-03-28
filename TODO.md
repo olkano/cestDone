@@ -18,15 +18,9 @@
 
 Each item is self-contained with context for tackling in separate sessions.
 
-### A. Skip-commit flag for phases
+### ~~A. Skip-commit flag for phases~~ (done)
 
-The Director's review prompt (`src/director/prompts.ts:150-156`) hardcodes `git add -A && git commit` after every phase. Some workflows (content editing, multi-phase refactors) don't want intermediate commits — the spec might say "commit once at the end."
-
-Current: `buildReviewPrompt()` always includes the git commit block. The Complete step commits after every `done`.
-
-Proposal: `--no-auto-commit` flag + `autoCommit: boolean` config (default `true`). When false, strip git commit from `buildReviewPrompt()` and `buildCompletePrompt()`. Consider `--commit-strategy` with values: `per-phase` (current), `end-only`, `never`.
-
-Files: `src/director/prompts.ts` (lines 150-156), `src/shared/types.ts`, `src/shared/config.ts`, `src/cli/index.ts`.
+Implemented `--auto-commit` / `--no-auto-commit` flag with `autoCommit: boolean` config (default `true`). When false, the review prompt's git commit section is replaced with a "Do NOT commit" policy, and "committed" wording is removed from action descriptions. Configurable via CLI flag or `.cestdonerc.json`.
 
 ### B. User-configurable defaults
 

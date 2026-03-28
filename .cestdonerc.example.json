@@ -12,6 +12,7 @@
   "withBashReviews": true,
   "withHumanValidation": false,
   "nonInteractive": false,
+  "autoCommit": true,
   "centralLogDir": "~/.cestdone/logs",
   "daemon": {
     "logDir": "logs/daemon",

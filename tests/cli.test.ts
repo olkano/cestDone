@@ -264,6 +264,7 @@ describe('CLI flag wiring', () => {
     expect(configPassed.withReviews).toBe(true)
     expect(configPassed.withBashReviews).toBe(true)
     expect(configPassed.withHumanValidation).toBe(false)
+    expect(configPassed.autoCommit).toBe(true)
   })
 
   // KF3: handleRun passes model overrides
@@ -363,6 +364,24 @@ describe('CLI flag wiring', () => {
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
     expect(configPassed.claudeCliPath).toBe('/opt/claude')
+  })
+
+  it('applies --no-auto-commit flag', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', { autoCommit: false })
+
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.autoCommit).toBe(false)
   })
 
   // KF5: --with-reviews without --with-worker warns and disables reviews

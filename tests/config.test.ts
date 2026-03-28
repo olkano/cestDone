@@ -78,6 +78,7 @@ describe('loadConfig', () => {
     expect(result.withReviews).toBeUndefined()
     expect(result.withBashReviews).toBeUndefined()
     expect(result.withHumanValidation).toBeUndefined()
+    expect(result.autoCommit).toBeUndefined()
   })
 
   // C2: Reads all new fields from .cestdonerc.json
@@ -114,6 +115,16 @@ describe('loadConfig', () => {
     expect(result.maxTurns).toBe(50)
     expect(result.directorModel).toBe('haiku')
     expect(result.withWorker).toBeUndefined()
+  })
+
+  it('reads autoCommit from .cestdonerc.json', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const config = { autoCommit: false }
+    fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.autoCommit).toBe(false)
   })
 
   // B1: Backend fields default to undefined

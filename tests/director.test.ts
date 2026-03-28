@@ -796,6 +796,36 @@ describe('runPhase', () => {
     expect(promptCall![1]).toContain('Phase 1')
     expect(promptCall![1]).toContain('Setup')
   })
+
+  it('review prompt omits git commit when autoCommit is false', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+    const configNoCommit = { ...TEST_CONFIG, autoCommit: false }
+
+    await runPhase(TEST_PLAN, TEST_PHASE, configNoCommit, 'plan.md', deps)
+
+    const reviewPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt
+    expect(reviewPrompt).not.toContain('git add -A')
+    expect(reviewPrompt).not.toContain('git commit')
+    expect(reviewPrompt).toContain('Do NOT commit any changes')
+  })
+
+  it('review prompt includes git commit by default', async () => {
+    setupDirectorResponses(
+      { action: 'done', message: 'All verified.' },
+      { action: 'done', message: 'Phase done.' },
+    )
+    const deps = createHappyPathDeps()
+
+    await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
+
+    const reviewPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt
+    expect(reviewPrompt).toContain('git add -A')
+    expect(reviewPrompt).toContain('git commit')
+  })
 })
 
 // === runPlanningFlow tests ===

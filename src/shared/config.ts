@@ -21,6 +21,7 @@ export const DEFAULTS = {
   withBashReviews: true,                 // Allow Bash in Director reviews (implies withReviews)
   withHumanValidation: false,            // Require human approval of plan before execution
   nonInteractive: false,                  // Run without TTY (auto-approve, skip clarifications)
+  autoCommit: true,                        // Auto-commit after each phase review
 
   // -- Internal limits (not CLI-visible) --
   maxRejections: 3,            // Plan rejections before escalating to human

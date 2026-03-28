@@ -33,6 +33,7 @@ export interface RunOptions {
   withReviews?: boolean
   withBashReviews?: boolean
   withHumanValidation?: boolean
+  autoCommit?: boolean
   backend?: string
   directorBackend?: string
   workerBackend?: string
@@ -50,6 +51,7 @@ export interface ResumeOptions {
   withReviews?: boolean
   withBashReviews?: boolean
   withHumanValidation?: boolean
+  autoCommit?: boolean
   backend?: string
   directorBackend?: string
   workerBackend?: string
@@ -99,6 +101,9 @@ function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void 
 
   if (options?.nonInteractive !== undefined) config.nonInteractive = options.nonInteractive
   else config.nonInteractive = config.nonInteractive ?? DEFAULTS.nonInteractive
+
+  if (options?.autoCommit !== undefined) config.autoCommit = options.autoCommit
+  else config.autoCommit = config.autoCommit ?? DEFAULTS.autoCommit
 }
 
 export async function handleRun(
@@ -331,6 +336,8 @@ function addCommonOptions(cmd: Command): Command {
     .option('--worker-backend <type>', 'Override Worker backend: agent-sdk | claude-cli')
     .option('--claude-cli-path <path>', `Path to claude binary (default: "${DEFAULTS.claudeCliPath}")`)
     .option('--non-interactive', `Run without TTY, auto-approve plans (default: ${DEFAULTS.nonInteractive})`)
+    .option('--auto-commit', `Auto-commit after each phase review (default: ${DEFAULTS.autoCommit})`)
+    .option('--no-auto-commit', 'Disable auto-commit — user commits manually')
 }
 
 // Commander setup — only when executed as CLI entry point
@@ -358,7 +365,7 @@ if (isCliEntryPoint()) {
     .requiredOption('--spec <path>', 'Path to spec file (required)')
     .option('--house-rules <path>', 'Path to house rules file')
   addCommonOptions(runCmd)
-    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
+    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
       await handleRun(opts.spec, {
         target: opts.target,
         houseRules: opts.houseRules,
@@ -370,6 +377,7 @@ if (isCliEntryPoint()) {
         withReviews: opts.withReviews,
         withBashReviews: opts.withBashReviews,
         withHumanValidation: opts.withHumanValidation,
+        autoCommit: opts.autoCommit,
         backend: opts.backend,
         directorBackend: opts.directorBackend,
         workerBackend: opts.workerBackend,
@@ -382,7 +390,7 @@ if (isCliEntryPoint()) {
     .description('Resume execution from an existing .plan.md file')
     .requiredOption('--spec <path>', 'Path to spec file (required)')
   addCommonOptions(resumeCmd)
-    .action(async (opts: { spec: string; target?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
+    .action(async (opts: { spec: string; target?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
       await handleResume(opts.spec, {
         target: opts.target,
         directorModel: opts.directorModel,
@@ -393,6 +401,7 @@ if (isCliEntryPoint()) {
         withReviews: opts.withReviews,
         withBashReviews: opts.withBashReviews,
         withHumanValidation: opts.withHumanValidation,
+        autoCommit: opts.autoCommit,
         backend: opts.backend,
         directorBackend: opts.directorBackend,
         workerBackend: opts.workerBackend,

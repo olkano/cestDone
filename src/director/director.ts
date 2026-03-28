@@ -317,6 +317,7 @@ async function executeTwoAgentPhase(
       reportContent,
       config.runDir,
       completedSubPhases,
+      config.autoCommit !== false,
     )
 
     let reviewResult: DirectorResponse

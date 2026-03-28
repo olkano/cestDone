@@ -272,6 +272,33 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('git commit')
     expect(prompt).toContain('Do NOT commit if the Worker reported test failures')
   })
+
+  it('strips git commit section when autoCommit=false', () => {
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR, [], false)
+
+    expect(prompt).not.toContain('## Git Commits')
+    expect(prompt).not.toContain('git add -A')
+    expect(prompt).not.toContain('git commit')
+  })
+
+  it('adds do-not-commit instruction when autoCommit=false', () => {
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR, [], false)
+
+    expect(prompt).toContain('Do NOT commit any changes')
+  })
+
+  it('removes "committed" wording from actions when autoCommit=false', () => {
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR, [], false)
+
+    expect(prompt).not.toContain('and committed')
+  })
+
+  it('retains git commit instructions when autoCommit=true explicitly', () => {
+    const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR, [], true)
+
+    expect(prompt).toContain('git add -A')
+    expect(prompt).toContain('git commit')
+  })
 })
 
 describe('buildCompletePrompt', () => {

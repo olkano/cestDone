@@ -95,7 +95,7 @@ export function buildInitialWorkerInstructions(plan: Plan, phase: Phase, complet
   return parts.join('\n')
 }
 
-export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, workerReport: string, runDir: string, completedSubPhases: string[] = []): string {
+export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, workerReport: string, runDir: string, completedSubPhases: string[] = [], autoCommit: boolean = true): string {
   const parts: string[] = [
     `## You are reviewing: Phase ${phaseNumber} — ${phaseName}`,
     '',
@@ -147,22 +147,38 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     'edge cases, negative paths, accessibility, guard rails, and boundary conditions.',
     'If significant gaps exist (core spec requirements untested), respond with `fix` and list them.',
     '',
-    '## Git Commits',
-    'If the work is correct, commit before responding:',
-    '```',
-    'git add -A',
-    'git commit -m "cestDone: <concise description of what was built>"',
-    '```',
-    'Do NOT commit if the Worker reported test failures or the implementation is incomplete.',
+    ...(autoCommit
+      ? [
+        '## Git Commits',
+        'If the work is correct, commit before responding:',
+        '```',
+        'git add -A',
+        'git commit -m "cestDone: <concise description of what was built>"',
+        '```',
+        'Do NOT commit if the Worker reported test failures or the implementation is incomplete.',
+      ]
+      : [
+        '## Git Policy',
+        'Do NOT commit any changes — the user will commit manually.',
+      ]),
     '',
     '## Response Actions',
     `Your scope is ONLY Phase ${phaseNumber} (${phaseName}). Do NOT plan or include work for subsequent phases.`,
     '',
     'IMPORTANT: You MUST use one of these three actions ONLY — no other action is valid for a review:',
-    '- **fix**: Issues found. Do NOT commit. Return specific fix instructions for the Worker.',
-    '- **continue**: Current sub-phase correct and committed, but more sub-phases remain WITHIN THIS PHASE.',
-    '  Do NOT use "continue" to advance to the next plan phase — that is handled automatically.',
-    `- **done**: Phase ${phaseNumber} is complete — all deliverables verified and committed.`,
+    ...(autoCommit
+      ? [
+        '- **fix**: Issues found. Do NOT commit. Return specific fix instructions for the Worker.',
+        '- **continue**: Current sub-phase correct and committed, but more sub-phases remain WITHIN THIS PHASE.',
+        '  Do NOT use "continue" to advance to the next plan phase — that is handled automatically.',
+        `- **done**: Phase ${phaseNumber} is complete — all deliverables verified and committed.`,
+      ]
+      : [
+        '- **fix**: Issues found. Return specific fix instructions for the Worker.',
+        '- **continue**: Current sub-phase correct, but more sub-phases remain WITHIN THIS PHASE.',
+        '  Do NOT use "continue" to advance to the next plan phase — that is handled automatically.',
+        `- **done**: Phase ${phaseNumber} is complete — all deliverables verified.`,
+      ]),
     '',
     'Do NOT use "analyze", "approve", "ask_human", or any other action. Only "fix", "continue", or "done".',
   )
