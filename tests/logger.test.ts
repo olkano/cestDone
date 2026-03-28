@@ -134,4 +134,63 @@ describe('createSessionLogger', () => {
     const logger = createSessionLogger({ specName: 'test' })
     expect(logger.logFilePath).toMatch(/test_\d{4}-\d{2}-\d{2}_\d{6}\.log$/)
   })
+
+  it('dual-writes to central log dir when centralLogDir is provided', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const logger = createSessionLogger({ specName: 'my-spec', centralLogDir: '/central/logs' })
+
+    logger.log('Director', 'Step 1')
+
+    // Should have called mkdirSync for both run dir and central dir
+    expect(fs.mkdirSync).toHaveBeenCalledWith('/central/logs', { recursive: true })
+
+    // appendFileSync should be called twice per log line (run dir + central)
+    expect(fs.appendFileSync).toHaveBeenCalledTimes(2)
+    const calls = vi.mocked(fs.appendFileSync).mock.calls
+    // First call = run dir, second = central dir
+    expect(String(calls[1][0])).toContain('central')
+    expect(String(calls[1][1])).toContain('Director: Step 1')
+    consoleSpy.mockRestore()
+  })
+
+  it('dual-writes verbose lines to central log when VERBOSE_LOGGING=true', () => {
+    process.env.VERBOSE_LOGGING = 'true'
+    const logger = createSessionLogger({ specName: 'my-spec', centralLogDir: '/central/logs' })
+
+    logger.logVerbose('Worker', 'verbose data')
+
+    expect(fs.appendFileSync).toHaveBeenCalledTimes(2)
+    const calls = vi.mocked(fs.appendFileSync).mock.calls
+    expect(String(calls[1][0])).toContain('central')
+    expect(String(calls[1][1])).toContain('[VERBOSE] Worker: verbose data')
+  })
+
+  it('still works if central log dir creation fails', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    // Make mkdirSync fail on the second call (central dir)
+    let callCount = 0
+    vi.mocked(fs.mkdirSync).mockImplementation(() => {
+      callCount++
+      if (callCount === 2) throw new Error('permission denied')
+      return undefined as unknown as string
+    })
+
+    const logger = createSessionLogger({ specName: 'my-spec', centralLogDir: '/no-access' })
+    logger.log('Test', 'msg')
+
+    // Should still write to run dir (1 call only, no central)
+    expect(fs.appendFileSync).toHaveBeenCalledTimes(1)
+    consoleSpy.mockRestore()
+  })
+
+  it('does not dual-write when centralLogDir is not provided', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const logger = createSessionLogger({ specName: 'my-spec' })
+
+    logger.log('Test', 'msg')
+
+    // Only one appendFileSync call (run dir only)
+    expect(fs.appendFileSync).toHaveBeenCalledTimes(1)
+    consoleSpy.mockRestore()
+  })
 })

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { cleanupOldRuns } from '../src/daemon/cleanup.js'
+import { cleanupOldRuns, cleanupCentralLogs } from '../src/daemon/cleanup.js'
 
 let tmpDir: string
 
@@ -136,5 +136,87 @@ describe('cleanupOldRuns', () => {
 
     // Dir and its contents should be gone
     expect(fs.existsSync(path.join(tmpDir, '.cestdone', dirName))).toBe(false)
+  })
+})
+
+describe('cleanupCentralLogs', () => {
+  let centralDir: string
+
+  beforeEach(() => {
+    centralDir = path.join(tmpDir, 'central-logs')
+    fs.mkdirSync(centralDir, { recursive: true })
+  })
+
+  function createLogFile(specName: string, date: string, time: string): string {
+    const fileName = `${specName}_${date}_${time}.log`
+    fs.writeFileSync(path.join(centralDir, fileName), 'log content')
+    return fileName
+  }
+
+  // CCL-1
+  it('keeps all logs when count <= maxLogs', () => {
+    createLogFile('my-spec', '2026-03-01', '100000')
+    createLogFile('my-spec', '2026-03-02', '100000')
+
+    const removed = cleanupCentralLogs(centralDir, 7)
+    expect(removed).toEqual([])
+    expect(fs.readdirSync(centralDir)).toHaveLength(2)
+  })
+
+  // CCL-2
+  it('removes oldest logs when count > maxLogs', () => {
+    createLogFile('my-spec', '2026-03-01', '100000')
+    createLogFile('my-spec', '2026-03-02', '100000')
+    createLogFile('my-spec', '2026-03-03', '100000')
+    createLogFile('my-spec', '2026-03-04', '100000')
+
+    const removed = cleanupCentralLogs(centralDir, 2)
+    expect(removed).toHaveLength(2)
+    expect(removed).toContain('my-spec_2026-03-01_100000.log')
+    expect(removed).toContain('my-spec_2026-03-02_100000.log')
+
+    const remaining = fs.readdirSync(centralDir)
+    expect(remaining).toHaveLength(2)
+    expect(remaining).toContain('my-spec_2026-03-03_100000.log')
+    expect(remaining).toContain('my-spec_2026-03-04_100000.log')
+  })
+
+  // CCL-3
+  it('groups by spec name independently', () => {
+    createLogFile('spec-a', '2026-03-01', '100000')
+    createLogFile('spec-a', '2026-03-02', '100000')
+    createLogFile('spec-a', '2026-03-03', '100000')
+    createLogFile('spec-b', '2026-03-01', '100000')
+
+    const removed = cleanupCentralLogs(centralDir, 2)
+    expect(removed).toHaveLength(1)
+    expect(removed).toContain('spec-a_2026-03-01_100000.log')
+  })
+
+  // CCL-4
+  it('ignores non-matching files', () => {
+    createLogFile('my-spec', '2026-03-01', '100000')
+    fs.writeFileSync(path.join(centralDir, 'daemon.log'), 'daemon output')
+    fs.writeFileSync(path.join(centralDir, 'notes.txt'), 'notes')
+
+    const removed = cleanupCentralLogs(centralDir, 7)
+    expect(removed).toEqual([])
+    expect(fs.readdirSync(centralDir)).toHaveLength(3)
+  })
+
+  // CCL-5
+  it('returns empty array when dir does not exist', () => {
+    const removed = cleanupCentralLogs(path.join(tmpDir, 'nonexistent'))
+    expect(removed).toEqual([])
+  })
+
+  // CCL-6
+  it('defaults to maxLogs=7', () => {
+    for (let i = 1; i <= 9; i++) {
+      createLogFile('my-spec', `2026-03-${String(i).padStart(2, '0')}`, '100000')
+    }
+
+    const removed = cleanupCentralLogs(centralDir)
+    expect(removed).toHaveLength(2)
   })
 })

@@ -55,17 +55,9 @@ Proposals:
 
 Recommendation: C1 + C2 first (no extra cost). C3 as opt-in later.
 
-### D. Centralized log directory
+### ~~D. Centralized log directory~~ (done)
 
-Run logs live inside each target repo's `.cestdone/{runDir}/`. To see all cestDone activity across repos, you must check each repo individually.
-
-Current: `src/shared/logger.ts:25` — `createSessionLogger()` writes to `{targetRepo}/{runDir}/{specName}_{date}_{time}.log`. Uses `fs.appendFileSync` per line, so data survives crashes.
-
-Proposals:
-- **(D1) Dual-write:** `createSessionLogger()` writes to both run dir AND a central dir (`~/.cestdone/logs/` or configurable `centralLogDir`). Both files created at session start — handles crashes. Files: `src/shared/logger.ts`, `src/shared/config.ts`.
-- **(D2) Run registry:** Maintain `~/.cestdone/runs.jsonl` — one JSON line per run (spec, target, start/end, status, log path). Enables a `cestdone history` command without duplicating logs.
-
-Recommendation: D1 first (crash-safe central logs), D2 as follow-up.
+Implemented D1 (dual-write). `createSessionLogger()` writes to both run dir and `centralLogDir` (default `~/.cestdone/logs/`). Configurable via `.cestdonerc.json`. Central logs cleaned up by daemon cleanup (`cleanup.maxCentralLogs`).
 
 
 ## 🟢 Low priority (nice to have)

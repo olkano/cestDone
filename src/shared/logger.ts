@@ -8,7 +8,7 @@ export interface SessionLogger {
   readonly logFilePath: string
 }
 
-export function createSessionLogger(options?: { silent?: boolean; specName?: string; runDir?: string }): SessionLogger {
+export function createSessionLogger(options?: { silent?: boolean; specName?: string; runDir?: string; centralLogDir?: string }): SessionLogger {
   if (options?.silent) {
     return { log: () => {}, logVerbose: () => {}, logFilePath: '' }
   }
@@ -25,10 +25,29 @@ export function createSessionLogger(options?: { silent?: boolean; specName?: str
   const logsDir = options?.runDir ?? path.join(process.cwd(), '.cestdone', 'logs')
   fs.mkdirSync(logsDir, { recursive: true })
 
-  const logFilePath = path.join(logsDir, `${prefix}${dateStr}_${timeStr}.log`)
+  const logFileName = `${prefix}${dateStr}_${timeStr}.log`
+  const logFilePath = path.join(logsDir, logFileName)
+
+  // Central log mirror (dual-write)
+  let centralLogFilePath: string | undefined
+  if (options?.centralLogDir) {
+    try {
+      fs.mkdirSync(options.centralLogDir, { recursive: true })
+      centralLogFilePath = path.join(options.centralLogDir, logFileName)
+    } catch {
+      // Best-effort — don't fail the run if central dir is inaccessible
+    }
+  }
 
   function appendToFile(line: string): void {
     fs.appendFileSync(logFilePath, line + '\n', 'utf-8')
+    if (centralLogFilePath) {
+      try {
+        fs.appendFileSync(centralLogFilePath, line + '\n', 'utf-8')
+      } catch {
+        // Best-effort
+      }
+    }
   }
 
   function log(caller: string, message: string): void {

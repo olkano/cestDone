@@ -71,6 +71,11 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
         errors.push('cleanup.maxRuns must be a positive integer')
       }
     }
+    if (config.cleanup.maxCentralLogs !== undefined) {
+      if (!Number.isInteger(config.cleanup.maxCentralLogs) || config.cleanup.maxCentralLogs < 1) {
+        errors.push('cleanup.maxCentralLogs must be a positive integer')
+      }
+    }
   }
 
   return { valid: errors.length === 0, errors }

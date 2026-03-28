@@ -156,4 +156,24 @@ describe('validateDaemonConfig', () => {
     const result = validateDaemonConfig({ cleanup: {} })
     expect(result.valid).toBe(true)
   })
+
+  // DC-20
+  it('valid cleanup.maxCentralLogs passes', () => {
+    const result = validateDaemonConfig({ cleanup: { maxCentralLogs: 30 } })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-21
+  it('cleanup.maxCentralLogs zero fails', () => {
+    const result = validateDaemonConfig({ cleanup: { maxCentralLogs: 0 } })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('cleanup.maxCentralLogs must be a positive integer')
+  })
+
+  // DC-22
+  it('cleanup.maxCentralLogs non-integer fails', () => {
+    const result = validateDaemonConfig({ cleanup: { maxCentralLogs: 2.5 } })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('cleanup.maxCentralLogs must be a positive integer')
+  })
 })

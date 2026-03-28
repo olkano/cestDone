@@ -12,11 +12,13 @@
   "withBashReviews": true,
   "withHumanValidation": false,
   "nonInteractive": false,
+  "centralLogDir": "~/.cestdone/logs",
   "daemon": {
     "logDir": "logs/daemon",
     "pidFile": "logs/daemon/daemon.pid",
     "cleanup": {
-      "maxRuns": 7
+      "maxRuns": 7,
+      "maxCentralLogs": 30
     },
     "schedules": [
       {

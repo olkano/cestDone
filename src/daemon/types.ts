@@ -31,7 +31,8 @@ export interface PollingConfig {
 }
 
 export interface CleanupConfig {
-  maxRuns?: number // keep last N run dirs per spec (default: 7)
+  maxRuns?: number        // keep last N run dirs per spec (default: 7)
+  maxCentralLogs?: number // keep last N central log files per spec (default: maxRuns)
 }
 
 export interface DaemonConfig {

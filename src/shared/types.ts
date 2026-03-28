@@ -32,6 +32,7 @@ export interface Config {
   workerBackend?: BackendType
   claudeCliPath?: string
   nonInteractive?: boolean
+  centralLogDir?: string // e.g. ~/.cestdone/logs — dual-write all session logs here
   daemon?: import('../daemon/types.js').DaemonConfig
 }
 

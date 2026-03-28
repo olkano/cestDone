@@ -13,7 +13,7 @@ import { createWebhookServer, type WebhookServer } from './webhook-server.js'
 import { createPoller, type Poller } from './poller.js'
 import { writePidFile, removePidFile, isDaemonRunning } from './pid.js'
 import { renderTemplate } from './template.js'
-import { cleanupOldRuns } from './cleanup.js'
+import { cleanupOldRuns, cleanupCentralLogs } from './cleanup.js'
 
 export interface DaemonDeps {
   executeRun: (specPath: string, options: RunOptions) => Promise<void>
@@ -132,7 +132,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       deps.logger.jobEnd(job, error)
     }
 
-    // Cleanup old run dirs (best-effort, runs after success or failure)
+    // Cleanup old run dirs and central logs (best-effort, runs after success or failure)
     if (daemonConfig.cleanup) {
       try {
         const targetDir = (job.options as Partial<RunOptions>).target ?? deps.config.targetRepoPath
@@ -142,6 +142,18 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
         }
       } catch (err) {
         deps.logger.warn(`Cleanup failed: ${(err as Error).message}`)
+      }
+
+      if (deps.config.centralLogDir) {
+        try {
+          const maxLogs = daemonConfig.cleanup.maxCentralLogs ?? daemonConfig.cleanup.maxRuns
+          const removed = cleanupCentralLogs(deps.config.centralLogDir, maxLogs)
+          if (removed.length > 0) {
+            deps.logger.info(`Cleanup: removed ${removed.length} old central log(s)`)
+          }
+        } catch (err) {
+          deps.logger.warn(`Central log cleanup failed: ${(err as Error).message}`)
+        }
       }
     }
   }

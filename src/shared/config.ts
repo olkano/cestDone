@@ -1,5 +1,6 @@
 // src/shared/config.ts
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import type { Config, BackendType, ModelAlias } from './types.js'
 
@@ -28,6 +29,7 @@ export const DEFAULTS = {
   directorMaxTurnsReview: 20,  // Director turns for Review step
   directorMaxTurnsDefault: 50, // Director turns for other steps
   cliHeartbeatMs: 30_000,      // CLI backend heartbeat interval
+  centralLogDir: path.join(os.homedir(), '.cestdone', 'logs'), // central log mirror
 } as const
 
 const CONFIG_DEFAULTS: Config = {

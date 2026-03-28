@@ -115,7 +115,8 @@ export async function handleRun(
   config.runDir = generateRunDir(specName)
 
   const absRunDir = path.join(targetDir, config.runDir)
-  const logger = createSessionLogger({ specName, runDir: absRunDir })
+  const centralLogDir = config.centralLogDir ?? DEFAULTS.centralLogDir
+  const logger = createSessionLogger({ specName, runDir: absRunDir, centralLogDir })
 
   applyFlags(config, options)
 
@@ -185,7 +186,8 @@ export async function handleResume(
   config.runDir = generateRunDir(specName)
 
   const absRunDir = path.join(targetDir, config.runDir)
-  const logger = createSessionLogger({ specName, runDir: absRunDir })
+  const centralLogDir = config.centralLogDir ?? DEFAULTS.centralLogDir
+  const logger = createSessionLogger({ specName, runDir: absRunDir, centralLogDir })
 
   applyFlags(config, options)
 
