@@ -155,7 +155,11 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       // Create scheduler
       if (daemonConfig.schedules?.length) {
         scheduler = createScheduler(daemonConfig.schedules, (schedule) => {
-          enqueueFromSchedule(schedule.name, schedule.spec, schedule.options)
+          enqueueFromSchedule(schedule.name, schedule.spec, {
+            ...schedule.options,
+            target: schedule.target,
+            houseRules: schedule.houseRules,
+          })
         })
         scheduler.start()
         deps.logger.info(`Scheduler started with ${daemonConfig.schedules.length} schedule(s)`)
@@ -176,7 +180,10 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
 
         for (const [port, webhooks] of byPort) {
           const server = createWebhookServer(webhooks, (webhook, payload) => {
-            enqueueFromWebhook(webhook.name, webhook.spec, payload, webhook.options)
+            enqueueFromWebhook(webhook.name, webhook.spec, payload, {
+              ...webhook.options,
+              target: webhook.target,
+            })
           })
           await server.start()
           webhookServers.push(server)
@@ -187,7 +194,10 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       // Create pollers
       if (daemonConfig.pollers?.length) {
         poller = createPoller(daemonConfig.pollers, (config, output) => {
-          enqueueFromPoller(config.name, config.spec, output, config.options)
+          enqueueFromPoller(config.name, config.spec, output, {
+            ...config.options,
+            target: config.target,
+          })
         })
         poller.start()
         deps.logger.info(`Poller started with ${daemonConfig.pollers.length} poller(s)`)
