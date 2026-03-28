@@ -1,8 +1,7 @@
 # TODO — cestdone
-pm2 restart ecosystem.config.js --only cestdone-daemon add start up logs to see if true
 
-- [ ] Instead of the "CLI: Still waiting... (150s elapsed)", show the "thinking process" asn seen in the CLI itself (assess viability)
-- [ ] Change --target default from cwd (.) to the spec file's parent directory — so users don't need to pass --target when spec is in the target repo
+- [ ] Instead of the "CLI: Still waiting... (150s elapsed)", show the "thinking process" as seen in the CLI itself (assess viability)
+- [x] Change --target default from cwd (.) to the spec file's parent directory — so users don't need to pass --target when spec is in the target repo
 - [ ] Limit Director questions to 3 max in Analyze prompt — prevent question flooding (found in live test)
 - [ ] Allow 'skip' / empty Enter to skip remaining Director questions in Step 2
 - [ ] `--yes` flag for CI/non-interactive environments (skip approval prompts, auto-approve)
@@ -52,7 +51,7 @@ Each phase writes `phase-N-report.md`, but no consolidated summary exists. The `
 Proposals:
 - **(C1) Enrich CostTracker:** Add per-phase cost/tokens/duration, separate `computeTime` vs `wallClockTime`, fix retry counts. Files: `src/shared/cost-tracker.ts`, `src/director/director.ts`.
 - **(C2) Generate `summary.md`:** After all phases, write `.cestdone/{runDir}/summary.md` with: title, spec, wall vs compute time, per-phase table (status, cost, tokens, duration, files), aggregated issues. Pure post-processing, no LLM call. Files: new `src/shared/summary-writer.ts`, `src/cli/index.ts`.
-- **(C3) LLM-generated analysis (opt-in):** Invoke haiku/sonnet to read all reports and produce qualitative assessment. `--with-analysis` flag. Adds cost but gives the "independent review" feel.
+- **(C3) LLM-generated analysis (opt-in):** Invoke haiku/sonnet to read all reports and produce qualitative assessment. `--with-analysis` flag. Adds cost but gives the "independent review" feel.  
 
 Recommendation: C1 + C2 first (no extra cost). C3 as opt-in later.
 

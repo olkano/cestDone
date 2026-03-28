@@ -107,9 +107,10 @@ export async function handleRun(
 ): Promise<void> {
   const startTime = Date.now()
   const specName = path.basename(specPath, path.extname(specPath))
+  const resolvedSpecPath = path.resolve(specPath)
 
   const config = loadConfig()
-  const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
+  const targetDir = resolveTargetDir(options?.target, config.targetRepoPath, resolvedSpecPath)
   config.targetRepoPath = targetDir
   config.runDir = generateRunDir(specName)
 
@@ -120,8 +121,6 @@ export async function handleRun(
 
   if (!config.nonInteractive) ensureTTY()
   ensureGitRepo(targetDir)
-
-  const resolvedSpecPath = path.resolve(specPath)
   const specText = fs.readFileSync(resolvedSpecPath, 'utf-8')
 
   // Load house rules if provided
@@ -178,9 +177,10 @@ export async function handleResume(
 ): Promise<void> {
   const startTime = Date.now()
   const specName = path.basename(specPath, path.extname(specPath))
+  const resolvedSpecPath = path.resolve(specPath)
 
   const config = loadConfig()
-  const targetDir = path.resolve(options?.target ?? config.targetRepoPath)
+  const targetDir = resolveTargetDir(options?.target, config.targetRepoPath, resolvedSpecPath)
   config.targetRepoPath = targetDir
   config.runDir = generateRunDir(specName)
 
@@ -192,7 +192,6 @@ export async function handleResume(
   if (!config.nonInteractive) ensureTTY()
   ensureGitRepo(targetDir)
 
-  const resolvedSpecPath = path.resolve(specPath)
   const planPath = getPlanPath(resolvedSpecPath, targetDir)
 
   if (!fs.existsSync(planPath)) {
@@ -280,6 +279,18 @@ export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
   console.log(`Email sent successfully (messageId: ${result.messageId ?? 'N/A'})`)
 }
 
+/**
+ * Resolves the target directory. Priority:
+ * 1. Explicit --target flag
+ * 2. Non-default targetRepoPath from .cestdonerc.json
+ * 3. Spec file's parent directory (so specs inside a repo "just work")
+ */
+function resolveTargetDir(explicitTarget: string | undefined, configTarget: string, specPath: string): string {
+  if (explicitTarget) return path.resolve(explicitTarget)
+  if (configTarget !== DEFAULTS.targetRepoPath) return path.resolve(configTarget)
+  return path.dirname(specPath)
+}
+
 function generateRunDir(specName: string): string {
   const now = new Date()
   const dateStr = now.toISOString().slice(0, 10)
@@ -301,7 +312,7 @@ function logFinalSummary(
 // Helper to add common options to both run and resume commands
 function addCommonOptions(cmd: Command): Command {
   return cmd
-    .option('--target <path>', `Target repository path (default: "${DEFAULTS.targetRepoPath}")`)
+    .option('--target <path>', 'Target repository path (default: spec file\'s parent directory)')
     .option('--director-model <model>', `Director model: haiku | sonnet | opus (default: "${DEFAULTS.directorModel}")`)
     .option('--worker-model <model>', `Worker model: haiku | sonnet | opus (default: "${DEFAULTS.workerModel}")`)
     .option('--director-max-turns <n>', `Max turns for Director steps (default: ${DEFAULTS.directorMaxTurnsDefault})`)
