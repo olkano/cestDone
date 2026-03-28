@@ -1,0 +1,53 @@
+{
+  "targetRepoPath": ".",
+  "directorModel": "opus",
+  "workerModel": "opus",
+  "directorBackend": "claude-cli",
+  "workerBackend": "claude-cli",
+  "claudeCliPath": "claude",
+  "maxTurns": 100,
+  "directorMaxTurns": 50,
+  "withWorker": true,
+  "withReviews": true,
+  "withBashReviews": true,
+  "withHumanValidation": false,
+  "nonInteractive": false,
+  "daemon": {
+    "logDir": "logs/daemon",
+    "pidFile": "logs/daemon/daemon.pid",
+    "cleanup": {
+      "maxRuns": 7
+    },
+    "schedules": [
+      {
+        "name": "nightly-health-check",
+        "cron": "0 23 * * *",
+        "spec": "/path/to/specs/health-check.md",
+        "target": "/path/to/target-repo",
+        "options": {
+          "directorModel": "sonnet",
+          "workerModel": "sonnet"
+        }
+      }
+    ],
+    "webhooks": [
+      {
+        "name": "github-issue-triage",
+        "port": 3456,
+        "path": "/github",
+        "secret": "your-webhook-secret",
+        "spec": "/path/to/specs/triage.md",
+        "target": "/path/to/target-repo"
+      }
+    ],
+    "pollers": [
+      {
+        "name": "dependency-check",
+        "cron": "0 */6 * * *",
+        "command": "npm outdated --json",
+        "spec": "/path/to/specs/deps.md",
+        "target": "/path/to/target-repo"
+      }
+    ]
+  }
+}

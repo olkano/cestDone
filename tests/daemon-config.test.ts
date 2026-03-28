@@ -123,4 +123,37 @@ describe('validateDaemonConfig', () => {
     expect(result.valid).toBe(false)
     expect(result.errors[0]).toContain('cron is required')
   })
+
+  // DC-15
+  it('valid cleanup config passes', () => {
+    const result = validateDaemonConfig({ cleanup: { maxRuns: 5 } })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-16
+  it('cleanup.maxRuns zero fails', () => {
+    const result = validateDaemonConfig({ cleanup: { maxRuns: 0 } })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('cleanup.maxRuns must be a positive integer')
+  })
+
+  // DC-17
+  it('cleanup.maxRuns negative fails', () => {
+    const result = validateDaemonConfig({ cleanup: { maxRuns: -3 } })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('cleanup.maxRuns must be a positive integer')
+  })
+
+  // DC-18
+  it('cleanup.maxRuns non-integer fails', () => {
+    const result = validateDaemonConfig({ cleanup: { maxRuns: 3.5 } })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('cleanup.maxRuns must be a positive integer')
+  })
+
+  // DC-19
+  it('cleanup without maxRuns passes (uses default)', () => {
+    const result = validateDaemonConfig({ cleanup: {} })
+    expect(result.valid).toBe(true)
+  })
 })

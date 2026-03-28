@@ -30,10 +30,15 @@ export interface PollingConfig {
   options?: Partial<RunOptions>
 }
 
+export interface CleanupConfig {
+  maxRuns?: number // keep last N run dirs per spec (default: 7)
+}
+
 export interface DaemonConfig {
   schedules?: ScheduleConfig[]
   webhooks?: WebhookConfig[]
   pollers?: PollingConfig[]
   logDir?: string
   pidFile?: string
+  cleanup?: CleanupConfig
 }

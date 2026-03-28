@@ -13,6 +13,7 @@ import { createWebhookServer, type WebhookServer } from './webhook-server.js'
 import { createPoller, type Poller } from './poller.js'
 import { writePidFile, removePidFile, isDaemonRunning } from './pid.js'
 import { renderTemplate } from './template.js'
+import { cleanupOldRuns } from './cleanup.js'
 
 export interface DaemonDeps {
   executeRun: (specPath: string, options: RunOptions) => Promise<void>
@@ -31,10 +32,10 @@ const QUEUE_POLL_MS = 500
 const SHUTDOWN_TIMEOUT_MS = 60_000
 
 export function createDaemon(deps: DaemonDeps): DaemonProcess {
-  const daemonConfig = deps.config.daemon
-  if (!daemonConfig) {
+  if (!deps.config.daemon) {
     throw new Error('No daemon configuration found in .cestdonerc.json')
   }
+  const daemonConfig: DaemonConfig = deps.config.daemon
 
   const validation = validateDaemonConfig(daemonConfig)
   if (!validation.valid) {
@@ -129,6 +130,19 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       const error = err instanceof Error ? err : new Error(String(err))
       queue.markFailed(job.id, error.message)
       deps.logger.jobEnd(job, error)
+    }
+
+    // Cleanup old run dirs (best-effort, runs after success or failure)
+    if (daemonConfig.cleanup) {
+      try {
+        const targetDir = (job.options as Partial<RunOptions>).target ?? deps.config.targetRepoPath
+        const removed = cleanupOldRuns(targetDir, daemonConfig.cleanup.maxRuns)
+        if (removed.length > 0) {
+          deps.logger.info(`Cleanup: removed ${removed.length} old run dir(s) from ${targetDir}`)
+        }
+      } catch (err) {
+        deps.logger.warn(`Cleanup failed: ${(err as Error).message}`)
+      }
     }
   }
 

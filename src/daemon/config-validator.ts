@@ -64,5 +64,14 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     }
   }
 
+  // Validate cleanup
+  if (config.cleanup) {
+    if (config.cleanup.maxRuns !== undefined) {
+      if (!Number.isInteger(config.cleanup.maxRuns) || config.cleanup.maxRuns < 1) {
+        errors.push('cleanup.maxRuns must be a positive integer')
+      }
+    }
+  }
+
   return { valid: errors.length === 0, errors }
 }

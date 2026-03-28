@@ -2,6 +2,7 @@ node_modules
 dist
 *.tsbuildinfo
 .env
+.cestdonerc.json
 nul
 diff.txt
 spike/
