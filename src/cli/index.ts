@@ -129,10 +129,11 @@ export async function handleRun(
   ensureGitRepo(targetDir)
   const specText = fs.readFileSync(resolvedSpecPath, 'utf-8')
 
-  // Load house rules if provided
+  // Load house rules: CLI flag > config > none
   let houseRulesContent = ''
-  if (options?.houseRules) {
-    const houseRulesPath = path.resolve(options.houseRules)
+  const houseRulesSource = options?.houseRules ?? config.houseRules
+  if (houseRulesSource) {
+    const houseRulesPath = path.resolve(houseRulesSource)
     houseRulesContent = fs.readFileSync(houseRulesPath, 'utf-8')
   }
 

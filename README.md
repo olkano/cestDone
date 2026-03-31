@@ -200,6 +200,8 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
   "withBashReviews": true,
   "withHumanValidation": false,
   "nonInteractive": false,
+  "autoCommit": true,
+  "houseRules": "house-rules.md",
   "directorBackend": "claude-cli",
   "workerBackend": "claude-cli",
   "claudeCliPath": "claude"

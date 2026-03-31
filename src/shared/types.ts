@@ -33,6 +33,7 @@ export interface Config {
   claudeCliPath?: string
   nonInteractive?: boolean
   autoCommit?: boolean
+  houseRules?: string       // Default path to house rules file (CLI --house-rules overrides)
   centralLogDir?: string // e.g. ~/.cestdone/logs — dual-write all session logs here
   daemon?: import('../daemon/types.js').DaemonConfig
 }

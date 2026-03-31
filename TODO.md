@@ -22,18 +22,9 @@ Each item is self-contained with context for tackling in separate sessions.
 
 Implemented `--auto-commit` / `--no-auto-commit` flag with `autoCommit: boolean` config (default `true`). When false, the review prompt's git commit section is replaced with a "Do NOT commit" policy, and "committed" wording is removed from action descriptions. Configurable via CLI flag or `.cestdonerc.json`.
 
-### B. User-configurable defaults
+### ~~B. User-configurable defaults~~ (done)
 
-Many values are hardcoded in `DEFAULTS` (`src/shared/config.ts`). Users who always use the same settings must pass flags every time. `.cestdonerc.json` already supports most fields, but missing: `houseRules` (default path), `autoCommit` (from item A).
-
-Options:
-- **(B1) Minimal:** Add `houseRules` and `autoCommit` to `.cestdonerc.json`. Covers immediate gap.
-- **(B2) Layered:** Project-level `.cestdonerc.json` + user-level `~/.cestdonerc.json`. Project overrides user, CLI overrides both.
-- **(B3) Env vars:** `CESTDONE_MODEL=sonnet` etc. Useful for CI but adds complexity.
-
-Recommendation: B1 first. B2 if multi-repo demand emerges.
-
-Files: `src/shared/config.ts`, `src/shared/types.ts`, `src/cli/index.ts`.
+Implemented B1 (minimal). Added `houseRules` (default path) to `.cestdonerc.json` — CLI `--house-rules` overrides config, config overrides empty. `autoCommit` was already implemented in item A.
 
 ### C. Final summary report (markdown)
 

@@ -158,6 +158,62 @@ describe('handleRun', () => {
     )
   })
 
+  // HR1: Falls back to config.houseRules when CLI flag not provided
+  it('falls back to config.houseRules when --house-rules not provided', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(loadConfig).mockReturnValue({ ...MOCK_CONFIG, houseRules: 'house-rules.md' })
+    vi.mocked(fs.readFileSync)
+      .mockReturnValueOnce('Free form spec text')
+      .mockReturnValueOnce('Rules from config file.')
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md')
+
+    expect(runPlanningFlow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        houseRulesContent: 'Rules from config file.',
+      }),
+      expect.anything(),
+      expect.anything()
+    )
+  })
+
+  // HR2: CLI --house-rules overrides config.houseRules
+  it('CLI --house-rules overrides config.houseRules', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(loadConfig).mockReturnValue({ ...MOCK_CONFIG, houseRules: 'default-rules.md' })
+    vi.mocked(fs.readFileSync)
+      .mockReturnValueOnce('Free form spec text')
+      .mockReturnValueOnce('CLI rules override.')
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', { houseRules: 'cli-rules.md' })
+
+    expect(runPlanningFlow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        houseRulesContent: 'CLI rules override.',
+      }),
+      expect.anything(),
+      expect.anything()
+    )
+  })
+
   // K4: Prompts about in-progress phase and continues it
   it('prompts about in-progress phase and continues it', async () => {
     const plan = makeMockPlan([IN_PROGRESS_PHASE, PENDING_PHASE])

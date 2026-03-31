@@ -13,6 +13,7 @@
   "withHumanValidation": false,
   "nonInteractive": false,
   "autoCommit": true,
+  "houseRules": "house-rules.md",
   "centralLogDir": "~/.cestdone/logs",
   "daemon": {
     "logDir": "logs/daemon",

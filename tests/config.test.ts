@@ -79,6 +79,7 @@ describe('loadConfig', () => {
     expect(result.withBashReviews).toBeUndefined()
     expect(result.withHumanValidation).toBeUndefined()
     expect(result.autoCommit).toBeUndefined()
+    expect(result.houseRules).toBeUndefined()
   })
 
   // C2: Reads all new fields from .cestdonerc.json
@@ -115,6 +116,16 @@ describe('loadConfig', () => {
     expect(result.maxTurns).toBe(50)
     expect(result.directorModel).toBe('haiku')
     expect(result.withWorker).toBeUndefined()
+  })
+
+  it('reads houseRules from .cestdonerc.json', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const config = { houseRules: 'house-rules.md' }
+    fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.houseRules).toBe('house-rules.md')
   })
 
   it('reads autoCommit from .cestdonerc.json', () => {
