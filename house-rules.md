@@ -10,6 +10,7 @@ For the given specifications:
 - Use Uncle Bob's Clean Code guidelines. Simple and scalable, no overengineering
 - Use the existing logging system (pino) for info, warnings, and errors (not console.log unless debugging)
 - Update related documentation. Keep it concise. Don't duplicate across docs
+- If you are asked to commit code, keep a short message and don't add authoring to it. Commits must be simple and straightforward.
 
 ## Acceptance criteria for every deliverable
 

@@ -20,9 +20,11 @@ export function createScheduler(
   onTrigger: (schedule: ScheduleConfig) => void,
 ): Scheduler {
   const jobs: ScheduledJob[] = schedules.map((schedule) => {
-    const cronJob = new Cron(schedule.cron, { paused: true }, () => {
-      onTrigger(schedule)
-    })
+    const cronJob = new Cron(
+      schedule.cron,
+      { paused: true, ...(schedule.timezone ? { timezone: schedule.timezone } : {}) },
+      () => { onTrigger(schedule) },
+    )
     return { name: schedule.name, cronJob, config: schedule }
   })
 

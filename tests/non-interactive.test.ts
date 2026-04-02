@@ -214,6 +214,55 @@ describe('non-interactive mode', () => {
     expect(ensureTTY).not.toHaveBeenCalled()
   })
 
+  // NI-STALE: Removes completed plan and starts fresh in non-interactive mode
+  it('removes stale plan and runs planning flow when all phases done', async () => {
+    const donePlan = makeMockPlan([
+      { ...PENDING_PHASE, status: 'done' as const, done: 'Done.' },
+    ])
+    const freshPlan = makeMockPlan([PENDING_PHASE])
+    const freshDonePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+
+    // First existsSync (stale check): true; after unlink, second existsSync: false
+    vi.mocked(fs.existsSync)
+      .mockReturnValueOnce(true)   // stale plan check
+      .mockReturnValueOnce(false)  // plan exists check (after unlink)
+
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(donePlan)       // stale check reads plan
+      .mockReturnValueOnce(freshPlan)      // executeAllPhases loop 1
+      .mockReturnValueOnce(freshDonePlan)  // executeAllPhases loop 2 — exits
+
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan: freshPlan,
+    })
+
+    await handleRun('spec.md', { nonInteractive: true })
+
+    // Old plan was deleted
+    expect(fs.unlinkSync).toHaveBeenCalledWith('/tmp/spec.plan.md')
+    // Fresh planning flow was triggered
+    expect(runPlanningFlow).toHaveBeenCalled()
+  })
+
+  // NI-STALE-2: Does NOT remove plan when phases are still pending
+  it('does not remove plan when phases are still pending in non-interactive mode', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)     // stale check — not all done
+      .mockReturnValueOnce(plan)     // plan exists check reads plan
+      .mockReturnValueOnce(plan)     // executeAllPhases loop 1
+      .mockReturnValueOnce(donePlan) // executeAllPhases loop 2
+
+    await handleRun('spec.md', { nonInteractive: true })
+
+    expect(fs.unlinkSync).not.toHaveBeenCalled()
+    expect(runPlanningFlow).not.toHaveBeenCalled()
+    expect(runPhase).toHaveBeenCalled()
+  })
+
   // NI-8: CLI flag --non-interactive sets config correctly
   it('CLI flag sets nonInteractive on config', async () => {
     vi.mocked(loadConfig).mockReturnValue({

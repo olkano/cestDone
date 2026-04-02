@@ -6,6 +6,7 @@ interface MockCron {
   paused: boolean
   stopped: boolean
   expression: string
+  timezone: string | undefined
   resume(): void
   stop(): void
   nextRun(): Date
@@ -19,13 +20,15 @@ vi.mock('croner', () => {
     paused: boolean
     stopped = false
     expression: string
+    timezone: string | undefined
     constructor(
       expression: string,
-      options: { paused?: boolean },
+      options: { paused?: boolean; timezone?: string },
       callback: () => void,
     ) {
       this.expression = expression
       this.paused = options?.paused ?? false
+      this.timezone = options?.timezone
       this.callback = callback
       instances.push(this)
     }
@@ -175,6 +178,19 @@ describe('scheduler', () => {
 
     // Restore
     ;(croner as any).Cron = origImpl
+  })
+
+  it('passes timezone option to Cron when specified', () => {
+    const schedules = [
+      makeSchedule({ name: 'utc-job', cron: '0 9 * * 4', timezone: 'Etc/UTC' }),
+      makeSchedule({ name: 'local-job', cron: '0 9 * * 4' }),
+    ]
+    createScheduler(schedules, vi.fn())
+
+    expect(instances).toHaveLength(2)
+    // The mock captures constructor args; check that timezone was passed
+    expect((instances[0] as any).timezone).toBe('Etc/UTC')
+    expect((instances[1] as any).timezone).toBeUndefined()
   })
 
   it('empty schedules array works with no jobs created', () => {

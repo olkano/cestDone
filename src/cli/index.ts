@@ -141,6 +141,16 @@ export async function handleRun(
   const costTracker = new CostTracker()
   const deps = buildDeps(logger, costTracker, config)
 
+  // In non-interactive mode, remove completed plans so recurring tasks start fresh
+  if (fs.existsSync(planPath) && config.nonInteractive) {
+    const planContent = fs.readFileSync(planPath, 'utf-8')
+    const plan = parsePlan(planContent)
+    if (plan.phases.every(p => p.status === 'done')) {
+      deps.display('All phases already done - removing stale plan for fresh run.')
+      fs.unlinkSync(planPath)
+    }
+  }
+
   // Check if plan already exists
   if (fs.existsSync(planPath)) {
     const planContent = fs.readFileSync(planPath, 'utf-8')
