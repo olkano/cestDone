@@ -22,12 +22,19 @@
       "maxRuns": 7,
       "maxCentralLogs": 30
     },
+    "notifications": {
+      "email": {
+        "recipients": "you@example.com"
+      }
+    },
     "schedules": [
       {
         "name": "nightly-health-check",
         "cron": "0 23 * * *",
         "spec": "/path/to/specs/health-check.md",
         "target": "/path/to/target-repo",
+        "retries": 2,
+        "retryDelayMs": 120000,
         "options": {
           "directorModel": "sonnet",
           "workerModel": "sonnet"

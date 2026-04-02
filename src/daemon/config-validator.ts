@@ -22,6 +22,19 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     names.add(name)
   }
 
+  function checkRetry(config: { retries?: number; retryDelayMs?: number }, source: string): void {
+    if (config.retries !== undefined) {
+      if (!Number.isInteger(config.retries) || config.retries < 0) {
+        errors.push(`${source}: retries must be a non-negative integer`)
+      }
+    }
+    if (config.retryDelayMs !== undefined) {
+      if (!Number.isInteger(config.retryDelayMs) || config.retryDelayMs < 0) {
+        errors.push(`${source}: retryDelayMs must be a non-negative integer`)
+      }
+    }
+  }
+
   function checkCron(expression: string, source: string): void {
     try {
       // Validate by attempting to create a Cron instance
@@ -38,6 +51,7 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     if (!s.spec) errors.push(`${src}: spec is required`)
     if (!s.cron) errors.push(`${src}: cron is required`)
     else checkCron(s.cron, src)
+    checkRetry(s, src)
   }
 
   // Validate webhooks
@@ -50,6 +64,7 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     } else if (w.port < 1 || w.port > 65535) {
       errors.push(`${src}: port must be between 1 and 65535`)
     }
+    checkRetry(w, src)
   }
 
   // Validate pollers
@@ -62,6 +77,7 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     if (!p.command && !p.url) {
       errors.push(`${src}: either command or url is required`)
     }
+    checkRetry(p, src)
   }
 
   // Validate cleanup
@@ -74,6 +90,20 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     if (config.cleanup.maxCentralLogs !== undefined) {
       if (!Number.isInteger(config.cleanup.maxCentralLogs) || config.cleanup.maxCentralLogs < 1) {
         errors.push('cleanup.maxCentralLogs must be a positive integer')
+      }
+    }
+  }
+
+  // Validate notifications
+  if (config.notifications?.email) {
+    const r = config.notifications.email.recipients
+    if (typeof r === 'string') {
+      if (!r.trim()) {
+        errors.push('notifications.email.recipients must be a non-empty string')
+      }
+    } else if (Array.isArray(r)) {
+      if (r.length === 0) {
+        errors.push('notifications.email.recipients must be a non-empty array')
       }
     }
   }

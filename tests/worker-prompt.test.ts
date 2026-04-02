@@ -155,4 +155,19 @@ describe('buildWorkerPrompt', () => {
 
     expect(result).toContain(`${TEST_RUN_DIR}/phase-3-report.md`)
   })
+
+  // O9: Includes external operations guidance
+  it('includes external operations guidance with timeout and retry instructions', () => {
+    const result = buildWorkerPrompt({
+      instructions: 'Deploy the site.',
+      phase: TEST_PHASE,
+      step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
+    })
+
+    expect(result).toContain('External Operations')
+    expect(result).toContain('300000')
+    expect(result).toContain('git push')
+    expect(result).toContain('Retry')
+  })
 })

@@ -45,6 +45,13 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
   parts.push('- `cestdone send-email --to <addr> --subject <subj> --body <text> [--html <html>]` — send email notifications via SMTP (pre-configured)')
   parts.push('')
 
+  parts.push('### External Operations')
+  parts.push('When running git push, deployment scripts, merge scripts, or API calls:')
+  parts.push('- Use a long Bash timeout (e.g., 300000 ms / 5 minutes) to avoid premature timeouts.')
+  parts.push('- Retry up to 3 times on failure or timeout before reporting them as failures in your report.')
+  parts.push('- These operations are critical -- a phase is NOT complete if they fail.')
+  parts.push('')
+
   parts.push('### Testing')
   parts.push('Run tests in non-interactive mode (no watch mode). Run type checks if applicable.')
   parts.push('If tests require starting a server or background process, kill it when tests are done.')

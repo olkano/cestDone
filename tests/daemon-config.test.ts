@@ -176,4 +176,95 @@ describe('validateDaemonConfig', () => {
     expect(result.valid).toBe(false)
     expect(result.errors[0]).toContain('cleanup.maxCentralLogs must be a positive integer')
   })
+
+  // DC-23
+  it('valid retries config on schedule passes', () => {
+    const result = validateDaemonConfig({ schedules: [schedule({ retries: 3, retryDelayMs: 60000 })] })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-24
+  it('retries zero passes (means no retry)', () => {
+    const result = validateDaemonConfig({ schedules: [schedule({ retries: 0 })] })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-25
+  it('negative retries fails', () => {
+    const result = validateDaemonConfig({ schedules: [schedule({ retries: -1 })] })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('retries must be a non-negative integer')
+  })
+
+  // DC-26
+  it('non-integer retries fails', () => {
+    const result = validateDaemonConfig({ schedules: [schedule({ retries: 1.5 })] })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('retries must be a non-negative integer')
+  })
+
+  // DC-27
+  it('negative retryDelayMs fails', () => {
+    const result = validateDaemonConfig({ schedules: [schedule({ retryDelayMs: -100 })] })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('retryDelayMs must be a non-negative integer')
+  })
+
+  // DC-28
+  it('retries on webhook passes', () => {
+    const result = validateDaemonConfig({ webhooks: [webhook({ retries: 2, retryDelayMs: 30000 })] })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-29
+  it('retries on poller passes', () => {
+    const result = validateDaemonConfig({ pollers: [poller({ retries: 1 })] })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-30
+  it('valid notifications.email config passes', () => {
+    const result = validateDaemonConfig({
+      notifications: { email: { recipients: 'user@example.com' } },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-31
+  it('notifications.email with array of recipients passes', () => {
+    const result = validateDaemonConfig({
+      notifications: { email: { recipients: ['a@b.com', 'c@d.com'] } },
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-32
+  it('notifications.email with empty recipients string fails', () => {
+    const result = validateDaemonConfig({
+      notifications: { email: { recipients: '' } },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('recipients')
+  })
+
+  // DC-33
+  it('notifications.email with empty recipients array fails', () => {
+    const result = validateDaemonConfig({
+      notifications: { email: { recipients: [] } },
+    })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('recipients')
+  })
+
+  // DC-34
+  it('notifications without email sub-key passes', () => {
+    const result = validateDaemonConfig({ notifications: {} })
+    expect(result.valid).toBe(true)
+  })
+
+  // DC-35
+  it('config without notifications field passes', () => {
+    const result = validateDaemonConfig({ schedules: [schedule()] })
+    expect(result.valid).toBe(true)
+  })
 })

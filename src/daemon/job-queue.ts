@@ -12,10 +12,15 @@ export interface Job {
   startedAt?: Date
   completedAt?: Date
   error?: string
+  maxRetries: number     // max retry attempts (0 = no retry)
+  retryDelayMs: number   // delay between retries in ms
+  attempt: number        // current attempt (1-based)
 }
 
+export type JobEnqueueInput = Omit<Job, 'id' | 'status' | 'createdAt' | 'attempt'> & { attempt?: number }
+
 export interface JobQueue {
-  enqueue(job: Omit<Job, 'id' | 'status' | 'createdAt'>): Job
+  enqueue(job: JobEnqueueInput): Job
   dequeue(): Job | undefined
   peek(): Job | undefined
   getRunning(): Job | undefined
@@ -38,12 +43,15 @@ export function createJobQueue(): JobQueue {
     return job
   }
 
-  function enqueue(partial: Omit<Job, 'id' | 'status' | 'createdAt'>): Job {
+  function enqueue(partial: JobEnqueueInput): Job {
     const job: Job = {
       ...partial,
       id: crypto.randomUUID(),
       status: 'queued',
       createdAt: new Date(),
+      maxRetries: partial.maxRetries ?? 0,
+      retryDelayMs: partial.retryDelayMs ?? 60_000,
+      attempt: partial.attempt ?? 1,
     }
     jobs.push(job)
     return job

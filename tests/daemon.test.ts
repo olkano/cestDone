@@ -10,6 +10,10 @@ vi.mock('../src/daemon/config-validator.js', () => ({
   validateDaemonConfig: vi.fn().mockReturnValue({ valid: true, errors: [] }),
 }))
 
+vi.mock('../src/daemon/notifications.js', () => ({
+  notifyJobFailure: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('../src/daemon/pid.js', () => ({
   writePidFile: vi.fn(),
   removePidFile: vi.fn(),
@@ -71,6 +75,7 @@ vi.mock('node:fs', async () => {
 
 import { createDaemon } from '../src/daemon/daemon.js'
 import { validateDaemonConfig } from '../src/daemon/config-validator.js'
+import { notifyJobFailure } from '../src/daemon/notifications.js'
 import { writePidFile, removePidFile, isDaemonRunning } from '../src/daemon/pid.js'
 import { createScheduler } from '../src/daemon/scheduler.js'
 import { createWebhookServer } from '../src/daemon/webhook-server.js'
@@ -249,6 +254,162 @@ describe('createDaemon', () => {
       expect.anything(),
       expect.objectContaining({ message: 'run failed' }),
     )
+  })
+
+  // D-14: Retry on failure
+  it('retries failed job up to maxRetries times before marking failed', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'retry-job', cron: '0 * * * *', spec: 'spec.md', retries: 2, retryDelayMs: 10 }],
+    })
+    const deps = makeDeps(daemonConfig)
+    vi.mocked(deps.executeRun)
+      .mockRejectedValueOnce(new Error('attempt 1 failed'))
+      .mockRejectedValueOnce(new Error('attempt 2 failed'))
+      .mockRejectedValueOnce(new Error('attempt 3 failed'))
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+
+    await new Promise((resolve) => setTimeout(resolve, 800))
+
+    // All 3 attempts (1 initial + 2 retries)
+    expect(deps.executeRun).toHaveBeenCalledTimes(3)
+    expect(deps.logger.jobEnd).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ message: 'attempt 3 failed' }),
+    )
+  })
+
+  // D-15: Retry succeeds on second attempt
+  it('succeeds on retry after initial failure', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'retry-ok', cron: '0 * * * *', spec: 'spec.md', retries: 2, retryDelayMs: 10 }],
+    })
+    const deps = makeDeps(daemonConfig)
+    vi.mocked(deps.executeRun)
+      .mockRejectedValueOnce(new Error('transient failure'))
+      .mockResolvedValueOnce(undefined)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+
+    await new Promise((resolve) => setTimeout(resolve, 800))
+
+    expect(deps.executeRun).toHaveBeenCalledTimes(2)
+    // jobEnd called without error (success)
+    expect(deps.logger.jobEnd).toHaveBeenCalledWith(expect.anything())
+  })
+
+  // D-16: No retry when retries is 0 (default)
+  it('does not retry when retries is not configured', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'no-retry', cron: '0 * * * *', spec: 'spec.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    vi.mocked(deps.executeRun).mockRejectedValueOnce(new Error('fail'))
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+
+    await new Promise((resolve) => setTimeout(resolve, 600))
+
+    expect(deps.executeRun).toHaveBeenCalledTimes(1)
+  })
+
+  // D-17: Retry logs warn on each failed attempt
+  it('logs warning on each retry attempt', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'retry-log', cron: '0 * * * *', spec: 'spec.md', retries: 1, retryDelayMs: 10 }],
+    })
+    const deps = makeDeps(daemonConfig)
+    vi.mocked(deps.executeRun)
+      .mockRejectedValueOnce(new Error('network timeout'))
+      .mockResolvedValueOnce(undefined)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+
+    await new Promise((resolve) => setTimeout(resolve, 800))
+
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('attempt 1/2 failed'),
+    )
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('network timeout'),
+    )
+  })
+
+  // D-18: Notification called on final job failure
+  it('calls notifyJobFailure when job fails after all retries', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'notify-fail', cron: '0 * * * *', spec: 'spec.md', retries: 1, retryDelayMs: 10 }],
+      notifications: { email: { recipients: 'admin@example.com' } },
+    })
+    const deps = makeDeps(daemonConfig)
+    vi.mocked(deps.executeRun)
+      .mockRejectedValueOnce(new Error('attempt 1'))
+      .mockRejectedValueOnce(new Error('attempt 2'))
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+
+    await new Promise((resolve) => setTimeout(resolve, 800))
+
+    expect(notifyJobFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ trigger: 'notify-fail' }),
+      'attempt 2',
+      daemonConfig,
+      deps.logger,
+    )
+  })
+
+  // D-19: Notification NOT called on success
+  it('does not call notifyJobFailure when job succeeds', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'notify-ok', cron: '0 * * * *', spec: 'spec.md' }],
+      notifications: { email: { recipients: 'admin@example.com' } },
+    })
+    const deps = makeDeps(daemonConfig)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+
+    await new Promise((resolve) => setTimeout(resolve, 600))
+
+    expect(notifyJobFailure).not.toHaveBeenCalled()
+  })
+
+  // D-20: Notification NOT called when retry succeeds
+  it('does not call notifyJobFailure when job succeeds on retry', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'retry-ok-notify', cron: '0 * * * *', spec: 'spec.md', retries: 1, retryDelayMs: 10 }],
+      notifications: { email: { recipients: 'admin@example.com' } },
+    })
+    const deps = makeDeps(daemonConfig)
+    vi.mocked(deps.executeRun)
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValueOnce(undefined)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+
+    await new Promise((resolve) => setTimeout(resolve, 800))
+
+    expect(notifyJobFailure).not.toHaveBeenCalled()
   })
 
   // D-10

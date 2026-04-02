@@ -141,6 +141,7 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     '- If the spec contains a #### Compliance Checklist, verify every item. A failed item is a `fix`.',
     '- If the spec names a #### Reference Component, compare the implementation against those patterns. Deviations are a `fix`.',
     '- Compare each stated requirement against delivered code. Spec deviations are a `fix`, not informational — only the human can approve deviations.',
+    '- **External operations** (git push, deployments, merge scripts, API calls) that failed or timed out are NEVER acceptable as "done". Return `fix` with instructions to retry using longer timeouts. Environmental failures are still failures.',
     '',
     '### 4. Test Coverage',
     'Read the phase spec and the Worker\'s test files. Identify untested scenarios:',

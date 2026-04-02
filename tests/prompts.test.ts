@@ -299,6 +299,15 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('git add -A')
     expect(prompt).toContain('git commit')
   })
+
+  it('instructs Director to reject failed external operations as not done', () => {
+    const prompt = buildReviewPrompt(1, 'Deploy', 'Deploy to staging', '{"status":"partial"}', TEST_RUN_DIR)
+
+    expect(prompt).toContain('External operations')
+    expect(prompt).toContain('git push')
+    expect(prompt).toContain('NEVER acceptable as "done"')
+    expect(prompt).toContain('fix')
+  })
 })
 
 describe('buildCompletePrompt', () => {
