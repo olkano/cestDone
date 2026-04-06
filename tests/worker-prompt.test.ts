@@ -64,7 +64,7 @@ describe('buildWorkerPrompt', () => {
     })
 
     expect(result).toContain(`${TEST_RUN_DIR}/cestdone-diff.txt`)
-    expect(result).toContain('Test Results')
+    expect(result).toContain('Test Results: raw output from test runner (if applicable)')
   })
 
   // O5: Read-only steps include constraint about not modifying files

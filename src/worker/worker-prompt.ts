@@ -53,8 +53,8 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
   parts.push('')
 
   parts.push('### Testing')
-  parts.push('Run tests in non-interactive mode (no watch mode). Run type checks if applicable.')
-  parts.push('If tests require starting a server or background process, kill it when tests are done.')
+  parts.push('If this phase changes code, run tests in non-interactive mode (no watch mode) and type checks if applicable.')
+  parts.push('Kill any servers or background processes when done.')
   parts.push('')
 
   parts.push('### Compliance Self-Check')
@@ -68,7 +68,7 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
   parts.push('- Status: success | partial | failed')
   parts.push('- Summary: what was implemented')
   parts.push('- Files Changed: list of files')
-  parts.push('- Test Results: raw output from test runner')
+  parts.push('- Test Results: raw output from test runner (if applicable)')
   parts.push('- Issues: any blockers or concerns')
   parts.push('')
   parts.push(`Also write the diff to \`${input.runDir}/cestdone-diff.txt\`:`)

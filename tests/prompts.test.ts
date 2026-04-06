@@ -174,11 +174,10 @@ describe('buildInitialWorkerInstructions', () => {
     expect(prompt).toContain('kill -9 <pid>')
   })
 
-  it('includes non-interactive test and kill instructions', () => {
+  it('includes conditional test and kill instructions', () => {
     const prompt = buildInitialWorkerInstructions(TEST_PLAN, TEST_PLAN.phases[0], [])
 
-    expect(prompt).toContain('non-interactive mode')
-    expect(prompt).toContain('no watch mode')
+    expect(prompt).toContain('If the phase involves code changes, run tests')
     expect(prompt).toContain('Kill any servers or background processes')
   })
 })
@@ -195,38 +194,37 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('success')
   })
 
-  it('does NOT instruct Director to re-run tests (Worker already did)', () => {
+  it('does NOT instruct Director to re-run tests or re-verify Worker report', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}', TEST_RUN_DIR)
 
     expect(prompt).not.toContain('npm test')
     expect(prompt).not.toContain('tsc --noEmit')
-    expect(prompt).toContain('do NOT re-run them')
+    expect(prompt).toContain('Do not re-verify things the Worker confirmed in its report')
   })
 
-  it('instructs Director to review code quality from diff', () => {
+  it('instructs Director to review deliverables from diff', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}', TEST_RUN_DIR)
 
-    expect(prompt).toContain('Code Review (mandatory')
+    expect(prompt).toContain('Deliverable Review (mandatory')
     expect(prompt).toContain(`${TEST_RUN_DIR}/cestdone-diff.txt`)
     expect(prompt).toContain('Correctness')
     expect(prompt).toContain('Completeness')
     expect(prompt).toContain('Quality')
-    expect(prompt).toContain('Security')
+    expect(prompt).not.toContain('Security')
     expect(prompt).toContain('Spec Compliance')
   })
 
-  it('includes test coverage check in review', () => {
+  it('does not include a standalone test coverage section in review', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'The phase spec', '{"status":"success"}', TEST_RUN_DIR)
 
-    expect(prompt).toContain('Test Coverage')
-    expect(prompt).toContain('untested scenarios')
+    expect(prompt).not.toContain('Test Coverage')
   })
 
-  it('limits functional testing to when unit tests cannot cover it', () => {
+  it('limits outcome verification to when the Worker report does not confirm it', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR)
 
-    expect(prompt).toContain('only when needed')
-    expect(prompt).toContain('unit tests cannot cover')
+    expect(prompt).toContain('Outcome Verification (only when needed)')
+    expect(prompt).toContain('Worker\'s report does not fully confirm')
     expect(prompt).toContain('Kill all servers and background processes when done')
   })
 
