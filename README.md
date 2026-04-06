@@ -299,7 +299,16 @@ Now, when someone opens an issue, GitHub POSTs the event to your daemon. The dae
 4. **The run loop** processes jobs one at a time, calling `handleRun` with `--non-interactive` (auto-approves plans, skips clarifications)
 5. **Results are logged** to `logs/daemon/` — one daemon log + one log per job
 
-The daemon stays running until you stop it (`cestdone daemon stop` or Ctrl+C). It is not a background service by itself — use systemd, pm2, or similar to daemonize it if needed.
+The daemon stays running until you stop it (`cestdone daemon stop` or Ctrl+C). It is not a background service by itself -- use systemd, pm2, or similar to daemonize it if needed.
+
+### Hot Reload
+
+The daemon watches `.cestdonerc.json` for changes. When you save the file, it automatically validates the new config and reloads all triggers (schedules, webhooks, pollers) without restarting. No rebuild, no `pm2 restart` -- just edit and save.
+
+- **What reloads**: schedules, webhooks, pollers (all trigger sources are torn down and recreated)
+- **What persists**: the job queue and any currently running job continue uninterrupted
+- **Invalid config**: if the new config has errors (bad JSON, invalid cron, missing fields), the reload is skipped and a warning is logged. The daemon continues with the previous config
+- **Debounce**: changes are debounced (500ms) to handle editors that write to temp files then rename
 
 ### Daemon Configuration
 

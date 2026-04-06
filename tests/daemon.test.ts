@@ -462,4 +462,69 @@ describe('createDaemon', () => {
     expect(deps.logger.info).toHaveBeenCalledWith('Daemon started')
     expect(deps.logger.info).toHaveBeenCalledWith('Daemon stopped')
   })
+
+  // D-21: Reload stops old triggers and starts new ones
+  it('reload() stops old triggers and starts new ones', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'old', cron: '0 * * * *', spec: 'old.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const mockScheduler = (await import('../src/daemon/scheduler.js') as { _mockScheduler: { stop: ReturnType<typeof vi.fn>; start: ReturnType<typeof vi.fn> } })._mockScheduler
+
+    // Clear mock call counts before reload
+    vi.mocked(createScheduler).mockClear()
+    mockScheduler.stop.mockClear()
+    mockScheduler.start.mockClear()
+
+    const newConfig: DaemonConfig = {
+      schedules: [{ name: 'new-schedule', cron: '30 * * * *', spec: 'new.md' }],
+    }
+
+    await daemon.reload(newConfig)
+
+    // Old scheduler was stopped
+    expect(mockScheduler.stop).toHaveBeenCalled()
+    // New scheduler was created and started
+    expect(createScheduler).toHaveBeenCalledWith(
+      newConfig.schedules,
+      expect.any(Function),
+    )
+    expect(deps.logger.info).toHaveBeenCalledWith('Daemon configuration reloaded')
+  })
+
+  // D-22: Reload preserves job queue
+  it('reload() preserves running job queue', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 's1', cron: '0 * * * *', spec: 'spec.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    // Enqueue a job via the schedule trigger
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+
+    // Reload with empty config
+    await daemon.reload(makeDaemonConfig())
+
+    // Job should still process
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(deps.executeRun).toHaveBeenCalledTimes(1)
+  })
+
+  // D-23: Reload logs events
+  it('reload() logs start and end messages', async () => {
+    const deps = makeDeps(makeDaemonConfig())
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    await daemon.reload(makeDaemonConfig())
+
+    expect(deps.logger.info).toHaveBeenCalledWith('Reloading daemon configuration...')
+    expect(deps.logger.info).toHaveBeenCalledWith('Daemon configuration reloaded')
+  })
 })

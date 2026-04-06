@@ -25,6 +25,7 @@ export interface DaemonDeps {
 export interface DaemonProcess {
   start(): Promise<void>
   stop(): Promise<void>
+  reload(newDaemonConfig: DaemonConfig): Promise<void>
 }
 
 const DEFAULT_LOG_DIR = 'logs/daemon'
@@ -36,7 +37,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
   if (!deps.config.daemon) {
     throw new Error('No daemon configuration found in .cestdonerc.json')
   }
-  const daemonConfig: DaemonConfig = deps.config.daemon
+  let daemonConfig: DaemonConfig = deps.config.daemon
 
   const validation = validateDaemonConfig(daemonConfig)
   if (!validation.valid) {
@@ -199,6 +200,70 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
     }
   }
 
+  async function startTriggers(config: DaemonConfig): Promise<void> {
+    // Create scheduler
+    if (config.schedules?.length) {
+      scheduler = createScheduler(config.schedules, (schedule) => {
+        enqueueFromSchedule(schedule.name, schedule.spec, {
+          ...schedule.options,
+          target: schedule.target,
+          houseRules: schedule.houseRules,
+        }, { retries: schedule.retries, retryDelayMs: schedule.retryDelayMs })
+      })
+      scheduler.start()
+      deps.logger.info(`Scheduler started with ${config.schedules.length} schedule(s)`)
+
+      for (const run of scheduler.getNextRuns()) {
+        deps.logger.info(`  "${run.name}" next run: ${run.next?.toISOString() ?? 'never'}`)
+      }
+    }
+
+    // Create webhook servers (group by port)
+    if (config.webhooks?.length) {
+      const byPort = new Map<number, typeof config.webhooks>()
+      for (const wh of config.webhooks) {
+        const existing = byPort.get(wh.port) ?? []
+        existing.push(wh)
+        byPort.set(wh.port, existing)
+      }
+
+      for (const [, webhooks] of byPort) {
+        const server = createWebhookServer(webhooks, (webhook, payload) => {
+          enqueueFromWebhook(webhook.name, webhook.spec, payload, {
+            ...webhook.options,
+            target: webhook.target,
+          }, { retries: webhook.retries, retryDelayMs: webhook.retryDelayMs })
+        })
+        await server.start()
+        webhookServers.push(server)
+        deps.logger.info(`Webhook server listening on port ${server.port} (${webhooks.length} hook(s))`)
+      }
+    }
+
+    // Create pollers
+    if (config.pollers?.length) {
+      poller = createPoller(config.pollers, (pollerConfig, output) => {
+        enqueueFromPoller(pollerConfig.name, pollerConfig.spec, output, {
+          ...pollerConfig.options,
+          target: pollerConfig.target,
+        }, { retries: pollerConfig.retries, retryDelayMs: pollerConfig.retryDelayMs })
+      })
+      poller.start()
+      deps.logger.info(`Poller started with ${config.pollers.length} poller(s)`)
+    }
+  }
+
+  async function stopTriggers(): Promise<void> {
+    scheduler?.stop()
+    scheduler = undefined
+    poller?.stop()
+    poller = undefined
+    for (const server of webhookServers) {
+      await server.stop()
+    }
+    webhookServers = []
+  }
+
   return {
     async start(): Promise<void> {
       if (isDaemonRunning(pidFile)) {
@@ -208,56 +273,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       writePidFile(pidFile)
       deps.logger.info('Daemon starting')
 
-      // Create scheduler
-      if (daemonConfig.schedules?.length) {
-        scheduler = createScheduler(daemonConfig.schedules, (schedule) => {
-          enqueueFromSchedule(schedule.name, schedule.spec, {
-            ...schedule.options,
-            target: schedule.target,
-            houseRules: schedule.houseRules,
-          }, { retries: schedule.retries, retryDelayMs: schedule.retryDelayMs })
-        })
-        scheduler.start()
-        deps.logger.info(`Scheduler started with ${daemonConfig.schedules.length} schedule(s)`)
-
-        for (const run of scheduler.getNextRuns()) {
-          deps.logger.info(`  "${run.name}" next run: ${run.next?.toISOString() ?? 'never'}`)
-        }
-      }
-
-      // Create webhook servers (group by port)
-      if (daemonConfig.webhooks?.length) {
-        const byPort = new Map<number, typeof daemonConfig.webhooks>()
-        for (const wh of daemonConfig.webhooks) {
-          const existing = byPort.get(wh.port) ?? []
-          existing.push(wh)
-          byPort.set(wh.port, existing)
-        }
-
-        for (const [port, webhooks] of byPort) {
-          const server = createWebhookServer(webhooks, (webhook, payload) => {
-            enqueueFromWebhook(webhook.name, webhook.spec, payload, {
-              ...webhook.options,
-              target: webhook.target,
-            }, { retries: webhook.retries, retryDelayMs: webhook.retryDelayMs })
-          })
-          await server.start()
-          webhookServers.push(server)
-          deps.logger.info(`Webhook server listening on port ${server.port} (${webhooks.length} hook(s))`)
-        }
-      }
-
-      // Create pollers
-      if (daemonConfig.pollers?.length) {
-        poller = createPoller(daemonConfig.pollers, (pollerConfig, output) => {
-          enqueueFromPoller(pollerConfig.name, pollerConfig.spec, output, {
-            ...pollerConfig.options,
-            target: pollerConfig.target,
-          }, { retries: pollerConfig.retries, retryDelayMs: pollerConfig.retryDelayMs })
-        })
-        poller.start()
-        deps.logger.info(`Poller started with ${daemonConfig.pollers.length} poller(s)`)
-      }
+      await startTriggers(daemonConfig)
 
       deps.logger.info('Daemon started')
 
@@ -269,13 +285,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       deps.logger.info('Daemon stopping')
       stopped = true
 
-      // Stop all trigger sources
-      scheduler?.stop()
-      poller?.stop()
-      for (const server of webhookServers) {
-        await server.stop()
-      }
-      webhookServers = []
+      await stopTriggers()
 
       // Wait for current job with timeout
       if (runLoopPromise) {
@@ -287,6 +297,17 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
 
       removePidFile(pidFile)
       deps.logger.info('Daemon stopped')
+    },
+
+    async reload(newDaemonConfig: DaemonConfig): Promise<void> {
+      deps.logger.info('Reloading daemon configuration...')
+
+      await stopTriggers()
+      daemonConfig = newDaemonConfig
+      deps.config.daemon = newDaemonConfig
+      await startTriggers(newDaemonConfig)
+
+      deps.logger.info('Daemon configuration reloaded')
     },
   }
 }

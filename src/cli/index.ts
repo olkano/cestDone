@@ -429,6 +429,7 @@ if (isCliEntryPoint()) {
 
       const { createDaemon } = await import('../daemon/daemon.js')
       const { createDaemonLogger } = await import('../daemon/daemon-logger.js')
+      const { createConfigWatcher } = await import('../daemon/config-watcher.js')
 
       const config = loadConfig()
       if (!config.daemon) {
@@ -449,8 +450,25 @@ if (isCliEntryPoint()) {
         config,
       })
 
+      // Watch .cestdonerc.json for changes and reload triggers
+      const configPath = path.resolve(process.cwd(), '.cestdonerc.json')
+      const watcher = createConfigWatcher({
+        configPath,
+        onReload: (newDaemonConfig) => {
+          daemon.reload(newDaemonConfig).catch((err) => {
+            logger.error(`Config reload failed: ${(err as Error).message}`)
+          })
+        },
+        onError: (err) => {
+          logger.warn(`Config watch error (ignored): ${err.message}`)
+        },
+      })
+      watcher.start()
+      logger.info(`Watching ${configPath} for changes`)
+
       // Graceful shutdown
       const shutdown = async () => {
+        watcher.stop()
         await daemon.stop()
         process.exit(0)
       }

@@ -6,6 +6,7 @@ import('./dist/cli/index.js').then(async function(mod) {
   var { loadConfig } = await import('./dist/shared/config.js');
   var { createDaemon } = await import('./dist/daemon/daemon.js');
   var { createDaemonLogger } = await import('./dist/daemon/daemon-logger.js');
+  var { createConfigWatcher } = await import('./dist/daemon/config-watcher.js');
 
   console.log('[cestdone-daemon] Starting (pid: ' + process.pid + ', cwd: ' + process.cwd() + ')');
 
@@ -30,7 +31,24 @@ import('./dist/cli/index.js').then(async function(mod) {
     config: config,
   });
 
+  // Watch .cestdonerc.json for changes and reload triggers
+  var configPath = path.resolve(process.cwd(), '.cestdonerc.json');
+  var watcher = createConfigWatcher({
+    configPath: configPath,
+    onReload: function(newDaemonConfig) {
+      daemon.reload(newDaemonConfig).catch(function(err) {
+        logger.error('Config reload failed: ' + err.message);
+      });
+    },
+    onError: function(err) {
+      logger.warn('Config watch error (ignored): ' + err.message);
+    },
+  });
+  watcher.start();
+  logger.info('Watching ' + configPath + ' for changes');
+
   var shutdown = async function() {
+    watcher.stop();
     await daemon.stop();
     process.exit(0);
   };
