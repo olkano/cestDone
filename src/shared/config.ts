@@ -27,7 +27,7 @@ export const DEFAULTS = {
   maxRejections: 3,            // Plan rejections before escalating to human
   maxWorkerRetries: 3,          // Worker fix retries before escalating
   maxClarifyRounds: 3,         // Clarification Q&A rounds
-  directorMaxTurnsReview: 20,  // Director turns for Review step
+  directorMaxTurnsReview: 30,  // Director turns for Review step
   directorMaxTurnsDefault: 50, // Director turns for other steps
   cliHeartbeatMs: 30_000,      // CLI backend heartbeat interval
   centralLogDir: path.join(os.homedir(), '.cestdone', 'logs'), // central log mirror

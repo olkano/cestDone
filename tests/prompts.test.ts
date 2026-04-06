@@ -199,7 +199,7 @@ describe('buildReviewPrompt', () => {
 
     expect(prompt).not.toContain('npm test')
     expect(prompt).not.toContain('tsc --noEmit')
-    expect(prompt).toContain('Do not re-verify things the Worker confirmed in its report')
+    expect(prompt).toContain('Trust its report for items it confirmed')
   })
 
   it('instructs Director to review deliverables from diff', () => {
