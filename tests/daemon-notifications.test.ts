@@ -1,5 +1,8 @@
 // tests/daemon-notifications.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
 import type { Job } from '../src/daemon/job-queue.js'
 import type { DaemonConfig } from '../src/daemon/types.js'
 import type { DaemonLogger } from '../src/daemon/daemon-logger.js'
@@ -142,5 +145,90 @@ describe('notifyJobFailure', () => {
     await notifyJobFailure(job, 'error', config, makeLogger())
     const call = vi.mocked(sendEmail).mock.calls[0][0]
     expect(call.body).toContain('/repos/my-blog')
+  })
+
+  // NF-10
+  it('email body includes last phase report when run dir exists', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const runDir = path.join(tmpDir, '.cestdone', 'blog-update_2026-04-01_020000')
+    fs.mkdirSync(runDir, { recursive: true })
+    fs.writeFileSync(path.join(runDir, 'phase-3-report.md'), '# Phase 3\n\nStatus: failed\n\nBLOCKER: git push timed out')
+    fs.writeFileSync(path.join(runDir, 'blog-update_2026-04-01_020000.log'), 'log content')
+
+    const config: DaemonConfig = {
+      notifications: { email: { recipients: 'user@example.com' } },
+    }
+    const job = makeJob({ specPath: 'specs/blog-update.md', options: { target: tmpDir } })
+    await notifyJobFailure(job, 'error', config, makeLogger(), tmpDir)
+    const call = vi.mocked(sendEmail).mock.calls[0][0]
+    expect(call.body).toContain('BLOCKER: git push timed out')
+    expect(call.body).toContain('Last Phase Report')
+    expect(call.body).toContain('.log')
+
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  // NF-11
+  it('picks the latest run dir when multiple exist', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const oldDir = path.join(tmpDir, '.cestdone', 'blog-update_2026-03-01_010000')
+    const newDir = path.join(tmpDir, '.cestdone', 'blog-update_2026-04-01_020000')
+    fs.mkdirSync(oldDir, { recursive: true })
+    fs.mkdirSync(newDir, { recursive: true })
+    fs.writeFileSync(path.join(oldDir, 'phase-1-report.md'), 'old report')
+    fs.writeFileSync(path.join(newDir, 'phase-2-report.md'), 'latest report content')
+
+    const config: DaemonConfig = {
+      notifications: { email: { recipients: 'user@example.com' } },
+    }
+    const job = makeJob({ specPath: 'specs/blog-update.md', options: { target: tmpDir } })
+    await notifyJobFailure(job, 'error', config, makeLogger(), tmpDir)
+    const call = vi.mocked(sendEmail).mock.calls[0][0]
+    expect(call.body).toContain('latest report content')
+    expect(call.body).not.toContain('old report')
+
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  // NF-12
+  it('picks the highest phase report in the run dir', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const runDir = path.join(tmpDir, '.cestdone', 'blog-update_2026-04-01_020000')
+    fs.mkdirSync(runDir, { recursive: true })
+    fs.writeFileSync(path.join(runDir, 'phase-1-report.md'), 'phase 1 done')
+    fs.writeFileSync(path.join(runDir, 'phase-5-report.md'), 'phase 5 blocker info')
+
+    const config: DaemonConfig = {
+      notifications: { email: { recipients: 'user@example.com' } },
+    }
+    const job = makeJob({ specPath: 'specs/blog-update.md', options: { target: tmpDir } })
+    await notifyJobFailure(job, 'error', config, makeLogger(), tmpDir)
+    const call = vi.mocked(sendEmail).mock.calls[0][0]
+    expect(call.body).toContain('phase 5 blocker info')
+    expect(call.body).not.toContain('phase 1 done')
+
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  // NF-13
+  it('gracefully handles missing run dir', async () => {
+    const config: DaemonConfig = {
+      notifications: { email: { recipients: 'user@example.com' } },
+    }
+    await notifyJobFailure(makeJob(), 'error', config, makeLogger(), '/nonexistent/path')
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+    const call = vi.mocked(sendEmail).mock.calls[0][0]
+    expect(call.body).not.toContain('Last Phase Report')
+  })
+
+  // NF-14
+  it('uses targetRepoPath fallback when job options has no target', async () => {
+    const config: DaemonConfig = {
+      notifications: { email: { recipients: 'user@example.com' } },
+    }
+    const job = makeJob({ options: {} })
+    await notifyJobFailure(job, 'error', config, makeLogger(), '/fallback/repo')
+    const call = vi.mocked(sendEmail).mock.calls[0][0]
+    expect(call.body).toContain('/fallback/repo')
   })
 })

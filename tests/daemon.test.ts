@@ -370,6 +370,7 @@ describe('createDaemon', () => {
       'attempt 2',
       daemonConfig,
       deps.logger,
+      '.',
     )
   })
 

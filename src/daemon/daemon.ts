@@ -159,7 +159,8 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
         // Final attempt failed
         queue.markFailed(job.id, error.message)
         deps.logger.jobEnd(job, error)
-        await notifyJobFailure(job, error.message, daemonConfig, deps.logger)
+        const targetDir = (job.options as Partial<RunOptions>).target ?? deps.config.targetRepoPath
+        await notifyJobFailure(job, error.message, daemonConfig, deps.logger, targetDir)
       }
     }
 
