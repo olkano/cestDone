@@ -126,6 +126,8 @@ export async function handleRun(
   applyFlags(config, options)
 
   if (!config.nonInteractive) ensureTTY()
+  // Prevent Git Credential Manager from blocking on interactive auth (e.g. Azure DevOps OAuth browser prompt)
+  if (config.nonInteractive) process.env.GIT_TERMINAL_PROMPT = '0'
   ensureGitRepo(targetDir)
   const specText = fs.readFileSync(resolvedSpecPath, 'utf-8')
 
@@ -208,6 +210,7 @@ export async function handleResume(
   applyFlags(config, options)
 
   if (!config.nonInteractive) ensureTTY()
+  if (config.nonInteractive) process.env.GIT_TERMINAL_PROMPT = '0'
   ensureGitRepo(targetDir)
 
   const planPath = getPlanPath(resolvedSpecPath, targetDir)
