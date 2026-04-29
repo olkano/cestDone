@@ -103,12 +103,14 @@ function extractPhases(sections: Section[]): Phase[] {
     if (!statusSub) {
       throw new Error(`Missing "### Status:" in Phase ${phaseNum}: ${name}`)
     }
-    const status = statusSub.heading.replace('Status:', '').trim() as PhaseStatus
-    if (!VALID_STATUSES.includes(status)) {
+    const rawStatus = statusSub.heading.replace('Status:', '').trim()
+    const statusToken = rawStatus.match(/^(pending|in-progress|done)\b/)?.[1] as PhaseStatus | undefined
+    if (!statusToken) {
       throw new Error(
-        `Invalid status "${status}" in Phase ${phaseNum}. Must be one of: ${VALID_STATUSES.join(', ')}`
+        `Invalid status "${rawStatus}" in Phase ${phaseNum}. Must start with one of: ${VALID_STATUSES.join(', ')}`
       )
     }
+    const status = statusToken
 
     const specSub = subsections.find(s => s.heading === 'Spec')
     if (!specSub) {

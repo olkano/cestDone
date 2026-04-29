@@ -91,6 +91,24 @@ describe('parsePlan', () => {
     expect(() => parsePlan(bad)).toThrow('Invalid status "unknown"')
   })
 
+  it('parses status with trailing annotation after --', () => {
+    const annotated = VALID_PLAN.replace(
+      '### Status: pending\n### Spec\nInitialize',
+      '### Status: done -- 2026-04-26 21:04 UTC; 19/19 sections confirmed\n### Spec\nInitialize'
+    )
+    const plan = parsePlan(annotated)
+    expect(plan.phases[0].status).toBe('done')
+  })
+
+  it('parses status with trailing annotation in parentheses', () => {
+    const annotated = VALID_PLAN.replace(
+      '### Status: pending\n### Spec\nInitialize',
+      '### Status: in-progress (phase started)\n### Spec\nInitialize'
+    )
+    const plan = parsePlan(annotated)
+    expect(plan.phases[0].status).toBe('in-progress')
+  })
+
   it('throws on missing ### Spec in a phase', () => {
     const bad = VALID_PLAN.replace('### Spec\nInitialize the project with Express and TypeScript.', '')
 

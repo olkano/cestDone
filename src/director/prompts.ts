@@ -152,13 +152,15 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
         'If the work is correct, commit before responding:',
         '```',
         'git add -A',
-        'git commit -m "cestDone: <concise description of what was built>"',
+        'git commit -m "<type>: <short description>"',
         '```',
+        'Follow conventionalcommits.org: use types like feat, fix, refactor, test, docs, chore.',
+        'Keep messages short and simple. Do NOT add Co-Authored-By or any authoring trailers.',
         'Do NOT commit if the Worker reported test failures or the implementation is incomplete.',
       ]
       : [
         '## Git Policy',
-        'Do NOT commit any changes — the user will commit manually.',
+        'Do NOT commit any changes - the user will commit manually.',
       ]),
     '',
     '## Response Actions',
