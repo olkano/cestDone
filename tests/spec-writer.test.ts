@@ -149,4 +149,33 @@ describe('writePhaseCompletion', () => {
     expect(result).toContain('### Status: pending')
     expect(result).toContain('Build the features.')
   })
+
+  it('sanitizes ## headings in done summary to prevent plan corruption', () => {
+    const { dir, filePath } = makeTmpSpec(SAMPLE_SPEC)
+    tmpDir = dir
+
+    writePhaseCompletion(filePath, 0, '## Phase 0 Done\n\n**Built:** stuff.\n\n# Big Heading\nMore text.')
+
+    const result = fs.readFileSync(filePath, 'utf-8')
+    expect(result).not.toContain('\n## Phase 0 Done')
+    expect(result).not.toContain('\n# Big Heading')
+    expect(result).toContain('**Phase 0 Done')
+    expect(result).toContain('**Big Heading')
+    expect(result).toContain('**Built:** stuff.')
+  })
+
+  it('replaces status with trailing annotations', () => {
+    const { dir, filePath } = makeTmpSpec(SAMPLE_SPEC)
+    tmpDir = dir
+
+    // Simulate an agent having written an annotated status
+    const content = fs.readFileSync(filePath, 'utf-8')
+    fs.writeFileSync(filePath, content.replace('### Status: pending', '### Status: in-progress -- started 2026-05-01'))
+
+    writePhaseCompletion(filePath, 0, 'Done.')
+
+    const result = fs.readFileSync(filePath, 'utf-8')
+    expect(result).toContain('### Status: done')
+    expect(result).not.toContain('started 2026-05-01')
+  })
 })

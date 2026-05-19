@@ -10,7 +10,7 @@ export function updatePhaseStatus(filePath: string, phaseNumber: number, newStat
   const content = fs.readFileSync(filePath, 'utf-8')
   const updated = replaceInPhase(content, phaseNumber, (phaseBlock) => {
     return phaseBlock.replace(
-      /### Status: \S+/,
+      /### Status: \S+.*/,
       `### Status: ${newStatus}`
     )
   })
@@ -19,16 +19,21 @@ export function updatePhaseStatus(filePath: string, phaseNumber: number, newStat
 
 export function writePhaseCompletion(filePath: string, phaseNumber: number, doneSummary: string): void {
   const content = fs.readFileSync(filePath, 'utf-8')
+  const sanitized = sanitizeDoneSummary(doneSummary)
   const updated = replaceInPhase(content, phaseNumber, (phaseBlock) => {
     let result = phaseBlock.replace(
-      /### Status: \S+/,
+      /### Status: \S+.*/,
       '### Status: done'
     )
     result = replaceSection(result, 'Spec', '_See Done summary below._')
-    result = replaceSection(result, 'Done', doneSummary)
+    result = replaceSection(result, 'Done', sanitized)
     return result
   })
   atomicWrite(filePath, updated)
+}
+
+function sanitizeDoneSummary(summary: string): string {
+  return summary.replace(/^## /gm, '**').replace(/^# /gm, '**')
 }
 
 function replaceInPhase(content: string, phaseNumber: number, transform: (block: string) => string): string {

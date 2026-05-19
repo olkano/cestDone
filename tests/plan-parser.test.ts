@@ -79,10 +79,18 @@ describe('parsePlan', () => {
     expect(() => parsePlan(bad)).toThrow('No "# Plan:" heading found')
   })
 
-  it('throws on missing ### Status: in a phase', () => {
-    const bad = VALID_PLAN.replace('### Status: pending\n### Spec\nInitialize', '### Spec\nInitialize')
+  it('infers pending when ### Status: missing and Done is unfilled', () => {
+    const noStatus = VALID_PLAN.replace('### Status: pending\n### Spec\nInitialize', '### Spec\nInitialize')
+    const plan = parsePlan(noStatus)
+    expect(plan.phases[0].status).toBe('pending')
+  })
 
-    expect(() => parsePlan(bad)).toThrow('Missing "### Status:"')
+  it('infers done when ### Status: missing and Done has content', () => {
+    const noStatus = VALID_PLAN
+      .replace('### Status: pending\n### Spec\nInitialize', '### Spec\nInitialize')
+      .replace('_(to be filled)_', 'Phase completed successfully.')
+    const plan = parsePlan(noStatus)
+    expect(plan.phases[0].status).toBe('done')
   })
 
   it('throws on invalid status value', () => {
