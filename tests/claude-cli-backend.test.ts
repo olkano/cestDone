@@ -428,15 +428,15 @@ describe('ClaudeCliBackend', () => {
       expect(Object.keys(env).length).toBeGreaterThan(2)
     })
 
-    it('uses --strict-mcp-config with empty config', async () => {
+    it('does not block MCP servers (inherits user-scope servers)', async () => {
       mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
       await backend.invoke(makeInvocation())
 
       const { args } = getSpawnArgs()
-      expect(args).toContain('--strict-mcp-config')
-      expect(args).toContain('--mcp-config')
+      expect(args).not.toContain('--strict-mcp-config')
+      expect(args).not.toContain('--mcp-config')
     })
 
     it('sets cwd on spawn options', async () => {

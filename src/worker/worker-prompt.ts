@@ -54,7 +54,7 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
 
   parts.push('### Testing')
   parts.push('If this phase changes code, run tests in non-interactive mode (no watch mode) and type checks if applicable.')
-  parts.push('Kill any servers or background processes when done.')
+  parts.push('Kill any servers or background processes you started when done, using the PID you captured at launch (e.g. `kill $PID`). NEVER run `taskkill /F /IM node.exe` or any command that kills processes by name -- this kills unrelated system processes.')
   parts.push('')
 
   parts.push('### Compliance Self-Check')

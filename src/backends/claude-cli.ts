@@ -1,6 +1,5 @@
 // src/backends/claude-cli.ts
 import { spawn, execFile, execFileSync } from 'node:child_process'
-import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import type { Backend, BackendInvocation, BackendResult, BackendType } from '../shared/types.js'
@@ -203,10 +202,6 @@ export class ClaudeCliBackend implements Backend {
     const args = this.buildArgs(params)
     const env = this.buildEnv(params.env)
 
-    const emptyMcpConfigPath = path.join(os.tmpdir(), 'cestdone-empty-mcp.json')
-    fs.writeFileSync(emptyMcpConfigPath, '{"mcpServers":{}}')
-    args.push('--mcp-config', emptyMcpConfigPath)
-
     // Resolve .cmd wrapper to avoid shell mangling of multiline args
     const { bin, prefix } = resolveCmd(this.cliPath)
     const spawnArgs = [...prefix, ...args]
@@ -358,7 +353,6 @@ export class ClaudeCliBackend implements Backend {
       '--verbose',
       '--dangerously-skip-permissions',
       '--model', params.model,
-      '--strict-mcp-config',
     ]
 
     if (!params.resumeSessionId && params.systemPrompt) {
