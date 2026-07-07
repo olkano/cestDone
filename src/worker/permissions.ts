@@ -2,7 +2,7 @@
 import { WorkflowStep } from '../shared/types.js'
 
 const READ_ONLY = ['Read', 'Glob', 'Grep']
-const FULL_EDIT = ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
+const FULL_EDIT = ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
 
 export function getTools(step: WorkflowStep): string[] {
   switch (step) {
