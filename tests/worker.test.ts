@@ -77,7 +77,7 @@ describe('executeWorker', () => {
     await executeWorker(makeOptions({ backend, step: WorkflowStep.Execute }))
 
     const params = backend.invoke.mock.calls[0][0]
-    expect(params.tools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep'])
+    expect(params.tools).toEqual(['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch'])
   })
 
   // Q4: Passes house rules as systemPrompt

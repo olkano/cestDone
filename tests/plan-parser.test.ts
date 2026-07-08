@@ -85,12 +85,28 @@ describe('parsePlan', () => {
     expect(plan.phases[0].status).toBe('pending')
   })
 
-  it('infers done when ### Status: missing and Done has content', () => {
+  it('defaults to pending when Status missing, regardless of Done content', () => {
     const noStatus = VALID_PLAN
       .replace('### Status: pending\n### Spec\nInitialize', '### Spec\nInitialize')
       .replace('_(to be filled)_', 'Phase completed successfully.')
     const plan = parsePlan(noStatus)
-    expect(plan.phases[0].status).toBe('done')
+    expect(plan.phases[0].status).toBe('pending')
+  })
+
+  it('defaults to pending when Status missing and Done contains (pending)', () => {
+    const noStatus = VALID_PLAN
+      .replace('### Status: pending\n### Spec\nInitialize', '### Spec\nInitialize')
+      .replace('_(to be filled)_', '(pending)')
+    const plan = parsePlan(noStatus)
+    expect(plan.phases[0].status).toBe('pending')
+  })
+
+  it('defaults to pending when Status missing and Done contains TBD', () => {
+    const noStatus = VALID_PLAN
+      .replace('### Status: pending\n### Spec\nInitialize', '### Spec\nInitialize')
+      .replace('_(to be filled)_', 'TBD')
+    const plan = parsePlan(noStatus)
+    expect(plan.phases[0].status).toBe('pending')
   })
 
   it('throws on invalid status value', () => {
@@ -115,6 +131,40 @@ describe('parsePlan', () => {
     )
     const plan = parsePlan(annotated)
     expect(plan.phases[0].status).toBe('in-progress')
+  })
+
+  it('parses separate-line status format (### Status newline value)', () => {
+    const separateLine = VALID_PLAN.replace(
+      '### Status: pending\n### Spec\nInitialize',
+      '### Status\nin-progress\n### Spec\nInitialize'
+    )
+    const plan = parsePlan(separateLine)
+    expect(plan.phases[0].status).toBe('in-progress')
+  })
+
+  it('parses separate-line status with trailing annotation', () => {
+    const separateLine = VALID_PLAN.replace(
+      '### Status: pending\n### Spec\nInitialize',
+      '### Status\ndone -- 2026-04-26 21:04 UTC\n### Spec\nInitialize'
+    )
+    const plan = parsePlan(separateLine)
+    expect(plan.phases[0].status).toBe('done')
+  })
+
+  it('throws on invalid separate-line status value', () => {
+    const bad = VALID_PLAN.replace(
+      '### Status: pending\n### Spec\nInitialize',
+      '### Status\nunknown\n### Spec\nInitialize'
+    )
+    expect(() => parsePlan(bad)).toThrow('Invalid status "unknown"')
+  })
+
+  it('throws when separate-line Status heading has no value', () => {
+    const bad = VALID_PLAN.replace(
+      '### Status: pending\n### Spec\nInitialize',
+      '### Status\n\n### Spec\nInitialize'
+    )
+    expect(() => parsePlan(bad)).toThrow('Invalid status')
   })
 
   it('throws on missing ### Spec in a phase', () => {

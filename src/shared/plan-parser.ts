@@ -99,21 +99,31 @@ function extractPhases(sections: Section[]): Phase[] {
     const name = phaseMatch[2]
     const subsections = splitByH3(section.content)
 
-    const statusSub = subsections.find(s => s.heading.startsWith('Status:'))
+    const inlineSub = subsections.find(s => s.heading.startsWith('Status:'))
+    let rawStatus: string | undefined
+    let hasStatusHeading = false
+    if (inlineSub) {
+      rawStatus = inlineSub.heading.replace('Status:', '').trim()
+      hasStatusHeading = true
+    } else {
+      const separateSub = subsections.find(s => s.heading === 'Status')
+      if (separateSub) {
+        hasStatusHeading = true
+        rawStatus = separateSub.content.find(l => l.trim())?.trim()
+      }
+    }
+
     let status: PhaseStatus
-    if (statusSub) {
-      const rawStatus = statusSub.heading.replace('Status:', '').trim()
-      const statusToken = rawStatus.match(/^(pending|in-progress|done)\b/)?.[1] as PhaseStatus | undefined
+    if (hasStatusHeading) {
+      const statusToken = rawStatus?.match(/^(pending|in-progress|done)\b/)?.[1] as PhaseStatus | undefined
       if (!statusToken) {
         throw new Error(
-          `Invalid status "${rawStatus}" in Phase ${phaseNum}. Must start with one of: ${VALID_STATUSES.join(', ')}`
+          `Invalid status "${rawStatus ?? ''}" in Phase ${phaseNum}. Must start with one of: ${VALID_STATUSES.join(', ')}`
         )
       }
       status = statusToken
     } else {
-      const doneSub = subsections.find(s => s.heading === 'Done')
-      const doneContent = doneSub ? doneSub.content.join('\n').trim() : ''
-      status = doneContent && doneContent !== '_(to be filled)_' ? 'done' : 'pending'
+      status = 'pending'
     }
 
     const specSub = subsections.find(s => s.heading === 'Spec')

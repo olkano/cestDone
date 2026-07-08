@@ -182,7 +182,7 @@ describe('integration', () => {
     // The 2nd call (index 1) is the phase execution Worker
     const workerParams = mockQuery.mock.calls[1][0]
     expect(workerParams.options.tools).toEqual(
-      ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
+      ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
     )
   })
 
@@ -289,7 +289,7 @@ describe('integration', () => {
     expect(mockQuery.mock.calls[2][0].options.resume).toBe('sess-1')
   })
 
-  it('exits cleanly when all phases are done in existing plan', async () => {
+  it('throws when all phases are done in existing plan (no phases executed)', async () => {
     const donePlan = VALID_PLAN_CONTENT
       .replace('### Status: pending', '### Status: done')
       .replace('_(to be filled)_', 'Already completed.')
@@ -300,13 +300,7 @@ describe('integration', () => {
     fs.mkdirSync(path.join(tmpDir, '.cestdone'), { recursive: true })
     fs.writeFileSync(planPath, donePlan, 'utf-8')
 
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-
-    await handleRun(specPath, { target: tmpDir })
-
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('All phases complete'))
+    await expect(handleRun(specPath, { target: tmpDir })).rejects.toThrow('no runnable phases')
     expect(mockQuery).not.toHaveBeenCalled()
-
-    consoleSpy.mockRestore()
   })
 })

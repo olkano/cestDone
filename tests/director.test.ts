@@ -1123,7 +1123,7 @@ describe('executeDirector', () => {
     })
 
     const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    expect(invocation.model).toBe('claude-opus-4-6')
+    expect(invocation.model).toBe('claude-opus-4-7')
   })
 
   // MO2: Falls back to env var when no directorModel override

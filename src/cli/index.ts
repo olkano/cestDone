@@ -236,13 +236,23 @@ async function executeAllPhases(
   deps: DirectorDeps,
 ): Promise<void> {
   let currentSessionId: string | undefined
+  let phasesExecuted = 0
   while (true) {
     const planContent = fs.readFileSync(planPath, 'utf-8')
     const plan = parsePlan(planContent)
     const next = plan.phases.find(p => p.status === 'pending' || p.status === 'in-progress')
-    if (!next) break
+    if (!next) {
+      if (phasesExecuted === 0 && plan.phases.length > 0) {
+        throw new Error(
+          `Plan at ${planPath} has ${plan.phases.length} phase(s) but no runnable phases ` +
+          `(none are pending or in-progress). This usually indicates a plan format issue.`
+        )
+      }
+      break
+    }
     deps.display(`\n=== Phase ${next.number}: ${next.name} ===`)
     currentSessionId = await runPhase(plan, next, config, planPath, deps, currentSessionId)
+    phasesExecuted++
   }
   deps.display('\nAll phases complete.')
 }

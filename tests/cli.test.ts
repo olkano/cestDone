@@ -98,6 +98,16 @@ describe('handleRun', () => {
     )
   })
 
+  // F2: handleRun throws when existing plan has all phases done (interactive)
+  it('throws when existing plan has all phases done in interactive mode', async () => {
+    const allDone = makeMockPlan([DONE_PHASE])
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(parsePlan).mockReturnValue(allDone)
+
+    await expect(handleRun('spec.md')).rejects.toThrow('no runnable phases')
+    expect(runPhase).not.toHaveBeenCalled()
+  })
+
   // K2: When no plan exists, runs planning flow first, then executes all phases
   it('runs planning flow when no plan exists', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
@@ -268,6 +278,16 @@ describe('handleResume', () => {
     )
     // No prompt about in-progress — resume doesn't ask
     expect(askInput).not.toHaveBeenCalled()
+  })
+
+  // F1: Resume throws when all phases already done (zero phases executed)
+  it('throws when all phases already done on first read', async () => {
+    const allDone = makeMockPlan([DONE_PHASE])
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(parsePlan).mockReturnValue(allDone)
+
+    await expect(handleResume('spec.md')).rejects.toThrow('no runnable phases')
+    expect(runPhase).not.toHaveBeenCalled()
   })
 
   // K6: Resume throws when no plan file exists

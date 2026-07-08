@@ -74,6 +74,7 @@ describe('non-interactive mode', () => {
     vi.mocked(parsePlan)
       .mockReturnValueOnce(plan)
       .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(plan)
       .mockReturnValueOnce(donePlan)
 
     await handleRun('spec.md', { nonInteractive: true })
@@ -204,6 +205,7 @@ describe('non-interactive mode', () => {
     const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
     vi.mocked(fs.existsSync).mockReturnValue(true)
     vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
       .mockReturnValueOnce(plan)
       .mockReturnValueOnce(plan)
       .mockReturnValueOnce(donePlan)

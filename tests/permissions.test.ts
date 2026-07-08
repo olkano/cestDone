@@ -17,7 +17,7 @@ describe('getTools', () => {
   // N3: Execute returns full auto-edit tools
   it('returns full auto-edit tools for Execute step', () => {
     expect(getTools(WorkflowStep.Execute)).toEqual(
-      ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
+      ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
     )
   })
 
@@ -37,7 +37,7 @@ describe('getTools', () => {
   // N5: Plan step returns full edit tools (Planning Worker needs Write to create .plan.md)
   it('returns full auto-edit tools for Plan step', () => {
     expect(getTools(WorkflowStep.Plan)).toEqual(
-      ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep']
+      ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
     )
   })
 })
