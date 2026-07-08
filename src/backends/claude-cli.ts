@@ -68,8 +68,9 @@ interface StreamEvent {
 export function parseCliResult(stdout: string, outputSchema?: object): BackendResult {
   const parsed: CliJsonOutput = JSON.parse(stdout)
 
-  const success = parsed.subtype === 'success'
   const resultText = parsed.result ?? ''
+  const isUsageLimitReached = resultText.startsWith('Claude AI usage limit reached')
+  const success = parsed.subtype === 'success' && !isUsageLimitReached
 
   let output: unknown = resultText
   let rawText: string | undefined = resultText
@@ -102,16 +103,18 @@ export function parseCliResult(stdout: string, outputSchema?: object): BackendRe
     durationMs: parsed.duration_ms,
     usage: mapSdkUsage(parsed.usage),
     success,
-    errorMessage: success ? undefined : `CLI error (${parsed.subtype}): ${resultText}`,
+    errorMessage: success ? undefined
+      : isUsageLimitReached ? 'Claude AI usage limit reached. Try again later.'
+      : `CLI error (${parsed.subtype}): ${resultText}`,
   }
 }
 
 /** Parse a result-type stream event into BackendResult. */
 export function parseStreamResultEvent(event: StreamEvent, outputSchema?: object): BackendResult {
   const resultText = event.result ?? ''
-  // CLI may report success but return a non-useful result like "Prompt is too long"
   const isPromptTooLong = resultText.trim() === 'Prompt is too long'
-  const success = event.subtype === 'success' && !isPromptTooLong
+  const isUsageLimitReached = resultText.startsWith('Claude AI usage limit reached')
+  const success = event.subtype === 'success' && !isPromptTooLong && !isUsageLimitReached
   let output: unknown = resultText
   const rawText: string | undefined = resultText
 
@@ -136,7 +139,8 @@ export function parseStreamResultEvent(event: StreamEvent, outputSchema?: object
     usage: mapSdkUsage(event.usage),
     success,
     errorMessage: success ? undefined
-      : isPromptTooLong ? 'Session context too large — prompt is too long. Consider starting a fresh session.'
+      : isPromptTooLong ? 'Session context too large - prompt is too long. Consider starting a fresh session.'
+      : isUsageLimitReached ? 'Claude AI usage limit reached. Try again later.'
       : `CLI error (${event.subtype}): ${resultText}`,
   }
 }

@@ -258,6 +258,13 @@ describe('parseCliResult', () => {
     expect(result.output).toBe('I could not do it')
     expect(result.rawText).toBe('I could not do it')
   })
+
+  it('treats "Claude AI usage limit reached" as failure despite success subtype', () => {
+    const stdout = makeCliOutput({ subtype: 'success', result: 'Claude AI usage limit reached|0' })
+    const result = parseCliResult(stdout, { type: 'object' })
+    expect(result.success).toBe(false)
+    expect(result.errorMessage).toContain('usage limit')
+  })
 })
 
 describe('parseStreamResultEvent', () => {
@@ -290,6 +297,30 @@ describe('parseStreamResultEvent', () => {
     const result = parseStreamResultEvent(event)
     expect(result.success).toBe(false)
     expect(result.errorMessage).toContain('error_max_turns')
+  })
+
+  it('treats "Claude AI usage limit reached" as failure despite success subtype', () => {
+    const event = {
+      type: 'result', subtype: 'success', session_id: 'sess-1',
+      num_turns: 1, duration_ms: 7000,
+      result: 'Claude AI usage limit reached|0',
+      usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    }
+    const result = parseStreamResultEvent(event, { type: 'object' })
+    expect(result.success).toBe(false)
+    expect(result.errorMessage).toContain('usage limit')
+  })
+
+  it('treats "Claude AI usage limit reached" without pipe suffix as failure', () => {
+    const event = {
+      type: 'result', subtype: 'success', session_id: 'sess-1',
+      num_turns: 1, duration_ms: 5000,
+      result: 'Claude AI usage limit reached',
+      usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    }
+    const result = parseStreamResultEvent(event)
+    expect(result.success).toBe(false)
+    expect(result.errorMessage).toContain('usage limit')
   })
 })
 
