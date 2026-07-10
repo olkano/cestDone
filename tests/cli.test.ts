@@ -10,6 +10,7 @@ vi.mock('../src/director/director.js')
 vi.mock('../src/cli/prompt.js')
 vi.mock('../src/worker/worker.js')
 vi.mock('../src/shared/git.js')
+vi.mock('../src/shared/run-lock.js', () => ({ acquireRunLock: vi.fn(() => vi.fn()) }))
 vi.mock('../src/shared/logger.js', () => ({
   createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' }),
 }))
@@ -27,6 +28,7 @@ import { parsePlan, getPlanPath } from '../src/shared/plan-parser.js'
 import { runDirectExecution, runPhase, runPlanningFlow } from '../src/director/director.js'
 import { ensureTTY, askInput } from '../src/cli/prompt.js'
 import { handleRun, handleResume } from '../src/cli/index.js'
+import { acquireRunLock } from '../src/shared/run-lock.js'
 
 const PENDING_PHASE: Phase = {
   number: 1, name: 'Setup', status: 'pending',
@@ -95,6 +97,17 @@ describe('handleRun', () => {
     expect(getPlanPath).not.toHaveBeenCalled()
     expect(runPlanningFlow).not.toHaveBeenCalled()
     expect(runPhase).not.toHaveBeenCalled()
+    expect(acquireRunLock).toHaveBeenCalledWith(expect.any(String), 'spec')
+    expect(vi.mocked(acquireRunLock).mock.results[0].value).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases the run lock when direct execution fails', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(runDirectExecution).mockRejectedValue(new Error('worker failed'))
+
+    await expect(handleRun('spec.md', { skipPlanning: true })).rejects.toThrow('worker failed')
+
+    expect(vi.mocked(acquireRunLock).mock.results[0].value).toHaveBeenCalledTimes(1)
   })
 
   // K1: When plan exists, parses it and runs all pending phases

@@ -1,6 +1,6 @@
 // tests/result-parser.test.ts
 import { describe, it, expect } from 'vitest'
-import { parseResult } from '../src/worker/result-parser.js'
+import { parseResult, parseWorkerResult } from '../src/worker/result-parser.js'
 
 // Minimal SDKResultMessage shapes matching the SDK types
 
@@ -182,5 +182,21 @@ describe('parseResult', () => {
     expect(result.usage.outputTokens).toBe(0)
     expect(result.usage.cacheReadInputTokens).toBe(0)
     expect(result.usage.cacheCreationInputTokens).toBe(0)
+  })
+})
+
+describe('parseWorkerResult', () => {
+  it('propagates backend tool-call counts to the Worker result', () => {
+    const result = parseWorkerResult({
+      output: { status: 'success', summary: 'done' },
+      costUsd: 0,
+      numTurns: 2,
+      durationMs: 100,
+      usage: { inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4 },
+      success: true,
+      toolCalls: { WebSearch: 12, Read: 3 },
+    })
+
+    expect(result.toolCalls).toEqual({ WebSearch: 12, Read: 3 })
   })
 })

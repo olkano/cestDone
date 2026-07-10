@@ -240,6 +240,24 @@ describe('AgentSdkBackend', () => {
       expect(logCalls.some((msg: string) => msg.includes('Read'))).toBe(true)
     })
 
+    it('returns authoritative tool-call counts from assistant events', async () => {
+      mockQuery.mockReturnValue(createMockQuery(
+        makeSystemMessage(),
+        makeAssistantMessage([
+          { type: 'tool_use', name: 'WebSearch', input: { query: 'one' } },
+          { type: 'tool_use', name: 'Read', input: { file_path: '/test/a' } },
+        ]),
+        makeAssistantMessage([
+          { type: 'tool_use', name: 'WebSearch', input: { query: 'two' } },
+        ]),
+        makeResultMessage(),
+      ))
+
+      const result = await new AgentSdkBackend().invoke(makeInvocation())
+
+      expect(result.toolCalls).toEqual({ WebSearch: 2, Read: 1 })
+    })
+
     it('omits outputFormat when no outputSchema', async () => {
       mockQuery.mockReturnValue(createMockQuery(makeSystemMessage(), makeResultMessage()))
       const backend = new AgentSdkBackend()

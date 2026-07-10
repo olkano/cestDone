@@ -83,6 +83,7 @@ export interface WorkerResult {
   numTurns: number
   durationMs: number
   usage: TokenUsage
+  toolCalls?: Record<string, number>
   report: WorkerReport | null
 }
 
@@ -165,6 +166,7 @@ export interface BackendResult {
   numTurns: number
   durationMs: number
   usage: TokenUsage
+  toolCalls?: Record<string, number>
   success: boolean
   errorMessage?: string
 }

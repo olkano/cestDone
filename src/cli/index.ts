@@ -21,6 +21,7 @@ import { CostTracker, formatFinalSummary } from '../shared/cost-tracker.js'
 import type { FreeFormSpec, Config, BackendType } from '../shared/types.js'
 import { createBackend } from '../backends/index.js'
 import { NonInteractiveEscalationError } from '../daemon/errors.js'
+import { acquireRunLock } from '../shared/run-lock.js'
 
 export interface RunOptions {
   target?: string
@@ -138,71 +139,76 @@ export async function handleRun(
     process.env.GCM_INTERACTIVE = 'never'
   }
   ensureGitRepo(targetDir)
-  const specText = fs.readFileSync(resolvedSpecPath, 'utf-8')
+  const releaseRunLock = acquireRunLock(targetDir, specName)
+  try {
+    const specText = fs.readFileSync(resolvedSpecPath, 'utf-8')
 
-  // Load house rules: CLI flag > config > none
-  let houseRulesContent = ''
-  const houseRulesSource = options?.houseRules ?? config.houseRules
-  if (houseRulesSource) {
-    const houseRulesPath = path.resolve(houseRulesSource)
-    houseRulesContent = fs.readFileSync(houseRulesPath, 'utf-8')
-  }
-
-  const costTracker = new CostTracker()
-  const deps = buildDeps(logger, costTracker, config)
-  const freeFormSpec: FreeFormSpec = {
-    text: specText,
-    houseRulesContent,
-    specFilePath: resolvedSpecPath,
-  }
-
-  if (config.skipPlanning) {
-    await runDirectExecution(freeFormSpec, config, deps)
-    logFinalSummary(logger, costTracker, startTime)
-    return
-  }
-
-  const planPath = getPlanPath(resolvedSpecPath, targetDir)
-
-  // In non-interactive mode, remove completed plans so recurring tasks start fresh
-  if (fs.existsSync(planPath) && config.nonInteractive) {
-    const planContent = fs.readFileSync(planPath, 'utf-8')
-    const plan = parsePlan(planContent)
-    if (plan.phases.every(p => p.status === 'done')) {
-      deps.display('All phases already done - removing stale plan for fresh run.')
-      fs.unlinkSync(planPath)
+    // Load house rules: CLI flag > config > none
+    let houseRulesContent = ''
+    const houseRulesSource = options?.houseRules ?? config.houseRules
+    if (houseRulesSource) {
+      const houseRulesPath = path.resolve(houseRulesSource)
+      houseRulesContent = fs.readFileSync(houseRulesPath, 'utf-8')
     }
-  }
 
-  // Check if plan already exists
-  if (fs.existsSync(planPath)) {
-    const planContent = fs.readFileSync(planPath, 'utf-8')
-    const plan = parsePlan(planContent)
+    const costTracker = new CostTracker()
+    const deps = buildDeps(logger, costTracker, config)
+    const freeFormSpec: FreeFormSpec = {
+      text: specText,
+      houseRulesContent,
+      specFilePath: resolvedSpecPath,
+    }
 
-    const inProgress = plan.phases.find(p => p.status === 'in-progress')
-    if (inProgress) {
-      if (config.nonInteractive) {
-        // Auto-continue in non-interactive mode
-        deps.display(`Non-interactive: auto-continuing phase ${inProgress.number} (${inProgress.name})`)
-      } else {
-        const answer = await askInput(
-          `Phase ${inProgress.number} (${inProgress.name}) is in-progress. ` +
-          'Reset to pending or continue? (reset/continue): '
-        )
-        if (answer.trim().toLowerCase() === 'reset') {
-          updatePhaseStatus(planPath, inProgress.number, 'pending')
-        }
+    if (config.skipPlanning) {
+      await runDirectExecution(freeFormSpec, config, deps)
+      logFinalSummary(logger, costTracker, startTime)
+      return
+    }
+
+    const planPath = getPlanPath(resolvedSpecPath, targetDir)
+
+    // In non-interactive mode, remove completed plans so recurring tasks start fresh
+    if (fs.existsSync(planPath) && config.nonInteractive) {
+      const planContent = fs.readFileSync(planPath, 'utf-8')
+      const plan = parsePlan(planContent)
+      if (plan.phases.every(p => p.status === 'done')) {
+        deps.display('All phases already done - removing stale plan for fresh run.')
+        fs.unlinkSync(planPath)
       }
     }
 
-    await executeAllPhases(planPath, config, deps)
-  } else {
-    // No plan exists — run planning flow
-    const { planPath: createdPlanPath } = await runPlanningFlow(freeFormSpec, config, deps)
-    await executeAllPhases(createdPlanPath, config, deps)
-  }
+    // Check if plan already exists
+    if (fs.existsSync(planPath)) {
+      const planContent = fs.readFileSync(planPath, 'utf-8')
+      const plan = parsePlan(planContent)
 
-  logFinalSummary(logger, costTracker, startTime)
+      const inProgress = plan.phases.find(p => p.status === 'in-progress')
+      if (inProgress) {
+        if (config.nonInteractive) {
+          // Auto-continue in non-interactive mode
+          deps.display(`Non-interactive: auto-continuing phase ${inProgress.number} (${inProgress.name})`)
+        } else {
+          const answer = await askInput(
+            `Phase ${inProgress.number} (${inProgress.name}) is in-progress. ` +
+            'Reset to pending or continue? (reset/continue): '
+          )
+          if (answer.trim().toLowerCase() === 'reset') {
+            updatePhaseStatus(planPath, inProgress.number, 'pending')
+          }
+        }
+      }
+
+      await executeAllPhases(planPath, config, deps)
+    } else {
+      // No plan exists — run planning flow
+      const { planPath: createdPlanPath } = await runPlanningFlow(freeFormSpec, config, deps)
+      await executeAllPhases(createdPlanPath, config, deps)
+    }
+
+    logFinalSummary(logger, costTracker, startTime)
+  } finally {
+    releaseRunLock()
+  }
 }
 
 export async function handleResume(
@@ -230,17 +236,21 @@ export async function handleResume(
     process.env.GCM_INTERACTIVE = 'never'
   }
   ensureGitRepo(targetDir)
+  const releaseRunLock = acquireRunLock(targetDir, specName)
+  try {
+    const planPath = getPlanPath(resolvedSpecPath, targetDir)
 
-  const planPath = getPlanPath(resolvedSpecPath, targetDir)
+    if (!fs.existsSync(planPath)) {
+      throw new Error(`No plan file found at ${planPath}. Run 'cestdone run' first to create a plan.`)
+    }
 
-  if (!fs.existsSync(planPath)) {
-    throw new Error(`No plan file found at ${planPath}. Run 'cestdone run' first to create a plan.`)
+    const costTracker = new CostTracker()
+    const deps = buildDeps(logger, costTracker, config)
+    await executeAllPhases(planPath, config, deps)
+    logFinalSummary(logger, costTracker, startTime)
+  } finally {
+    releaseRunLock()
   }
-
-  const costTracker = new CostTracker()
-  const deps = buildDeps(logger, costTracker, config)
-  await executeAllPhases(planPath, config, deps)
-  logFinalSummary(logger, costTracker, startTime)
 }
 
 async function executeAllPhases(

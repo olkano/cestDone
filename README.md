@@ -224,6 +224,10 @@ Use `--skip-planning`, or set `"skipPlanning": true`, when the specification alr
 
 Direct execution is strict: a `partial` or `failed` Worker result fails the complete run, and a final review must return `done`. It requires Worker mode and cannot be combined with `--no-with-worker`. Planning remains the default for open-ended implementation specifications.
 
+For date-dependent jobs, direct mode prepends an authoritative UTC date and weekday to the Worker instructions. Each run also holds an atomic per-target, per-spec lock in `.cestdone/locks/`; a second invocation fails instead of overlapping. Locks are released after normal completion and expire after six hours to recover from abandoned wrapper processes.
+
+Worker logs include authoritative counts of streamed tool calls, grouped by tool name (for example, `WebSearch:12`). These counts come from backend events rather than the model's self-report.
+
 Daemon schedules can enable it per job:
 
 ```json

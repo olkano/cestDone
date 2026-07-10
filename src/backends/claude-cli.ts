@@ -241,6 +241,7 @@ export class ClaudeCliBackend implements Backend {
       let resultEvent: StreamEvent | undefined
       let sessionId: string | undefined
       let turnCount = 0
+      const toolCalls: Record<string, number> = {}
 
       const heartbeat = setInterval(() => {
         if (!resultEvent) {
@@ -260,7 +261,9 @@ export class ClaudeCliBackend implements Backend {
 
           try {
             const event: StreamEvent = JSON.parse(line)
-            this.handleStreamEvent(event, params, () => { turnCount++ })
+            this.handleStreamEvent(event, params, () => { turnCount++ }, (name) => {
+              toolCalls[name] = (toolCalls[name] ?? 0) + 1
+            })
             if (event.type === 'system' && event.session_id) {
               sessionId = event.session_id
             }
@@ -286,6 +289,7 @@ export class ClaudeCliBackend implements Backend {
 
       function finish(result: BackendResult) {
         clearInterval(heartbeat)
+        result.toolCalls = toolCalls
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
         params.logger.log('CLI', `Completed in ${elapsed}s (success=${result.success})`)
         resolve(result)
@@ -337,10 +341,12 @@ export class ClaudeCliBackend implements Backend {
     event: StreamEvent,
     params: BackendInvocation,
     onTurn: () => void,
+    onToolCall: (name: string) => void,
   ): void {
     if (event.type === 'assistant' && event.message?.content) {
       for (const block of event.message.content) {
         if (block.type === 'tool_use' && block.name) {
+          onToolCall(block.name)
           params.logger.log('CLI', `Tool: ${formatToolCall(block.name, block.input)}`)
         } else if (block.type === 'text' && block.text) {
           params.logger.logVerbose('CLI', `Text: ${block.text.slice(0, 300)}`)

@@ -50,6 +50,23 @@ function makeStreamOutput(resultOverrides: Record<string, unknown> = {}) {
   return initEvent + '\n' + resultEvent + '\n'
 }
 
+function makeStreamOutputWithTools() {
+  const assistantOne = JSON.stringify({
+    type: 'assistant',
+    message: { content: [
+      { type: 'tool_use', name: 'WebSearch', input: { query: 'one' } },
+      { type: 'tool_use', name: 'Read', input: { file_path: '/test/a' } },
+    ] },
+  })
+  const assistantTwo = JSON.stringify({
+    type: 'assistant',
+    message: { content: [
+      { type: 'tool_use', name: 'WebSearch', input: { query: 'two' } },
+    ] },
+  })
+  return makeStreamOutput().replace(/\n([^\n]+\n)$/, `\n${assistantOne}\n${assistantTwo}\n$1`)
+}
+
 // Legacy single-JSON format for parseCliResult tests
 function makeCliOutput(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
@@ -341,6 +358,14 @@ describe('ClaudeCliBackend', () => {
   })
 
   describe('invoke()', () => {
+    it('returns authoritative tool-call counts from stream events', async () => {
+      mockSpawnSuccess(makeStreamOutputWithTools())
+
+      const result = await new ClaudeCliBackend().invoke(makeInvocation())
+
+      expect(result.toolCalls).toEqual({ WebSearch: 2, Read: 1 })
+    })
+
     it('spawns claude with correct base flags', async () => {
       mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()

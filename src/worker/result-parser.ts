@@ -49,6 +49,7 @@ export function parseWorkerResult(result: BackendResult): WorkerResult {
     numTurns: result.numTurns,
     durationMs: result.durationMs,
     usage: result.usage,
+    toolCalls: result.toolCalls,
   }
 
   if (!result.success) {

@@ -81,6 +81,7 @@ function makeDeps(result: WorkerResult, reviewResult: BackendResult = backendRes
     costTracker: new CostTracker(),
     backend,
     workerBackend: makeBackend(),
+    now: () => new Date('2026-07-10T09:30:00.000Z'),
   }
 }
 
@@ -97,6 +98,8 @@ describe('runDirectExecution', () => {
     expect(options.houseRulesContent).toBe(SPEC.houseRulesContent)
     expect(options.maxTurns).toBe(30)
     expect(options.writeArtifacts).toBe(false)
+    expect(options.instructions).toContain('Authoritative UTC run context: 2026-07-10 (Friday)')
+    expect(options.instructions).toContain('Do not recalculate or override this date or weekday')
     expect(deps.createPlanFile).not.toHaveBeenCalled()
     expect(deps.updatePhaseStatus).not.toHaveBeenCalled()
     expect(deps.writePhaseCompletion).not.toHaveBeenCalled()

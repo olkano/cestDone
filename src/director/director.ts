@@ -34,6 +34,7 @@ export interface DirectorDeps {
   costTracker: CostTracker
   backend: Backend
   workerBackend: Backend
+  now?: () => Date
 }
 
 const MAX_REJECTIONS = DEFAULTS.maxRejections
@@ -244,7 +245,15 @@ export async function runDirectExecution(
     houseRules: spec.houseRulesContent,
     phases: [phase],
   }
+  const runTime = deps.now?.() ?? new Date()
+  const utcDate = runTime.toISOString().slice(0, 10)
+  const utcWeekday = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    timeZone: 'UTC',
+  }).format(runTime)
   const instructions = [
+    `Authoritative UTC run context: ${utcDate} (${utcWeekday}).`,
+    'Do not recalculate or override this date or weekday; use it for all date-dependent requirements.',
     'Execute the complete specification as one job. Do not create a plan or split the work into phases.',
     'Complete every required step before reporting success.',
     'If any requirement remains incomplete, return status "partial" or "failed" and explain why.',

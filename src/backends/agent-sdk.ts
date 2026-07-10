@@ -39,6 +39,7 @@ export class AgentSdkBackend implements Backend {
 
     let capturedSessionId = ''
     let q: ReturnType<typeof query> | null = null
+    const toolCalls: Record<string, number> = {}
 
     try {
       q = query({ prompt, options: queryOptions as Parameters<typeof query>[0]['options'] })
@@ -60,6 +61,7 @@ export class AgentSdkBackend implements Backend {
             if (block.type === 'text' && block.text) {
               logger.log('Backend', block.text.slice(0, 500))
             } else if (block.type === 'tool_use' && block.name) {
+              toolCalls[block.name] = (toolCalls[block.name] ?? 0) + 1
               logger.log('Backend', `Tool: ${formatToolCall(block.name, block.input)}`)
             }
           }
@@ -78,6 +80,7 @@ export class AgentSdkBackend implements Backend {
             numTurns: msg.num_turns ?? 0,
             durationMs: msg.duration_ms ?? 0,
             usage,
+            toolCalls,
             success,
             errorMessage: success ? undefined : (msg.result ?? msg.subtype),
           }
@@ -92,6 +95,7 @@ export class AgentSdkBackend implements Backend {
         numTurns: 0,
         durationMs: 0,
         usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+        toolCalls,
         success: false,
         errorMessage,
       }
@@ -106,6 +110,7 @@ export class AgentSdkBackend implements Backend {
       numTurns: 0,
       durationMs: 0,
       usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+      toolCalls,
       success: false,
       errorMessage: 'Session ended with no result',
     }

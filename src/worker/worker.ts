@@ -72,6 +72,8 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
 
   logger.log('Worker', `Call completed (cost: $${(result.costUsd ?? 0).toFixed(2)}, turns: ${result.numTurns}, duration: ${formatDuration(result.durationMs)})`)
   logger.log('Worker', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
+  const toolSummary = Object.entries(result.toolCalls ?? {}).map(([name, count]) => `${name}:${count}`).join(' ')
+  if (toolSummary) logger.log('Worker', `Tools: ${toolSummary}`)
 
   const workerResult = parseWorkerResult(result)
 

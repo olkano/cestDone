@@ -11,6 +11,7 @@ vi.mock('../src/director/director.js')
 vi.mock('../src/cli/prompt.js')
 vi.mock('../src/worker/worker.js')
 vi.mock('../src/shared/git.js')
+vi.mock('../src/shared/run-lock.js', () => ({ acquireRunLock: vi.fn(() => vi.fn()) }))
 vi.mock('../src/shared/logger.js', () => ({
   createSessionLogger: () => ({ log: vi.fn(), logVerbose: vi.fn(), logFilePath: '' }),
 }))

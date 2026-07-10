@@ -1,6 +1,6 @@
 # G. Recurring jobs duplicate pre-defined steps into expensive generated plans
 
-**Status**: PARTIALLY FIXED. `--skip-planning` direct execution is implemented and enabled for the Olkano scan; optional metrics and runtime budgets remain open.
+**Status**: FIXED for the observed over-orchestration and overlap failures. Optional job-specific validation and runtime budgets remain open.
 **Priority**: High. The current flow wastes subscription capacity, greatly increases runtime, and can turn an incomplete scan into a misleading zero-result run.
 **Date**: 2026-07-10
 **Reporter**: observed in the Olkano `internet-listening-scan` recurring job
@@ -119,11 +119,23 @@ The job therefore consumed almost an hour while failing to complete its primary 
 
 6. **The Olkano scan opts into direct execution.** Its daemon schedule sets `skipPlanning: true`, so future runs use one Worker call and at most one Director call.
 
+7. **Date and weekday are deterministic in direct mode.** cestDone injects an authoritative UTC date and weekday into the Worker instructions and explicitly tells the Worker not to recalculate them.
+
+8. **Overlapping runs are rejected.** `handleRun` atomically acquires a per-target, per-spec lock under `.cestdone/locks`. Normal completion releases it; a lock older than six hours is treated as abandoned. A fresh lock is not discarded merely because a wrapper process disappeared, since its Claude child may still be running.
+
+9. **Tool calls are counted by the backend.** Both Claude CLI and Agent SDK backends count streamed tool-use events by name. The counts propagate through `WorkerResult` and appear in the Worker log, so requirements such as the number of `WebSearch` calls can be audited without trusting model prose.
+
+10. **The overlapping July 10 runs were reconciled.** The first manual invocation outlived its timed-out shell wrapper. A retry then ran concurrently, producing one valid lead in each run. Both leads and commits were preserved, and commit `c0b8ed4` added the missing second scan-log row: 14 searches/1 lead/email sent for the first run and 12 searches/1 lead/no second email for the overlapping retry.
+
+### Validation run on 2026-07-10
+
+The manual `--skip-planning` validation reduced orchestration to one Worker call. The monitored retry ran for 10m 37s, used 52 turns, and emitted 12 `WebSearch` calls before returning `partial`; strict direct mode correctly failed the job before the optional Director review. This confirmed the intended fail-closed behavior, while also exposing the wrong weekday calculation and overlapping-wrapper hazards now addressed above.
+
 ### Still open
 
 1. Planned mode still uses one Worker, one Director review, and one Director completion call per generated phase. This remains appropriate for open-ended implementation specs but expensive for jobs that do not opt into direct execution.
 2. The default Worker limit is 100 turns. Direct jobs can override it with `maxTurns`, but no separate direct-mode default is enforced.
-3. There is no machine check for measurable job-specific requirements such as `searches run >= 8`; the Worker and final Director currently enforce these from the specification text.
+3. Tool calls are now measured authoritatively, but there is no configurable machine check for job-specific requirements such as `WebSearch` calls between 8 and 12.
 4. Duration and call-count budgets are not implemented.
 
 ## Suggested changes
@@ -219,7 +231,7 @@ For `internet-listening-scan`, a reasonable target is approximately 5 to 15 minu
 - [x] A `partial` Worker result fails direct execution and cannot advance.
 - [x] A quota/backend failure terminates the run and sends a failure notification.
 - The run verifies that 8 to 12 searches completed before accepting a zero-lead result.
-- Per-run logs report call count, phase durations, model, turns, and aggregate token usage.
+- [x] Per-run logs report tool-call counts, duration, model, turns, and aggregate token usage.
 - A representative zero-lead scan completes within 20 minutes under normal service conditions.
 
 ## Related ticket
