@@ -228,6 +228,8 @@ For date-dependent jobs, direct mode prepends an authoritative UTC date and week
 
 Worker logs include authoritative counts of streamed tool calls, grouped by tool name (for example, `WebSearch:12`). These counts come from backend events rather than the model's self-report.
 
+Claude CLI calls that declare an output schema pass it through the CLI's native `--json-schema` option. Human-facing files and reports may still use Markdown; only the internal Worker completion envelope and Director decision are JSON. Schema-free calls are unchanged.
+
 Daemon schedules can enable it per job:
 
 ```json

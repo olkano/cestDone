@@ -41,6 +41,7 @@ interface CliJsonOutput {
   usage: unknown
   permission_denials: unknown[]
   uuid: string
+  structured_output?: unknown
 }
 
 interface StreamEvent {
@@ -63,6 +64,7 @@ interface StreamEvent {
   result?: string
   total_cost_usd?: number
   usage?: unknown
+  structured_output?: unknown
 }
 
 export function parseCliResult(stdout: string, outputSchema?: object): BackendResult {
@@ -75,7 +77,9 @@ export function parseCliResult(stdout: string, outputSchema?: object): BackendRe
   let output: unknown = resultText
   let rawText: string | undefined = resultText
 
-  if (outputSchema) {
+  if (outputSchema && parsed.structured_output !== undefined) {
+    output = parsed.structured_output
+  } else if (outputSchema) {
     // Try to parse as JSON
     try {
       output = JSON.parse(resultText)
@@ -118,7 +122,9 @@ export function parseStreamResultEvent(event: StreamEvent, outputSchema?: object
   let output: unknown = resultText
   const rawText: string | undefined = resultText
 
-  if (outputSchema) {
+  if (outputSchema && event.structured_output !== undefined) {
+    output = event.structured_output
+  } else if (outputSchema) {
     try {
       output = JSON.parse(resultText)
     } catch {
@@ -154,6 +160,28 @@ const ZERO_USAGE = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, c
  * Spawning through cmd.exe mangles multiline arguments, so we
  * extract the script path and invoke node directly.
  */
+export function resolveCmdWrapper(wrapperPath: string, content: string): { bin: string; prefix: string[] } | undefined {
+  const wrapperDir = path.dirname(wrapperPath)
+  const expandPath = (rawPath: string) => path.resolve(
+    rawPath.replace(/%dp0%/gi, wrapperDir + path.sep),
+  )
+
+  // Current Claude Code npm packages wrap a native executable directly.
+  const nativeMatch = content.match(/^"([^"]+\.exe)"\s+%\*/im)
+  if (nativeMatch) {
+    return { bin: expandPath(nativeMatch[1]), prefix: [] }
+  }
+
+  // Older npm packages wrap a JavaScript entry point through Node.
+  const nodeMatch = content.match(/"%_prog%"\s+"([^"]+)"\s+%\*/) ||
+                    content.match(/"node"\s+"([^"]+)"\s+%\*/)
+  if (nodeMatch) {
+    return { bin: process.execPath, prefix: [expandPath(nodeMatch[1])] }
+  }
+
+  return undefined
+}
+
 export function resolveCmd(cmdPath: string): { bin: string; prefix: string[] } {
   if (!IS_WINDOWS) {
     return { bin: cmdPath, prefix: [] }
@@ -177,18 +205,9 @@ export function resolveCmd(cmdPath: string): { bin: string; prefix: string[] } {
 
   try {
     const content = fs.readFileSync(resolvedPath, 'utf-8')
-    // Match the pattern: "%_prog%"  "path\to\script.js" %*
-    // or: "node"  "path\to\script.js" %*
-    const match = content.match(/"%_prog%"\s+"([^"]+)"\s+%\*/) ||
-                  content.match(/"node"\s+"([^"]+)"\s+%\*/)
-    if (match) {
-      const scriptDir = path.dirname(resolvedPath)
-      // Replace %dp0% (cmd.exe variable for script directory) with actual dir
-      const rawPath = match[1].replace(/%dp0%/gi, scriptDir + path.sep)
-      const scriptPath = path.resolve(rawPath)
-      if (fs.existsSync(scriptPath)) {
-        return { bin: process.execPath, prefix: [scriptPath] }
-      }
+    const resolved = resolveCmdWrapper(resolvedPath, content)
+    if (resolved && fs.existsSync(resolved.bin) && resolved.prefix.every(p => fs.existsSync(p))) {
+      return resolved
     }
   } catch {
     // Fall through to shell-based spawn
@@ -379,6 +398,10 @@ export class ClaudeCliBackend implements Backend {
 
     if (params.maxTurns != null) {
       args.push('--max-turns', String(params.maxTurns))
+    }
+
+    if (params.outputSchema) {
+      args.push('--json-schema', JSON.stringify(params.outputSchema))
     }
 
     const denylist = toDenylist(params.tools)

@@ -127,9 +127,15 @@ The job therefore consumed almost an hour while failing to complete its primary 
 
 10. **The overlapping July 10 runs were reconciled.** The first manual invocation outlived its timed-out shell wrapper. A retry then ran concurrently, producing one valid lead in each run. Both leads and commits were preserved, and commit `c0b8ed4` added the missing second scan-log row: 14 searches/1 lead/email sent for the first run and 12 searches/1 lead/no second email for the overlapping retry.
 
+11. **Claude CLI now enforces structured completion output.** Historical successful jobs returned JSON completion envelopes even when their work products were Markdown. The July 10 server-health validation instead returned only a Markdown report, so strict direct mode correctly classified it as `partial`. Schema-bearing CLI calls now use native `--json-schema`; schema-free calls are unchanged. The current Windows npm wrapper is resolved to `claude.exe` so JSON arguments bypass `cmd.exe` quote mangling.
+
 ### Validation run on 2026-07-10
 
 The manual `--skip-planning` validation reduced orchestration to one Worker call. The monitored retry ran for 10m 37s, used 52 turns, and emitted 12 `WebSearch` calls before returning `partial`; strict direct mode correctly failed the job before the optional Director review. This confirmed the intended fail-closed behavior, while also exposing the wrong weekday calculation and overlapping-wrapper hazards now addressed above.
+
+The first direct `daily-server-health` validation ran for 4m 10s and completed all operational checks with 12 Bash and 5 Read calls. The server was healthy and no alert was sent, but the run failed closed because its final Markdown report lacked the JSON completion envelope. This became the regression case for native CLI schema enforcement.
+
+After the fix, the complete Worker-plus-Director cycle passed in 5m 09s. The Worker used native `StructuredOutput` and returned `success`; the Director independently used `StructuredOutput` and returned `done`. The CLI exited 0, the run lock was released, PM2 remained healthy, no alert was sent, and no pre-existing repository changes were committed.
 
 ### Still open
 

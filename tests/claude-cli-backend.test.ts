@@ -217,6 +217,18 @@ describe('toDenylist', () => {
   })
 })
 
+describe('resolveCmdWrapper', () => {
+  it('resolves the current npm native-executable wrapper without cmd.exe', async () => {
+    const { resolveCmdWrapper } = await import('../src/backends/claude-cli.js')
+    const wrapper = '@ECHO off\n"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*\n'
+
+    expect(resolveCmdWrapper('C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd', wrapper)).toEqual({
+      bin: 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe',
+      prefix: [],
+    })
+  })
+})
+
 describe('parseCliResult', () => {
   let parseCliResult: typeof import('../src/backends/claude-cli.js').parseCliResult
 
@@ -303,6 +315,17 @@ describe('parseStreamResultEvent', () => {
     expect(result.output).toEqual({ action: 'done', message: 'ok' })
     expect(result.sessionId).toBe('sess-1')
     expect(result.numTurns).toBe(5)
+  })
+
+  it('prefers CLI-validated structured_output over Markdown result text', () => {
+    const structured = { status: 'success', summary: 'validated' }
+    const result = parseStreamResultEvent({
+      type: 'result', subtype: 'success', result: '## Human-readable report',
+      structured_output: structured,
+    }, { type: 'object' })
+
+    expect(result.output).toEqual(structured)
+    expect(result.rawText).toBe('## Human-readable report')
   })
 
   it('parses an error result event', () => {
@@ -416,6 +439,26 @@ describe('ClaudeCliBackend', () => {
       expect(args).toContain('--append-system-prompt')
       const idx = args.indexOf('--append-system-prompt')
       expect(args[idx + 1]).toContain('You are a Director AI.')
+    })
+
+    it('passes outputSchema through the native --json-schema flag', async () => {
+      mockSpawnSuccess(makeStreamOutput())
+      const schema = { type: 'object', properties: { status: { type: 'string' } } }
+
+      await new ClaudeCliBackend().invoke(makeInvocation({ outputSchema: schema }))
+
+      const { args } = getSpawnArgs()
+      const index = args.indexOf('--json-schema')
+      expect(index).toBeGreaterThan(-1)
+      expect(args[index + 1]).toBe(JSON.stringify(schema))
+    })
+
+    it('omits --json-schema for schema-free calls', async () => {
+      mockSpawnSuccess(makeStreamOutput())
+
+      await new ClaudeCliBackend().invoke(makeInvocation({ outputSchema: undefined }))
+
+      expect(getSpawnArgs().args).not.toContain('--json-schema')
     })
 
     it('includes --disallowedTools computed from tools whitelist', async () => {
@@ -557,6 +600,7 @@ describe('ClaudeCliBackend', () => {
 
       const { args } = getSpawnArgs()
       expect(args).not.toContain('--append-system-prompt')
+      expect(args).toContain('--json-schema')
     })
 
     it('appends JSON instructions to system prompt when outputSchema provided', async () => {
