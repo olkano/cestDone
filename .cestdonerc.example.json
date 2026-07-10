@@ -11,6 +11,7 @@
   "withReviews": true,
   "withBashReviews": true,
   "withHumanValidation": false,
+  "skipPlanning": false,
   "nonInteractive": false,
   "autoCommit": true,
   "houseRules": "house-rules.md",
@@ -36,6 +37,7 @@
         "retries": 2,
         "retryDelayMs": 120000,
         "options": {
+          "skipPlanning": true,
           "directorModel": "sonnet",
           "workerModel": "sonnet"
         }

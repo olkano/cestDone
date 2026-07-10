@@ -24,7 +24,7 @@ vi.mock('../src/backends/index.js', () => ({
 import fs from 'node:fs'
 import { loadConfig } from '../src/shared/config.js'
 import { parsePlan, getPlanPath } from '../src/shared/plan-parser.js'
-import { runPhase, runPlanningFlow } from '../src/director/director.js'
+import { runDirectExecution, runPhase, runPlanningFlow } from '../src/director/director.js'
 import { ensureTTY, askInput } from '../src/cli/prompt.js'
 import { handleRun, handleResume } from '../src/cli/index.js'
 
@@ -61,6 +61,14 @@ function makeMockPlan(phases: Phase[]): Plan {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  for (const key of Object.keys(MOCK_CONFIG)) {
+    delete (MOCK_CONFIG as unknown as Record<string, unknown>)[key]
+  }
+  Object.assign(MOCK_CONFIG, {
+    targetRepoPath: '.',
+    runDir: '.cestdone/test_2026-03-20_120000',
+    maxTurns: 100,
+  })
   vi.mocked(fs.readFileSync).mockReturnValue('Free form spec text')
   vi.mocked(loadConfig).mockReturnValue(MOCK_CONFIG)
   vi.mocked(ensureTTY).mockReturnValue(undefined)
@@ -69,6 +77,26 @@ beforeEach(() => {
 })
 
 describe('handleRun', () => {
+  it('executes the full spec directly when skipPlanning is enabled', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    vi.mocked(runDirectExecution).mockResolvedValue(undefined)
+
+    await handleRun('spec.md', { skipPlanning: true })
+
+    expect(runDirectExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Free form spec text',
+        houseRulesContent: '',
+        specFilePath: expect.stringMatching(/spec\.md$/),
+      }),
+      expect.objectContaining({ skipPlanning: true }),
+      expect.anything(),
+    )
+    expect(getPlanPath).not.toHaveBeenCalled()
+    expect(runPlanningFlow).not.toHaveBeenCalled()
+    expect(runPhase).not.toHaveBeenCalled()
+  })
+
   // K1: When plan exists, parses it and runs all pending phases
   it('runs first pending phase from existing plan', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
@@ -320,6 +348,14 @@ describe('handleResume', () => {
 })
 
 describe('CLI flag wiring', () => {
+  it('applies --skip-planning to config', async () => {
+    vi.mocked(runDirectExecution).mockResolvedValue(undefined)
+
+    await handleRun('spec.md', { skipPlanning: true })
+
+    expect(vi.mocked(runDirectExecution).mock.calls[0][1].skipPlanning).toBe(true)
+  })
+
   // KF2: handleRun applies CLI flag defaults
   it('applies CLI default flags to config', async () => {
     const plan = makeMockPlan([PENDING_PHASE])

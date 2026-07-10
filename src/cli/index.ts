@@ -12,7 +12,7 @@ import { Command } from 'commander'
 import { loadConfig, DEFAULTS } from '../shared/config.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
 import { createPlanFile, updatePhaseStatus, writePhaseCompletion } from '../shared/spec-writer.js'
-import { runPlanningFlow, runPhase, type DirectorDeps } from '../director/director.js'
+import { runDirectExecution, runPlanningFlow, runPhase, type DirectorDeps } from '../director/director.js'
 import { askApproval, askInput, ensureTTY } from './prompt.js'
 import { executeWorker } from '../worker/worker.js'
 import { ensureGitRepo } from '../shared/git.js'
@@ -38,6 +38,7 @@ export interface RunOptions {
   directorBackend?: string
   workerBackend?: string
   claudeCliPath?: string
+  skipPlanning?: boolean
   nonInteractive?: boolean
 }
 
@@ -104,6 +105,12 @@ function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void 
 
   if (options?.autoCommit !== undefined) config.autoCommit = options.autoCommit
   else config.autoCommit = config.autoCommit ?? DEFAULTS.autoCommit
+
+  if (options && 'skipPlanning' in options && options.skipPlanning !== undefined) {
+    config.skipPlanning = options.skipPlanning
+  } else {
+    config.skipPlanning = config.skipPlanning ?? DEFAULTS.skipPlanning
+  }
 }
 
 export async function handleRun(
@@ -141,9 +148,21 @@ export async function handleRun(
     houseRulesContent = fs.readFileSync(houseRulesPath, 'utf-8')
   }
 
-  const planPath = getPlanPath(resolvedSpecPath, targetDir)
   const costTracker = new CostTracker()
   const deps = buildDeps(logger, costTracker, config)
+  const freeFormSpec: FreeFormSpec = {
+    text: specText,
+    houseRulesContent,
+    specFilePath: resolvedSpecPath,
+  }
+
+  if (config.skipPlanning) {
+    await runDirectExecution(freeFormSpec, config, deps)
+    logFinalSummary(logger, costTracker, startTime)
+    return
+  }
+
+  const planPath = getPlanPath(resolvedSpecPath, targetDir)
 
   // In non-interactive mode, remove completed plans so recurring tasks start fresh
   if (fs.existsSync(planPath) && config.nonInteractive) {
@@ -179,12 +198,6 @@ export async function handleRun(
     await executeAllPhases(planPath, config, deps)
   } else {
     // No plan exists — run planning flow
-    const freeFormSpec: FreeFormSpec = {
-      text: specText,
-      houseRulesContent,
-      specFilePath: resolvedSpecPath,
-    }
-
     const { planPath: createdPlanPath } = await runPlanningFlow(freeFormSpec, config, deps)
     await executeAllPhases(createdPlanPath, config, deps)
   }
@@ -390,11 +403,12 @@ if (isCliEntryPoint()) {
     .showHelpAfterError(true)
 
   const runCmd = program.command('run')
-    .description('Create a plan from a spec and execute all phases')
+    .description('Execute a spec, with a generated plan by default')
     .requiredOption('--spec <path>', 'Path to spec file (required)')
     .option('--house-rules <path>', 'Path to house rules file')
+    .option('--skip-planning', 'Execute the complete specification as one Worker task without creating a plan')
   addCommonOptions(runCmd)
-    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
+    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; skipPlanning?: boolean; nonInteractive?: boolean }) => {
       await handleRun(opts.spec, {
         target: opts.target,
         houseRules: opts.houseRules,
@@ -411,6 +425,7 @@ if (isCliEntryPoint()) {
         directorBackend: opts.directorBackend,
         workerBackend: opts.workerBackend,
         claudeCliPath: opts.claudeCliPath,
+        skipPlanning: opts.skipPlanning,
         nonInteractive: opts.nonInteractive,
       })
     })

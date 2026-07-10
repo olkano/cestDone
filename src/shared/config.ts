@@ -20,6 +20,7 @@ export const DEFAULTS = {
   withReviews: true,                     // Director reviews after Worker execution
   withBashReviews: true,                 // Allow Bash in Director reviews (implies withReviews)
   withHumanValidation: false,            // Require human approval of plan before execution
+  skipPlanning: false,                   // Execute the complete spec as one Worker task
   nonInteractive: false,                  // Run without TTY (auto-approve, skip clarifications)
   autoCommit: true,                        // Auto-commit after each phase review
 

@@ -95,14 +95,16 @@ export function buildInitialWorkerInstructions(plan: Plan, phase: Phase, complet
   return parts.join('\n')
 }
 
-export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, workerReport: string, runDir: string, completedSubPhases: string[] = [], autoCommit: boolean = true): string {
+export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseSpec: string, workerReport: string, runDir: string, completedSubPhases: string[] = [], autoCommit: boolean = true, artifactsAvailable: boolean = true): string {
   const parts: string[] = [
     `## You are reviewing: Phase ${phaseNumber} — ${phaseName}`,
     '',
     '## Phase Spec',
     phaseSpec,
     '',
-    `## Worker Report (from ${runDir}/phase-${phaseNumber}-report.md)`,
+    artifactsAvailable
+      ? `## Worker Report (from ${runDir}/phase-${phaseNumber}-report.md)`
+      : '## Worker Report',
     workerReport,
   ]
 
@@ -124,7 +126,9 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
     '- Respond as soon as you have enough information to make a judgment.',
     '',
     '### 1. Deliverable Review (mandatory)',
-    `Read the diff (\`${runDir}/cestdone-diff.txt\`) or changed files. Assess:`,
+    artifactsAvailable
+      ? `Read the diff (\`${runDir}/cestdone-diff.txt\`) or changed files. Assess:`
+      : 'Inspect the changed files or current git diff directly. Assess:',
     '- **Correctness**: Does the work satisfy what the phase spec requires?',
     '- **Completeness**: Is anything required by the spec missing?',
     '- **Quality**: Clean, well-structured, consistent with project conventions?',

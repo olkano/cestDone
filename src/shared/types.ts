@@ -31,6 +31,7 @@ export interface Config {
   directorBackend?: BackendType
   workerBackend?: BackendType
   claudeCliPath?: string
+  skipPlanning?: boolean
   nonInteractive?: boolean
   autoCommit?: boolean
   houseRules?: string       // Default path to house rules file (CLI --house-rules overrides)
@@ -98,6 +99,7 @@ export interface WorkerOptions {
   maxBudgetUsd?: number
   logger: SessionLogger
   completedSubPhases?: string[]
+  writeArtifacts?: boolean
   backend: Backend
 }
 

@@ -216,6 +216,109 @@ function assertWorkerSucceeded(result: WorkerResult, label: string): void {
   throw new Error(`${label} failed: ${result.message}`)
 }
 
+// === Direct execution flow ===
+
+export async function runDirectExecution(
+  spec: FreeFormSpec,
+  config: Config,
+  deps: DirectorDeps,
+): Promise<void> {
+  if (config.withWorker === false) {
+    throw new Error('--skip-planning requires Worker mode; remove --no-with-worker')
+  }
+
+  const { logger } = deps
+  const env = detectEnvironment(config.targetRepoPath)
+  const phase: Phase = {
+    number: 1,
+    name: 'Direct execution',
+    status: 'in-progress',
+    spec: spec.text,
+    applicableRules: spec.houseRulesContent,
+    done: '',
+  }
+  const plan: Plan = {
+    title: path.basename(spec.specFilePath, path.extname(spec.specFilePath)),
+    context: 'Execute the complete specification directly without generating a plan.',
+    techStack: env.summary,
+    houseRules: spec.houseRulesContent,
+    phases: [phase],
+  }
+  const instructions = [
+    'Execute the complete specification as one job. Do not create a plan or split the work into phases.',
+    'Complete every required step before reporting success.',
+    'If any requirement remains incomplete, return status "partial" or "failed" and explain why.',
+  ].join('\n')
+
+  logger.log('Director', 'Skip planning: executing complete specification via one Worker call')
+  const workerResult = await deps.workerExecute(buildWorkerOptions({
+    step: WorkflowStep.Execute,
+    phase,
+    config,
+    houseRulesContent: spec.houseRulesContent,
+    instructions,
+    writeArtifacts: false,
+    logger,
+    backend: deps.workerBackend,
+  }))
+  deps.costTracker.recordWorker({
+    costUsd: workerResult.cost,
+    inputTokens: workerResult.usage.inputTokens,
+    outputTokens: workerResult.usage.outputTokens,
+    cacheReadInputTokens: workerResult.usage.cacheReadInputTokens,
+    cacheCreationInputTokens: workerResult.usage.cacheCreationInputTokens,
+  })
+  logger.log('Session', formatTotals(deps.costTracker))
+
+  const summary = workerResult.report?.summary ?? workerResult.message
+  deps.display(`\nWorker: ${summary} (cost: $${workerResult.cost.toFixed(2)})`)
+  if (workerResult.status === 'failed') {
+    throw new Error(`Direct Worker failed: ${workerResult.message}`)
+  }
+  if (workerResult.status === 'partial') {
+    throw new Error(`Direct Worker incomplete: ${workerResult.message}`)
+  }
+
+  if (config.withReviews === false) {
+    logger.log('Director', 'Direct execution complete without review')
+    return
+  }
+
+  const reportPath = path.join(config.targetRepoPath, config.runDir, 'phase-1-report.md')
+  let reportContent: string
+  try {
+    reportContent = deps.readFile(reportPath)
+  } catch {
+    reportContent = JSON.stringify(workerResult.report ?? { status: workerResult.status, message: workerResult.message })
+  }
+
+  logger.log('Director', 'Reviewing direct execution result')
+  const reviewCallResult = await executeDirector({
+    prompt: buildReviewPrompt(
+      phase.number,
+      phase.name,
+      phase.spec,
+      reportContent,
+      config.runDir,
+      [],
+      config.autoCommit !== false,
+      false,
+    ),
+    step: WorkflowStep.Review,
+    systemPromptText: buildExecutionSystemPrompt(plan, [], env),
+    config,
+    logger,
+    backend: deps.backend,
+    toolsOverride: buildDirectorTools(WorkflowStep.Review, { withBash: config.withBashReviews !== false }),
+  })
+  const reviewResult = recordDirectorCall(deps, reviewCallResult)
+  if (reviewResult.action !== 'done') {
+    throw new Error(`Direct review returned ${reviewResult.action}: ${reviewResult.message}`)
+  }
+
+  logger.log('Director', 'Direct execution reviewed successfully')
+}
+
 // === Phase execution flow ===
 
 export async function runPhase(
@@ -424,6 +527,7 @@ function buildWorkerOptions(params: {
   houseRulesContent: string
   instructions: string
   completedSubPhases?: string[]
+  writeArtifacts?: boolean
   logger: SessionLogger
   backend: Backend
 }): WorkerOptions {
@@ -439,6 +543,7 @@ function buildWorkerOptions(params: {
     maxBudgetUsd: params.config.maxBudgetUsd,
     logger: params.logger,
     completedSubPhases: params.completedSubPhases,
+    writeArtifacts: params.writeArtifacts,
     backend: params.backend,
   }
 }

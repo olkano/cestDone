@@ -80,6 +80,7 @@ describe('loadConfig', () => {
     expect(result.withHumanValidation).toBeUndefined()
     expect(result.autoCommit).toBeUndefined()
     expect(result.houseRules).toBeUndefined()
+    expect(result.skipPlanning).toBeUndefined()
   })
 
   // C2: Reads all new fields from .cestdonerc.json
@@ -138,6 +139,16 @@ describe('loadConfig', () => {
     expect(result.autoCommit).toBe(false)
   })
 
+  it('reads skipPlanning from .cestdonerc.json', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
+    const config = { skipPlanning: true }
+    fs.writeFileSync(path.join(tmpDir, '.cestdonerc.json'), JSON.stringify(config))
+
+    const result = loadConfig(tmpDir)
+
+    expect(result.skipPlanning).toBe(true)
+  })
+
   // B1: Backend fields default to undefined
   it('defaults backend fields to undefined', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-test-'))
@@ -166,4 +177,3 @@ describe('loadConfig', () => {
     expect(result.claudeCliPath).toBe('/usr/local/bin/claude')
   })
 })
-

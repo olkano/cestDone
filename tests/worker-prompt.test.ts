@@ -67,6 +67,20 @@ describe('buildWorkerPrompt', () => {
     expect(result).toContain('Test Results: raw output from test runner (if applicable)')
   })
 
+  it('omits phase artifacts when artifact writing is disabled', () => {
+    const result = buildWorkerPrompt({
+      instructions: 'Execute the complete recurring job.',
+      phase: TEST_PHASE,
+      step: WorkflowStep.Execute,
+      runDir: TEST_RUN_DIR,
+      writeArtifacts: false,
+    })
+
+    expect(result).not.toContain(`${TEST_RUN_DIR}/phase-1-report.md`)
+    expect(result).not.toContain(`${TEST_RUN_DIR}/cestdone-diff.txt`)
+    expect(result).toContain('Return the structured report directly')
+  })
+
   // O5: Read-only steps include constraint about not modifying files
   it('includes read-only constraint for Analyze step', () => {
     const result = buildWorkerPrompt({

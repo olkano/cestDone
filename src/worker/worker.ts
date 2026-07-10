@@ -37,6 +37,7 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
     step: options.step,
     runDir: options.runDir,
     completedSubPhases: options.completedSubPhases,
+    writeArtifacts: options.writeArtifacts,
   })
 
   logger.logVerbose('Worker', `Full prompt:\n${prompt}`)

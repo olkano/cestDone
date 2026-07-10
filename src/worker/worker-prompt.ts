@@ -8,6 +8,7 @@ export interface WorkerPromptInput {
   step: WorkflowStep
   runDir: string
   completedSubPhases?: string[]
+  writeArtifacts?: boolean
 }
 
 const READ_ONLY_STEPS = [WorkflowStep.Analyze]
@@ -64,15 +65,19 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
   parts.push('')
 
   parts.push('### Reporting')
-  parts.push(`After modifications, write your report to \`${input.runDir}/phase-${input.phase.number}-report.md\`:`)
-  parts.push('- Status: success | partial | failed')
-  parts.push('- Summary: what was implemented')
-  parts.push('- Files Changed: list of files')
-  parts.push('- Test Results: raw output from test runner (if applicable)')
-  parts.push('- Issues: any blockers or concerns')
-  parts.push('')
-  parts.push(`Also write the diff to \`${input.runDir}/cestdone-diff.txt\`:`)
-  parts.push(`\`git --no-pager diff > ${input.runDir}/cestdone-diff.txt\``)
+  if (input.writeArtifacts === false) {
+    parts.push('Return the structured report directly. Do not create phase-report or diff artifacts.')
+  } else {
+    parts.push(`After modifications, write your report to \`${input.runDir}/phase-${input.phase.number}-report.md\`:`)
+    parts.push('- Status: success | partial | failed')
+    parts.push('- Summary: what was implemented')
+    parts.push('- Files Changed: list of files')
+    parts.push('- Test Results: raw output from test runner (if applicable)')
+    parts.push('- Issues: any blockers or concerns')
+    parts.push('')
+    parts.push(`Also write the diff to \`${input.runDir}/cestdone-diff.txt\`:`)
+    parts.push(`\`git --no-pager diff > ${input.runDir}/cestdone-diff.txt\``)
+  }
 
   return parts.join('\n')
 }

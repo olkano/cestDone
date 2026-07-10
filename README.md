@@ -110,6 +110,9 @@ cestdone run --spec ~/specs/auth.md
 
 # Or specify the target explicitly
 cestdone run --spec spec.md --target ./my-app
+
+# Execute an already-structured operational spec without generating a plan
+cestdone run --spec recurring-job.md --target ./my-app --skip-planning
 ```
 
 With Agent SDK backend (requires `ANTHROPIC_API_KEY`):
@@ -130,7 +133,7 @@ cestdone resume --spec spec.md --target ./my-app
 Usage: cestdone [commands]
 
 Commands:
-  run [options]        Create a plan from a spec and execute all phases
+  run [options]        Execute a spec, with a generated plan by default
   resume [options]     Resume execution from an existing .plan.md file
   daemon [options]     Start daemon with schedules and triggers from .cestdonerc.json
   daemon status        Show daemon status
@@ -143,6 +146,7 @@ Commands:
 ```
   --spec <path>              Path to spec file (required)
   --house-rules <path>       Path to house rules file
+  --skip-planning            Execute the complete specification as one Worker task without creating a plan
   --target <path>            Target repository path (default: ".")
   --director-model <model>   Director model: haiku | sonnet | opus (default: "opus")
   --worker-model <model>      Worker model: haiku | sonnet | opus (default: "opus")
@@ -177,6 +181,9 @@ cestdone run --spec spec.md --target ./my-app --with-human-validation
 # Non-interactive (CI/CD, scripts, daemon — no TTY required)
 cestdone run --spec spec.md --target ./my-app --non-interactive
 
+# Structured recurring job: one Worker call and at most one Director review
+cestdone run --spec recurring-job.md --target ./my-app --skip-planning
+
 # Use API backend with custom models
 cestdone run --spec spec.md --target ./my-app \
   --backend agent-sdk --director-model sonnet --worker-model haiku
@@ -199,6 +206,7 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
   "withReviews": true,
   "withBashReviews": true,
   "withHumanValidation": false,
+  "skipPlanning": false,
   "nonInteractive": false,
   "autoCommit": true,
   "houseRules": "house-rules.md",
@@ -209,6 +217,24 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
 ```
 
 Model aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full ID directly (e.g., `claude-sonnet-4-6`).
+
+### Skip planning for structured jobs
+
+Use `--skip-planning`, or set `"skipPlanning": true`, when the specification already defines the complete ordered workflow. cestDone sends the full specification to one Worker and does not create or read a `.plan.md` file. If reviews are enabled, one final Director review runs after the Worker succeeds.
+
+Direct execution is strict: a `partial` or `failed` Worker result fails the complete run, and a final review must return `done`. It requires Worker mode and cannot be combined with `--no-with-worker`. Planning remains the default for open-ended implementation specifications.
+
+Daemon schedules can enable it per job:
+
+```json
+{
+  "options": {
+    "skipPlanning": true,
+    "workerModel": "sonnet",
+    "directorModel": "sonnet"
+  }
+}
+```
 
 ## Daemon Mode
 
@@ -518,7 +544,7 @@ Scrape data from ITM Platform and render charts with Chart.js.
 Add a refresh button and auto-update every 5 minutes.
 ```
 
-The Director turns this into a structured `.plan.md` with phases, which becomes the source of truth for tracking progress. The original spec is never modified.
+By default, the Director turns this into a structured `.plan.md` with phases, which becomes the source of truth for tracking progress. The original spec is never modified. For an operational specification that already contains its complete workflow, `--skip-planning` executes it directly as one Worker task.
 
 Optionally provide a `--house-rules` file with coding standards, conventions, or constraints that apply across all phases.
 
