@@ -104,6 +104,7 @@ export async function runPlanningFlow(
   })
   logger.log('Session', formatTotals(deps.costTracker))
   logger.log('Director', `Planning Worker completed (cost: $${planningResult.cost.toFixed(2)})`)
+  assertWorkerSucceeded(planningResult, 'Planning Worker')
 
   // Read plan from disk — Worker should have written it
   let currentPlanContent: string
@@ -129,7 +130,7 @@ export async function runPlanningFlow(
       logger.log('Director', `Plan format invalid (attempt ${planFixAttempts}/${MAX_PLAN_FIX_ATTEMPTS}): ${(err as Error).message}. Spawning Revision Worker.`)
 
       const revisionPrompt = buildPlanRevisionWorkerPrompt(planPath, (err as Error).message)
-      await deps.workerExecute({
+      const revisionResult = await deps.workerExecute({
         step: WorkflowStep.Plan,
         phase: syntheticPhase,
         model: getWorkerModel(config.workerModel),
@@ -142,6 +143,7 @@ export async function runPlanningFlow(
         logger,
         backend: deps.workerBackend,
       })
+      assertWorkerSucceeded(revisionResult, 'Plan Revision Worker')
 
       currentPlanContent = deps.readFile(planPath)
     }
@@ -167,7 +169,7 @@ export async function runPlanningFlow(
         )
         rejectionCount = 0
         const escPrompt = buildPlanRevisionWorkerPrompt(planPath, `Human escalation. Guidance: ${guidance}`)
-        await deps.workerExecute({
+        const revisionResult = await deps.workerExecute({
           step: WorkflowStep.Plan,
           phase: syntheticPhase,
           model: getWorkerModel(config.workerModel),
@@ -180,9 +182,10 @@ export async function runPlanningFlow(
           logger,
           backend: deps.workerBackend,
         })
+        assertWorkerSucceeded(revisionResult, 'Plan Revision Worker')
       } else {
         const revPrompt = buildPlanRevisionWorkerPrompt(planPath, feedback ?? '')
-        await deps.workerExecute({
+        const revisionResult = await deps.workerExecute({
           step: WorkflowStep.Plan,
           phase: syntheticPhase,
           model: getWorkerModel(config.workerModel),
@@ -195,6 +198,7 @@ export async function runPlanningFlow(
           logger,
           backend: deps.workerBackend,
         })
+        assertWorkerSucceeded(revisionResult, 'Plan Revision Worker')
       }
 
       currentPlanContent = deps.readFile(planPath)
@@ -205,6 +209,11 @@ export async function runPlanningFlow(
   logger.log('Director', `Plan at ${planPath} with ${plan.phases.length} phases`)
 
   return { planPath, plan }
+}
+
+function assertWorkerSucceeded(result: WorkerResult, label: string): void {
+  if (result.status !== 'failed') return
+  throw new Error(`${label} failed: ${result.message}`)
 }
 
 // === Phase execution flow ===

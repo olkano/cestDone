@@ -184,6 +184,29 @@ describe('executeWorker', () => {
     expect(result.report!.status).toBe('failed')
   })
 
+  it('reports backend failure as failed even when backend output contains text', async () => {
+    const backend = makeMockBackend()
+    backend.invoke.mockResolvedValue(makeBackendResult({
+      success: false,
+      output: 'Claude AI usage limit reached|0',
+      rawText: 'Claude AI usage limit reached|0',
+      costUsd: null,
+      numTurns: 1,
+      durationMs: 1000,
+      usage: ZERO_USAGE,
+      errorMessage: 'Claude AI usage limit reached. Try again later.',
+    }))
+
+    const result = await executeWorker(makeOptions({ backend }))
+
+    expect(result.status).toBe('failed')
+    expect(result.message).toBe('Claude AI usage limit reached. Try again later.')
+    expect(result.report).toEqual({
+      status: 'failed',
+      summary: 'Claude AI usage limit reached. Try again later.',
+    })
+  })
+
   // Q12: backend.invoke() throws — catches and returns failed WorkerResult
   it('catches backend.invoke() exception and returns failed result', async () => {
     const backend = makeMockBackend()

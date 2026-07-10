@@ -57,9 +57,7 @@ export function parseWorkerResult(result: BackendResult): WorkerResult {
       ...base,
       status: 'failed',
       message: msg,
-      report: result.output
-        ? extractReportFromOutput(result.output)
-        : { status: 'failed', summary: msg },
+      report: { status: 'failed', summary: msg },
     }
   }
 

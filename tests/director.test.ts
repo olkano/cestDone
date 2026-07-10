@@ -1000,6 +1000,29 @@ describe('runPlanningFlow', () => {
       .rejects.toThrow(/plan file/)
   })
 
+  it('surfaces Planning Worker failure before reading plan file', async () => {
+    const deps = createHappyPathDeps()
+    deps.workerExecute = vi.fn().mockResolvedValue(makeWorkerError({
+      message: 'Claude AI usage limit reached. Try again later.',
+      report: { status: 'failed', summary: 'Claude AI usage limit reached. Try again later.' },
+    }))
+
+    await expect(runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps))
+      .rejects.toThrow('Planning Worker failed: Claude AI usage limit reached. Try again later.')
+    expect(deps.readFile).not.toHaveBeenCalled()
+  })
+
+  it('surfaces Plan Revision Worker failure during plan format repair', async () => {
+    const deps = createHappyPathDeps()
+    deps.workerExecute = vi.fn()
+      .mockResolvedValueOnce(makeWorkerSuccess())
+      .mockResolvedValueOnce(makeWorkerError({ message: 'Claude AI usage limit reached. Try again later.' }))
+    ;(deps.readFile as ReturnType<typeof vi.fn>).mockReturnValue('Not a valid plan')
+
+    await expect(runPlanningFlow(TEST_FREE_FORM_SPEC, TEST_CONFIG, deps))
+      .rejects.toThrow('Plan Revision Worker failed: Claude AI usage limit reached. Try again later.')
+  })
+
   // PW15: Writes planning prompt to phase-0-prompt.md
   it('writes planning prompt to phase-0-prompt.md', async () => {
     const deps = createHappyPathDeps()
