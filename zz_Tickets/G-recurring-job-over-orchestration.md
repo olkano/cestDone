@@ -129,6 +129,8 @@ The job therefore consumed almost an hour while failing to complete its primary 
 
 11. **Claude CLI now enforces structured completion output.** Historical successful jobs returned JSON completion envelopes even when their work products were Markdown. The July 10 server-health validation instead returned only a Markdown report, so strict direct mode correctly classified it as `partial`. Schema-bearing CLI calls now use native `--json-schema`; schema-free calls are unchanged. The current Windows npm wrapper is resolved to `claude.exe` so JSON arguments bypass `cmd.exe` quote mangling.
 
+12. **Stale Windows npm shims now recover automatically.** A July 13 Claude Code upgrade removed the pinned user-scoped `claude.cmd`, so every scheduled job failed before its first model turn. The Claude CLI backend now locates the adjacent platform-specific native binary when a configured shim is missing or points at npm's non-executable placeholder, and preflight uses the same resolved launch target as real invocations. The user-scoped installation was also repaired at Claude Code 2.1.209, restoring the shim for the already-running daemon.
+
 ### Validation run on 2026-07-10
 
 The manual `--skip-planning` validation reduced orchestration to one Worker call. The monitored retry ran for 10m 37s, used 52 turns, and emitted 12 `WebSearch` calls before returning `partial`; strict direct mode correctly failed the job before the optional Director review. This confirmed the intended fail-closed behavior, while also exposing the wrong weekday calculation and overlapping-wrapper hazards now addressed above.

@@ -1,6 +1,9 @@
 // tests/claude-cli-backend.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { BackendInvocation } from '../src/shared/types.js'
 
 vi.mock('node:child_process')
@@ -226,6 +229,58 @@ describe('resolveCmdWrapper', () => {
       bin: 'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe',
       prefix: [],
     })
+  })
+})
+
+describe.skipIf(process.platform !== 'win32')('resolveCmd', () => {
+  it('recovers a native npm binary when the configured .cmd shim was removed', async () => {
+    const npmRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-claude-'))
+    const staleShim = path.join(npmRoot, 'claude.cmd')
+    const nativeBinary = path.join(
+      npmRoot,
+      'node_modules',
+      '@anthropic-ai',
+      'claude-code',
+      'node_modules',
+      '@anthropic-ai',
+      `claude-code-win32-${process.arch}`,
+      'claude.exe',
+    )
+    fs.mkdirSync(path.dirname(nativeBinary), { recursive: true })
+    fs.writeFileSync(nativeBinary, Buffer.from([0x4d, 0x5a, 0x00, 0x00]))
+
+    try {
+      const { resolveCmd } = await import('../src/backends/claude-cli.js')
+      expect(resolveCmd(staleShim)).toEqual({ bin: nativeBinary, prefix: [] })
+    } finally {
+      fs.rmSync(npmRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('bypasses an npm placeholder stub in favor of the real native binary', async () => {
+    const npmRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-claude-'))
+    const shim = path.join(npmRoot, 'claude.cmd')
+    const packageRoot = path.join(npmRoot, 'node_modules', '@anthropic-ai', 'claude-code')
+    const placeholder = path.join(packageRoot, 'bin', 'claude.exe')
+    const nativeBinary = path.join(
+      packageRoot,
+      'node_modules',
+      '@anthropic-ai',
+      `claude-code-win32-${process.arch}`,
+      'claude.exe',
+    )
+    fs.mkdirSync(path.dirname(placeholder), { recursive: true })
+    fs.mkdirSync(path.dirname(nativeBinary), { recursive: true })
+    fs.writeFileSync(shim, '@ECHO off\n"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe" %*\n')
+    fs.writeFileSync(placeholder, 'echo "native binary unavailable"')
+    fs.writeFileSync(nativeBinary, Buffer.from([0x4d, 0x5a, 0x00, 0x00]))
+
+    try {
+      const { resolveCmd } = await import('../src/backends/claude-cli.js')
+      expect(resolveCmd(shim)).toEqual({ bin: nativeBinary, prefix: [] })
+    } finally {
+      fs.rmSync(npmRoot, { recursive: true, force: true })
+    }
   })
 })
 

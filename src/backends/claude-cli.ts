@@ -182,6 +182,50 @@ export function resolveCmdWrapper(wrapperPath: string, content: string): { bin: 
   return undefined
 }
 
+function isWindowsExecutable(filePath: string): boolean {
+  try {
+    const fd = fs.openSync(filePath, 'r')
+    try {
+      const magic = Buffer.alloc(2)
+      return fs.readSync(fd, magic, 0, magic.length, 0) === magic.length &&
+        magic[0] === 0x4d && magic[1] === 0x5a
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return false
+  }
+}
+
+function isUsableLaunchTarget(target: { bin: string; prefix: string[] }): boolean {
+  if (!fs.existsSync(target.bin) || !target.prefix.every(p => fs.existsSync(p))) return false
+  return !target.bin.toLowerCase().endsWith('.exe') || isWindowsExecutable(target.bin)
+}
+
+/**
+ * Claude Code's native npm packages may replace/remove the generated .cmd shim during
+ * an upgrade. Recover from a stale shim path by locating the adjacent native package.
+ */
+function resolveNativeNpmInstall(cmdPath: string): { bin: string; prefix: string[] } | undefined {
+  const npmRoot = path.dirname(cmdPath)
+  const packageRoot = path.join(npmRoot, 'node_modules', '@anthropic-ai', 'claude-code')
+  const candidates = [
+    path.join(packageRoot, 'bin', 'claude.exe'),
+    path.join(
+      packageRoot,
+      'node_modules',
+      '@anthropic-ai',
+      `claude-code-win32-${process.arch}`,
+      'claude.exe',
+    ),
+  ]
+
+  for (const bin of candidates) {
+    if (isWindowsExecutable(bin)) return { bin, prefix: [] }
+  }
+  return undefined
+}
+
 export function resolveCmd(cmdPath: string): { bin: string; prefix: string[] } {
   if (!IS_WINDOWS) {
     return { bin: cmdPath, prefix: [] }
@@ -206,12 +250,15 @@ export function resolveCmd(cmdPath: string): { bin: string; prefix: string[] } {
   try {
     const content = fs.readFileSync(resolvedPath, 'utf-8')
     const resolved = resolveCmdWrapper(resolvedPath, content)
-    if (resolved && fs.existsSync(resolved.bin) && resolved.prefix.every(p => fs.existsSync(p))) {
+    if (resolved && isUsableLaunchTarget(resolved)) {
       return resolved
     }
   } catch {
-    // Fall through to shell-based spawn
+    // The configured npm shim may have been removed by a package upgrade.
   }
+
+  const nativeInstall = resolveNativeNpmInstall(resolvedPath)
+  if (nativeInstall) return nativeInstall
 
   return { bin: cmdPath, prefix: [] }
 }
@@ -340,11 +387,12 @@ export class ClaudeCliBackend implements Backend {
   }
 
   async preflight(): Promise<{ ok: boolean; error?: string }> {
+    const { bin, prefix } = resolveCmd(this.cliPath)
     return new Promise((resolve) => {
       execFile(
-        this.cliPath,
-        ['--version'],
-        { shell: IS_WINDOWS },
+        bin,
+        [...prefix, '--version'],
+        { shell: bin === this.cliPath && IS_WINDOWS },
         (err) => {
           if (err) {
             resolve({ ok: false, error: `claude binary not found at '${this.cliPath}': ${err.message}` })
