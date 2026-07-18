@@ -322,15 +322,21 @@ export interface SendEmailOptions {
   subject: string
   body: string
   html?: string
+  attach?: string[]
 }
 
 export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
+  const missing = (opts.attach ?? []).filter((p) => !fs.existsSync(p))
+  if (missing.length > 0) {
+    throw new Error(`Attachment file(s) not found: ${missing.join(', ')}`)
+  }
   const { sendEmail } = await import('../email/index.js')
   const result = await sendEmail({
     to: opts.to,
     subject: opts.subject,
     body: opts.body,
     html: opts.html,
+    ...(opts.attach && opts.attach.length > 0 ? { attachments: opts.attach } : {}),
   })
   if (!result.success) {
     throw new Error(result.error ?? 'Failed to send email')
@@ -564,7 +570,8 @@ if (isCliEntryPoint()) {
     .requiredOption('--subject <subject>', 'Email subject line')
     .requiredOption('--body <body>', 'Email body (plain text)')
     .option('--html <html>', 'Optional HTML body')
-    .action(async (opts: { to: string; subject: string; body: string; html?: string }) => {
+    .option('--attach <path>', 'Attach a file (repeatable)', (v: string, prev: string[]) => prev.concat(v), [] as string[])
+    .action(async (opts: { to: string; subject: string; body: string; html?: string; attach?: string[] }) => {
       await handleSendEmail(opts)
     })
 

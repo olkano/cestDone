@@ -43,7 +43,7 @@ export function buildWorkerPrompt(input: WorkerPromptInput): string {
   parts.push('')
 
   parts.push('### Available CLI Tools')
-  parts.push('- `cestdone send-email --to <addr> --subject <subj> --body <text> [--html <html>]` — send email notifications via SMTP (pre-configured)')
+  parts.push('- `cestdone send-email --to <addr> --subject <subj> --body <text> [--html <html>] [--attach <path>]...` - send email notifications via SMTP (pre-configured). `--attach` is repeatable and takes a path to an existing file; the command fails if an attachment path does not exist.')
   parts.push('')
 
   parts.push('### External Operations')

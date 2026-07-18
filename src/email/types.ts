@@ -7,6 +7,8 @@ export interface MailMessage {
   subject: string
   body: string
   html?: string
+  /** Absolute or CWD-relative paths of files to attach */
+  attachments?: string[]
 }
 
 export interface MailResult {

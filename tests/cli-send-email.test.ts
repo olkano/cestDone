@@ -1,5 +1,8 @@
 // tests/cli-send-email.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 
 const mockSendEmail = vi.fn()
 
@@ -49,5 +52,38 @@ describe('handleSendEmail', () => {
 
     await expect(handleSendEmail({ to: 'r@e.com', subject: 'S', body: 'B' }))
       .resolves.toBeUndefined()
+  })
+
+  it('passes attachments when the files exist', async () => {
+    mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
+    const tmp = path.join(os.tmpdir(), `cestdone-attach-test-${Date.now()}.txt`)
+    fs.writeFileSync(tmp, 'attachment content')
+
+    try {
+      await handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: 'B', attach: [tmp] })
+      expect(mockSendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ attachments: [tmp] }),
+      )
+    } finally {
+      fs.unlinkSync(tmp)
+    }
+  })
+
+  it('omits the attachments field when --attach is not used', async () => {
+    mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
+
+    await handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: 'B', attach: [] })
+
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.not.objectContaining({ attachments: expect.anything() }),
+    )
+  })
+
+  it('throws and sends nothing when an attachment file is missing', async () => {
+    const missing = path.join(os.tmpdir(), 'cestdone-definitely-missing.xlsx')
+
+    await expect(handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: 'B', attach: [missing] }))
+      .rejects.toThrow('Attachment file(s) not found')
+    expect(mockSendEmail).not.toHaveBeenCalled()
   })
 })

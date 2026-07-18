@@ -20,6 +20,9 @@ export class SmtpMailProvider implements MailProvider {
         subject: message.subject,
         text: message.body,
         ...(message.html ? { html: message.html } : {}),
+        ...(message.attachments && message.attachments.length > 0
+          ? { attachments: message.attachments.map((p) => ({ path: p })) }
+          : {}),
       })
       return { success: true, messageId: info.messageId }
     } catch (err: unknown) {
