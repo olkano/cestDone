@@ -5,6 +5,7 @@ import type { Job } from './job-queue.js'
 import type { DaemonConfig } from './types.js'
 import type { DaemonLogger } from './daemon-logger.js'
 import { sendEmail } from '../email/index.js'
+import { renderEmailHtml } from '../email/markdown.js'
 
 const RUN_DIR_PATTERN = /^(.+)_(\d{4}-\d{2}-\d{2})_(\d{6})$/
 
@@ -49,7 +50,7 @@ export async function notifyJobFailure(
   const body = lines.filter(Boolean).join('\n')
 
   try {
-    const result = await sendEmail({ to: recipients, subject, body })
+    const result = await sendEmail({ to: recipients, subject, body, html: renderEmailHtml(body) })
     if (result.success) {
       logger.info(`Failure notification sent for job "${job.trigger}" (messageId: ${result.messageId})`)
     } else {

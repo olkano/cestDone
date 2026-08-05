@@ -29,6 +29,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.41",
     "commander": "^13.0.0",
     "croner": "^10.0.1",
+    "marked": "^18.0.9",
     "nodemailer": "^8.0.3"
   },
   "devDependencies": {

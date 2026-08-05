@@ -65,6 +65,17 @@ describe('notifyJobFailure', () => {
     expect(sendEmail).toHaveBeenCalledTimes(1)
   })
 
+  // NF-2b
+  it('includes an HTML alternative of the body', async () => {
+    const config: DaemonConfig = {
+      notifications: { email: { recipients: 'user@example.com' } },
+    }
+    await notifyJobFailure(makeJob(), 'error', config, makeLogger())
+    const call = vi.mocked(sendEmail).mock.calls[0][0]
+    expect(call.html).toBeTruthy()
+    expect(call.html).toContain('nightly-blog')
+  })
+
   // NF-3
   it('email subject contains trigger name and failed', async () => {
     const config: DaemonConfig = {

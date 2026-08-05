@@ -22,12 +22,30 @@ describe('handleSendEmail', () => {
 
     await handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: 'Hello' })
 
-    expect(mockSendEmail).toHaveBeenCalledWith({
-      to: 'r@e.com',
-      subject: 'Hi',
-      body: 'Hello',
-      html: undefined,
-    })
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'r@e.com', subject: 'Hi', body: 'Hello' }),
+    )
+  })
+
+  it('renders the markdown body to an HTML alternative by default', async () => {
+    mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
+
+    await handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: '## Hola\n\nun **informe**' })
+
+    const call = mockSendEmail.mock.calls[0][0]
+    expect(call.body).toBe('## Hola\n\nun **informe**')
+    expect(call.html).toContain('<h2')
+    expect(call.html).toContain('<strong>informe</strong>')
+  })
+
+  it('does not render HTML when markdown is disabled', async () => {
+    mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
+
+    await handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: '**raw**', markdown: false })
+
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ html: undefined }),
+    )
   })
 
   it('passes html option when provided', async () => {

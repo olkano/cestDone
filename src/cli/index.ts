@@ -322,6 +322,8 @@ export interface SendEmailOptions {
   subject: string
   body: string
   html?: string
+  /** Default true: render the body from Markdown into an HTML alternative. */
+  markdown?: boolean
   attach?: string[]
 }
 
@@ -331,11 +333,13 @@ export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
     throw new Error(`Attachment file(s) not found: ${missing.join(', ')}`)
   }
   const { sendEmail } = await import('../email/index.js')
+  const { renderEmailHtml } = await import('../email/markdown.js')
+  const html = opts.html ?? (opts.markdown === false ? undefined : renderEmailHtml(opts.body))
   const result = await sendEmail({
     to: opts.to,
     subject: opts.subject,
     body: opts.body,
-    html: opts.html,
+    html,
     ...(opts.attach && opts.attach.length > 0 ? { attachments: opts.attach } : {}),
   })
   if (!result.success) {
@@ -568,10 +572,11 @@ if (isCliEntryPoint()) {
     .description('Send an email (used by Worker agent via Bash)')
     .requiredOption('--to <address>', 'Recipient email address')
     .requiredOption('--subject <subject>', 'Email subject line')
-    .requiredOption('--body <body>', 'Email body (plain text)')
-    .option('--html <html>', 'Optional HTML body')
+    .requiredOption('--body <body>', 'Email body (Markdown or plain text; rendered to HTML unless --no-markdown)')
+    .option('--html <html>', 'Explicit HTML body (skips Markdown rendering)')
+    .option('--no-markdown', 'Send plain text only, without the rendered HTML alternative')
     .option('--attach <path>', 'Attach a file (repeatable)', (v: string, prev: string[]) => prev.concat(v), [] as string[])
-    .action(async (opts: { to: string; subject: string; body: string; html?: string; attach?: string[] }) => {
+    .action(async (opts: { to: string; subject: string; body: string; html?: string; markdown?: boolean; attach?: string[] }) => {
       await handleSendEmail(opts)
     })
 
