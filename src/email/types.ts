@@ -1,6 +1,6 @@
 // src/email/types.ts
 
-export type MailProviderType = 'smtp' // future: 'sendgrid' | 'ses' | ...
+export type MailProviderType = 'smtp' | 'sendgrid'
 
 export interface MailMessage {
   to: string | string[]
@@ -32,5 +32,8 @@ export interface MailConfig {
     user: string
     pass: string
     secure?: boolean
+  }
+  sendgrid?: {
+    apiKey: string
   }
 }

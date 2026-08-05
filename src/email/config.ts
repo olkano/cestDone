@@ -15,6 +15,11 @@ export function loadMailConfig(env: Record<string, string | undefined> = process
     return { provider, from, smtp: { host, port, user, pass, secure } }
   }
 
+  if (provider === 'sendgrid') {
+    const apiKey = env.SENDGRID_API_KEY ?? ''
+    return { provider, from, sendgrid: { apiKey } }
+  }
+
   return { provider, from }
 }
 
@@ -25,6 +30,9 @@ export function validateMailConfig(config: MailConfig): { valid: boolean; errors
     if (!config.smtp?.host) errors.push('SMTP_HOST is required')
     if (!config.smtp?.user) errors.push('SMTP_USER is required')
     if (!config.smtp?.pass) errors.push('SMTP_PASS is required')
+  }
+  if (config.provider === 'sendgrid') {
+    if (!config.sendgrid?.apiKey) errors.push('SENDGRID_API_KEY is required')
   }
   return { valid: errors.length === 0, errors }
 }

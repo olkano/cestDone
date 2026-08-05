@@ -3,6 +3,7 @@
 // so we skip Commander and call the daemon startup code directly.
 import('./dist/cli/index.js').then(async function(mod) {
   var path = require('path');
+  var fs = require('fs');
   var { loadConfig } = await import('./dist/shared/config.js');
   var { createDaemon } = await import('./dist/daemon/daemon.js');
   var { createDaemonLogger } = await import('./dist/daemon/daemon-logger.js');
@@ -11,6 +12,11 @@ import('./dist/cli/index.js').then(async function(mod) {
   console.log('[cestdone-daemon] Starting (pid: ' + process.pid + ', cwd: ' + process.cwd() + ')');
 
   var config = loadConfig();
+
+  // PM2 is the process manager -- remove stale PID file from a previous crash
+  // to prevent "Daemon is already running" crash loops.
+  var pidFile = path.resolve(config.daemon?.logDir || 'logs/daemon', 'daemon.pid');
+  try { fs.unlinkSync(pidFile); } catch (_) {}
   if (!config.daemon) {
     console.error('[cestdone-daemon] No "daemon" section found in .cestdonerc.json');
     process.exit(1);

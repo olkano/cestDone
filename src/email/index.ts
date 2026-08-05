@@ -1,16 +1,20 @@
 // src/email/index.ts
 import type { MailProvider, MailProviderType, MailConfig, MailMessage, MailResult } from './types.js'
 import { SmtpMailProvider } from './smtp-provider.js'
+import { SendGridMailProvider } from './sendgrid-provider.js'
 import { loadMailConfig, validateMailConfig } from './config.js'
 
 export { type MailProvider, type MailMessage, type MailResult, type MailConfig, type MailProviderType } from './types.js'
 export { loadMailConfig, validateMailConfig } from './config.js'
 export { SmtpMailProvider } from './smtp-provider.js'
+export { SendGridMailProvider } from './sendgrid-provider.js'
 
 export function createMailProvider(config: MailConfig): MailProvider {
   switch (config.provider) {
     case 'smtp':
       return new SmtpMailProvider(config)
+    case 'sendgrid':
+      return new SendGridMailProvider(config)
     default:
       throw new Error(`Unknown mail provider: ${config.provider as string}`)
   }

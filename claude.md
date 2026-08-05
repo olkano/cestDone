@@ -1,1 +1,2 @@
-See [README.md](README.md) first.
+@AGENTS.md
+@README.md
