@@ -97,6 +97,40 @@ describe('handleSendEmail', () => {
     )
   })
 
+  it('reads the body from a file when bodyFile is given', async () => {
+    mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
+    const tmp = path.join(os.tmpdir(), `cestdone-bodyfile-test-${Date.now()}.md`)
+    fs.writeFileSync(tmp, '## Informe\n\nContenido **completo**', 'utf-8')
+
+    try {
+      await handleSendEmail({ to: 'r@e.com', subject: 'Hi', bodyFile: tmp })
+      const call = mockSendEmail.mock.calls[0][0]
+      expect(call.body).toBe('## Informe\n\nContenido **completo**')
+      expect(call.html).toContain('<strong>completo</strong>')
+    } finally {
+      fs.unlinkSync(tmp)
+    }
+  })
+
+  it('throws when both body and bodyFile are given', async () => {
+    await expect(handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: 'x', bodyFile: 'y.md' }))
+      .rejects.toThrow('either --body or --body-file')
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it('throws when neither body nor bodyFile is given', async () => {
+    await expect(handleSendEmail({ to: 'r@e.com', subject: 'Hi' }))
+      .rejects.toThrow('either --body or --body-file')
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  it('throws when the bodyFile does not exist', async () => {
+    const missing = path.join(os.tmpdir(), 'cestdone-missing-body.md')
+    await expect(handleSendEmail({ to: 'r@e.com', subject: 'Hi', bodyFile: missing }))
+      .rejects.toThrow('Body file not found')
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
   it('throws and sends nothing when an attachment file is missing', async () => {
     const missing = path.join(os.tmpdir(), 'cestdone-definitely-missing.xlsx')
 
