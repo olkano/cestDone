@@ -69,4 +69,29 @@ describe('ensureGitRepo', () => {
     expect(log).not.toContain('cestdone: initial commit')
     expect(log).toContain('existing commit')
   })
+
+  it('does not init a nested repo when the target is a subfolder of an existing work tree', () => {
+    // Targets like <repo>/hubspot-report have no .git of their own but belong
+    // to the parent repo; initializing there shadows the parent for every git
+    // command the worker runs.
+    execSync('git init', { cwd: tmpDir, stdio: 'ignore' })
+    const sub = path.join(tmpDir, 'sub-target')
+    fs.mkdirSync(sub)
+
+    ensureGitRepo(sub)
+
+    expect(fs.existsSync(path.join(sub, '.git'))).toBe(false)
+    const toplevel = execSync('git rev-parse --show-toplevel', { cwd: sub, encoding: 'utf-8' }).trim()
+    expect(path.resolve(toplevel)).toBe(path.resolve(fs.realpathSync(tmpDir)))
+  })
+
+  it('does not write a .gitignore into a subfolder of an existing work tree', () => {
+    execSync('git init', { cwd: tmpDir, stdio: 'ignore' })
+    const sub = path.join(tmpDir, 'sub-target')
+    fs.mkdirSync(sub)
+
+    ensureGitRepo(sub)
+
+    expect(fs.existsSync(path.join(sub, '.gitignore'))).toBe(false)
+  })
 })
