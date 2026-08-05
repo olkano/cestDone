@@ -18,7 +18,7 @@ const mockBackend: Backend = {
 beforeEach(() => {
   directorCallCount = 0
   vi.clearAllMocks()
-  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-6'
+  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-5'
   process.env.CESTDONE_WORKER_MODEL = 'claude-haiku-4-5'
 })
 
@@ -762,7 +762,7 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
     const execOpts = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    expect(execOpts.model).toBe('claude-sonnet-4-6')
+    expect(execOpts.model).toBe('claude-sonnet-5')
   })
 
   // DO8: Director-only gets generous maxTurns for execution
@@ -1146,7 +1146,7 @@ describe('executeDirector', () => {
     })
 
     const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    expect(invocation.model).toBe('claude-opus-4-8')
+    expect(invocation.model).toBe('claude-opus-5')
   })
 
   // MO2: Falls back to env var when no directorModel override

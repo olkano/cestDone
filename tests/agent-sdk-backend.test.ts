@@ -41,7 +41,7 @@ function makeInvocation(overrides: Partial<BackendInvocation> = {}): BackendInvo
   return {
     prompt: 'test prompt',
     systemPrompt: 'test system prompt',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     tools: ['Read', 'Glob', 'Grep'],
     outputSchema: { type: 'object', properties: { action: { type: 'string' } } },
     cwd: '/test/repo',
@@ -79,7 +79,7 @@ describe('AgentSdkBackend', () => {
       expect(mockQuery).toHaveBeenCalledTimes(1)
       const callArgs = mockQuery.mock.calls[0][0]
       expect(callArgs.prompt).toBe('test prompt')
-      expect(callArgs.options.model).toBe('claude-sonnet-4-6')
+      expect(callArgs.options.model).toBe('claude-sonnet-5')
       expect(callArgs.options.cwd).toBe('/test/repo')
       expect(callArgs.options.maxTurns).toBe(15)
       expect(callArgs.options.tools).toEqual(['Read', 'Glob', 'Grep'])

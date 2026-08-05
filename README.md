@@ -216,7 +216,7 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
 }
 ```
 
-Model aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full ID directly (e.g., `claude-sonnet-4-6`).
+Model aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full ID directly (e.g., `claude-sonnet-5`).
 
 ### Skip planning for structured jobs
 

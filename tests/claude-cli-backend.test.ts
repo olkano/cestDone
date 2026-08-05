@@ -14,7 +14,7 @@ function makeInvocation(overrides: Partial<BackendInvocation> = {}): BackendInvo
   return {
     prompt: 'test prompt',
     systemPrompt: 'test system prompt',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     tools: ['Read', 'Glob', 'Grep'],
     outputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] },
     cwd: '/test/repo',
@@ -28,7 +28,7 @@ function makeInvocation(overrides: Partial<BackendInvocation> = {}): BackendInvo
 function makeStreamOutput(resultOverrides: Record<string, unknown> = {}) {
   const initEvent = JSON.stringify({
     type: 'system', subtype: 'init', session_id: 'sess-cli-1',
-    tools: ['Read', 'Glob', 'Grep'], model: 'claude-sonnet-4-6',
+    tools: ['Read', 'Glob', 'Grep'], model: 'claude-sonnet-5',
   })
   const resultEvent = JSON.stringify({
     type: 'result',
@@ -477,11 +477,11 @@ describe('ClaudeCliBackend', () => {
       mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
-      await backend.invoke(makeInvocation({ model: 'claude-opus-4-6' }))
+      await backend.invoke(makeInvocation({ model: 'claude-opus-5' }))
 
       const { args } = getSpawnArgs()
       expect(args).toContain('--model')
-      expect(args).toContain('claude-opus-4-6')
+      expect(args).toContain('claude-opus-5')
     })
 
     it('includes --append-system-prompt when systemPrompt provided', async () => {

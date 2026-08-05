@@ -32,7 +32,7 @@ function makeOptions(overrides: Partial<WorkerOptions> = {}): WorkerOptions {
   return {
     step: WorkflowStep.Execute,
     phase: { number: 1, name: 'Test Phase', status: 'in-progress', spec: 'Do stuff.', applicableRules: '', done: '' },
-    model: 'claude-opus-4-6',
+    model: 'claude-opus-5',
     targetRepoPath: '/tmp/repo',
     runDir: '.cestdone/test_2026-03-20_120000',
     houseRulesContent: 'Use TDD.',
@@ -59,7 +59,7 @@ describe('executeWorker', () => {
     expect(params.prompt).toContain('Implement the feature.')
     expect(params.cwd).toContain('tmp')
     expect(params.cwd).toContain('repo')
-    expect(params.model).toBe('claude-opus-4-6')
+    expect(params.model).toBe('claude-opus-5')
     expect(params.maxTurns).toBe(100)
   })
 

@@ -84,7 +84,7 @@ beforeEach(() => {
   queryCallIndex = 0
   vi.clearAllMocks()
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-integ-'))
-  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-4-6'
+  process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-5'
   process.env.CESTDONE_WORKER_MODEL = 'claude-haiku-4-5'
 
   vi.mocked(ensureTTY).mockReturnValue(undefined)
