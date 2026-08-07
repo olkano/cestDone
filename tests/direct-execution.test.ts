@@ -9,6 +9,7 @@ import type {
   WorkerResult,
 } from '../src/shared/types.js'
 import { CostTracker } from '../src/shared/cost-tracker.js'
+import { DEFAULTS } from '../src/shared/config.js'
 
 const ZERO_USAGE = {
   inputTokens: 0,
@@ -140,14 +141,28 @@ describe('runDirectExecution', () => {
     expect(invocation.prompt).toContain('Inspect the changed files or current git diff directly')
   })
 
-  it('fails when the final Director review does not return done', async () => {
+  it('re-runs the Worker with the review feedback when the review returns fix', async () => {
+    const deps = makeDeps(workerResult('success'), backendResult('done'))
+    vi.mocked(deps.backend.invoke).mockResolvedValueOnce(backendResult('fix'))
+
+    await runDirectExecution(SPEC, CONFIG, deps)
+
+    expect(deps.workerExecute).toHaveBeenCalledTimes(2)
+    expect(deps.backend.invoke).toHaveBeenCalledTimes(2)
+    const fixOptions = vi.mocked(deps.workerExecute).mock.calls[1][0] as WorkerOptions
+    expect(fixOptions.instructions).toContain('Review feedback:\nfix message')
+    expect(fixOptions.instructions).toContain('do not repeat side effects that already happened')
+    expect(fixOptions.instructions).toContain('Authoritative UTC run context')
+  })
+
+  it('fails after exhausting fix passes when the review keeps returning fix', async () => {
     const deps = makeDeps(workerResult('success'), backendResult('fix'))
 
     await expect(runDirectExecution(SPEC, CONFIG, deps))
       .rejects.toThrow('Direct review returned fix')
 
-    expect(deps.workerExecute).toHaveBeenCalledTimes(1)
-    expect(deps.backend.invoke).toHaveBeenCalledTimes(1)
+    expect(deps.workerExecute).toHaveBeenCalledTimes(1 + DEFAULTS.maxWorkerRetries)
+    expect(deps.backend.invoke).toHaveBeenCalledTimes(1 + DEFAULTS.maxWorkerRetries)
   })
 
   it('rejects skip-planning when Worker mode is disabled', async () => {
