@@ -12,7 +12,7 @@ Before concluding that access or connection information is unavailable, consult
 the appropriate document:
 
 - Email sending (SendGrid, SMTP): see `Email` section below and `.env`
-- Daemon schedules, webhooks, pollers: `.cestdonerc.json`
+- Daemon schedules, webhooks, pollers: `.cestdonerc.json`. GOTCHA (2026-08-19): the daemon's config watcher only reacts to fs.watch `change` events; an atomic write (temp file + rename, which Claude Code's Edit tool uses) makes it reload STALE content. After editing `.cestdonerc.json`, verify the reload in the daemon log (`C:\ProgramData\pm2\home\logs\cestdone-daemon-out.log`, look for the new trigger counts); if the change did not take, rewrite the file in place (`Set-Content` with the same content) to fire a clean `change` event.
 - Agent SDK internals: `agent-sdk-details.md`
 - SendGrid account, keys, domain auth: `C:\Users\dpire\Code\ITMPlatform\SENDGRID-ACCESS.md`
 - Azure Key Vault secrets: `C:\Users\dpire\Code\ITMPlatform\INFRASTRUCTURE.md`
