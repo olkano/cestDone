@@ -17,6 +17,7 @@ export interface SDKResultLike {
 export function parseResult(msg: SDKResultLike): WorkerResult {
   const base = {
     cost: msg.total_cost_usd,
+    actualCostUsd: msg.total_cost_usd,
     numTurns: msg.num_turns,
     durationMs: msg.duration_ms,
     usage: mapSdkUsage(msg.usage),
@@ -46,6 +47,7 @@ export function parseResult(msg: SDKResultLike): WorkerResult {
 export function parseWorkerResult(result: BackendResult): WorkerResult {
   const base = {
     cost: result.costUsd ?? 0,
+    actualCostUsd: result.costUsd,
     numTurns: result.numTurns,
     durationMs: result.durationMs,
     usage: result.usage,

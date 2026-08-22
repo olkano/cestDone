@@ -22,9 +22,13 @@ import type { FreeFormSpec, Config, BackendType } from '../shared/types.js'
 import { createBackend } from '../backends/index.js'
 import { NonInteractiveEscalationError } from '../daemon/errors.js'
 import { acquireRunLock } from '../shared/run-lock.js'
+import { UsageRecorder, UsageTrackingBackend, normalizeApplication } from '../usage/recorder.js'
+import type { RunInvocationContext } from '../shared/types.js'
 
 export interface RunOptions {
   target?: string
+  application?: string
+  invocationContext?: RunInvocationContext
   houseRules?: string
   directorModel?: string
   workerModel?: string
@@ -45,6 +49,8 @@ export interface RunOptions {
 
 export interface ResumeOptions {
   target?: string
+  application?: string
+  invocationContext?: RunInvocationContext
   directorModel?: string
   workerModel?: string
   directorMaxTurns?: string
@@ -62,6 +68,7 @@ export interface ResumeOptions {
 }
 
 function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void {
+  if (options?.application) config.application = normalizeApplication(options.application)
   if (options?.directorModel) config.directorModel = options.directorModel
   if (options?.workerModel) config.workerModel = options.workerModel
   if (options?.directorMaxTurns) config.directorMaxTurns = parseInt(options.directorMaxTurns, 10)
@@ -140,6 +147,23 @@ export async function handleRun(
   }
   ensureGitRepo(targetDir)
   const releaseRunLock = acquireRunLock(targetDir, specName)
+  const explicitApplication = options?.application ?? config.application
+  const application = explicitApplication ?? normalizeApplication(path.basename(targetDir))
+  if (!explicitApplication) {
+    logger.log('Usage', `No explicit application label; using target fallback "${application}"`)
+  }
+  const invocation = options?.invocationContext ?? { type: 'direct' as const }
+  const usageRecorder = new UsageRecorder({
+    usageDir: config.usageDir ?? DEFAULTS.usageDir,
+    application,
+    invocation,
+    originalSpecPath: invocation.originalSpecPath ?? resolvedSpecPath,
+    targetRepoPath: targetDir,
+    runDir: config.runDir,
+    logger,
+  })
+  let runSucceeded = false
+  let runError: unknown
   try {
     const specText = fs.readFileSync(resolvedSpecPath, 'utf-8')
 
@@ -152,7 +176,7 @@ export async function handleRun(
     }
 
     const costTracker = new CostTracker()
-    const deps = buildDeps(logger, costTracker, config)
+    const deps = buildDeps(logger, costTracker, config, usageRecorder)
     const freeFormSpec: FreeFormSpec = {
       text: specText,
       houseRulesContent,
@@ -162,6 +186,7 @@ export async function handleRun(
     if (config.skipPlanning) {
       await runDirectExecution(freeFormSpec, config, deps)
       logFinalSummary(logger, costTracker, startTime)
+      runSucceeded = true
       return
     }
 
@@ -206,7 +231,12 @@ export async function handleRun(
     }
 
     logFinalSummary(logger, costTracker, startTime)
+    runSucceeded = true
+  } catch (error) {
+    runError = error
+    throw error
   } finally {
+    usageRecorder.finalize(runSucceeded ? 'completed' : 'failed', runError)
     releaseRunLock()
   }
 }
@@ -237,6 +267,23 @@ export async function handleResume(
   }
   ensureGitRepo(targetDir)
   const releaseRunLock = acquireRunLock(targetDir, specName)
+  const explicitApplication = options?.application ?? config.application
+  const application = explicitApplication ?? normalizeApplication(path.basename(targetDir))
+  if (!explicitApplication) {
+    logger.log('Usage', `No explicit application label; using target fallback "${application}"`)
+  }
+  const invocation = options?.invocationContext ?? { type: 'direct' as const }
+  const usageRecorder = new UsageRecorder({
+    usageDir: config.usageDir ?? DEFAULTS.usageDir,
+    application,
+    invocation,
+    originalSpecPath: invocation.originalSpecPath ?? resolvedSpecPath,
+    targetRepoPath: targetDir,
+    runDir: config.runDir,
+    logger,
+  })
+  let runSucceeded = false
+  let runError: unknown
   try {
     const planPath = getPlanPath(resolvedSpecPath, targetDir)
 
@@ -245,10 +292,15 @@ export async function handleResume(
     }
 
     const costTracker = new CostTracker()
-    const deps = buildDeps(logger, costTracker, config)
+    const deps = buildDeps(logger, costTracker, config, usageRecorder)
     await executeAllPhases(planPath, config, deps)
     logFinalSummary(logger, costTracker, startTime)
+    runSucceeded = true
+  } catch (error) {
+    runError = error
+    throw error
   } finally {
+    usageRecorder.finalize(runSucceeded ? 'completed' : 'failed', runError)
     releaseRunLock()
   }
 }
@@ -280,9 +332,18 @@ async function executeAllPhases(
   deps.display('\nAll phases complete.')
 }
 
-function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Config): DirectorDeps {
+function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Config, usageRecorder?: UsageRecorder): DirectorDeps {
   const effectiveConfig = config ?? { targetRepoPath: DEFAULTS.targetRepoPath, runDir: '.cestdone', maxTurns: DEFAULTS.maxTurns }
   const ni = effectiveConfig.nonInteractive ?? false
+
+  const directorBackend = createBackend(
+    config?.directorBackend ?? DEFAULTS.backend,
+    effectiveConfig
+  )
+  const workerBackend = createBackend(
+    config?.workerBackend ?? DEFAULTS.backend,
+    effectiveConfig
+  )
 
   return {
     askApproval: ni
@@ -306,14 +367,8 @@ function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Co
     display: (text: string) => console.log(text),
     logger,
     costTracker: costTracker ?? new CostTracker(),
-    backend: createBackend(
-      config?.directorBackend ?? DEFAULTS.backend,
-      effectiveConfig
-    ),
-    workerBackend: createBackend(
-      config?.workerBackend ?? DEFAULTS.backend,
-      effectiveConfig
-    ),
+    backend: usageRecorder ? new UsageTrackingBackend(directorBackend, usageRecorder) : directorBackend,
+    workerBackend: usageRecorder ? new UsageTrackingBackend(workerBackend, usageRecorder) : workerBackend,
   }
 }
 
@@ -396,6 +451,7 @@ function logFinalSummary(
 function addCommonOptions(cmd: Command): Command {
   return cmd
     .option('--target <path>', 'Target repository path (default: spec file\'s parent directory)')
+    .option('--application <name>', 'Logical application label for usage accounting')
     .option('--director-model <model>', `Director model: haiku | sonnet | opus (default: "${DEFAULTS.directorModel}")`)
     .option('--worker-model <model>', `Worker model: haiku | sonnet | opus (default: "${DEFAULTS.workerModel}")`)
     .option('--director-max-turns <n>', `Max turns for Director steps (default: ${DEFAULTS.directorMaxTurnsDefault})`)
@@ -442,9 +498,10 @@ if (isCliEntryPoint()) {
     .option('--house-rules <path>', 'Path to house rules file')
     .option('--skip-planning', 'Execute the complete specification as one Worker task without creating a plan')
   addCommonOptions(runCmd)
-    .action(async (opts: { spec: string; target?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; skipPlanning?: boolean; nonInteractive?: boolean }) => {
+    .action(async (opts: { spec: string; target?: string; application?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; skipPlanning?: boolean; nonInteractive?: boolean }) => {
       await handleRun(opts.spec, {
         target: opts.target,
+        application: opts.application,
         houseRules: opts.houseRules,
         directorModel: opts.directorModel,
         workerModel: opts.workerModel,
@@ -468,9 +525,10 @@ if (isCliEntryPoint()) {
     .description('Resume execution from an existing .plan.md file')
     .requiredOption('--spec <path>', 'Path to spec file (required)')
   addCommonOptions(resumeCmd)
-    .action(async (opts: { spec: string; target?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
+    .action(async (opts: { spec: string; target?: string; application?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
       await handleResume(opts.spec, {
         target: opts.target,
+        application: opts.application,
         directorModel: opts.directorModel,
         workerModel: opts.workerModel,
         directorMaxTurns: opts.directorMaxTurns,

@@ -15,6 +15,21 @@ export interface Phase {
 
 export type BackendType = 'agent-sdk' | 'claude-cli'
 export type ModelAlias = 'haiku' | 'sonnet' | 'opus'
+export type InvocationType = 'direct' | 'schedule' | 'webhook' | 'poller'
+
+export interface RunInvocationContext {
+  type: InvocationType
+  triggerName?: string
+  daemonJobId?: string
+  attempt?: number
+  originalSpecPath?: string
+}
+
+export interface UsageCallContext {
+  role: 'director' | 'worker'
+  workflowStep: WorkflowStep
+  phaseNumber?: number
+}
 
 export interface Config {
   targetRepoPath: string
@@ -34,8 +49,10 @@ export interface Config {
   skipPlanning?: boolean
   nonInteractive?: boolean
   autoCommit?: boolean
+  application?: string
   houseRules?: string       // Default path to house rules file (CLI --house-rules overrides)
   centralLogDir?: string // e.g. ~/.cestdone/logs — dual-write all session logs here
+  usageDir?: string // e.g. ~/.cestdone/usage — structured usage records and reports
   daemon?: import('../daemon/types.js').DaemonConfig
 }
 
@@ -80,6 +97,7 @@ export interface WorkerResult {
   message: string
   filesChanged?: string[]
   cost: number
+  actualCostUsd: number | null
   numTurns: number
   durationMs: number
   usage: TokenUsage
@@ -155,6 +173,7 @@ export interface BackendInvocation {
   maxBudgetUsd?: number
   resumeSessionId?: string
   env?: Record<string, string | undefined>
+  usageContext?: UsageCallContext
   logger: SessionLogger
 }
 

@@ -92,7 +92,7 @@ describe('formatTotals', () => {
     expect(line).toContain('Worker: $1.25')
     expect(line).toContain('Total: $1.40')
     expect(line).toContain('5.0K')
-    expect(line).toContain('50.0K')
+    expect(line).toContain('65.0K')
   })
 
   it('shows zeros when no usage recorded', () => {
@@ -120,18 +120,25 @@ describe('formatFinalSummary', () => {
     expect(summary).toContain('Grand total: $3.03')
   })
 
-  it('shows total context (input + cache-read) as the input number', () => {
+  it('shows every token category and includes all four in processed tokens', () => {
     const tracker = new CostTracker()
     tracker.recordDirector({ costUsd: 0, inputTokens: 28, outputTokens: 2000, cacheReadInputTokens: 222100, cacheCreationInputTokens: 5000 })
     tracker.recordWorker({ costUsd: 0, inputTokens: 8, outputTokens: 1900, cacheReadInputTokens: 183500, cacheCreationInputTokens: 3000 })
 
     const summary = formatFinalSummary(tracker, 1196000) // ~20m
-    // Should show total context consumed, not just non-cached input
-    expect(summary).toContain('222.1K in')
-    expect(summary).toContain('183.5K in')
-    // Should NOT show the tiny non-cached numbers as the headline
-    expect(summary).not.toMatch(/tokens: 28 in/)
-    expect(summary).not.toMatch(/tokens: 8 in/)
+    expect(summary).toContain('processed: 229.1K')
+    expect(summary).toContain('in:28 cache-w:5.0K cache-r:222.1K out:2.0K')
+    expect(summary).toContain('processed: 188.4K')
+    expect(summary).toContain('in:8 cache-w:3.0K cache-r:183.5K out:1.9K')
+  })
+
+  it('labels subscription-backed calls as unavailable rather than zero cost', () => {
+    const tracker = new CostTracker()
+    tracker.recordWorker({ costUsd: null, inputTokens: 1, outputTokens: 2, cacheReadInputTokens: 3, cacheCreationInputTokens: 4 })
+
+    const summary = formatFinalSummary(tracker, 1000)
+    expect(summary).toContain('n/a (subscription)')
+    expect(summary).not.toContain('Worker    — $0.00')
   })
 
   it('formats hours when elapsed > 60 minutes', () => {

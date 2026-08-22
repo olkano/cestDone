@@ -96,6 +96,7 @@ beforeEach(() => {
     maxTurns: 100,
     directorBackend: 'agent-sdk',
     workerBackend: 'agent-sdk',
+    usageDir: path.join(tmpDir, 'usage'),
   })
 })
 

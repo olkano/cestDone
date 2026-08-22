@@ -32,6 +32,7 @@ export const DEFAULTS = {
   directorMaxTurnsDefault: 50, // Director turns for other steps
   cliHeartbeatMs: 30_000,      // CLI backend heartbeat interval
   centralLogDir: path.join(os.homedir(), '.cestdone', 'logs'), // central log mirror
+  usageDir: path.join(os.homedir(), '.cestdone', 'usage'), // structured usage records and reports
 } as const
 
 const CONFIG_DEFAULTS: Config = {

@@ -148,6 +148,7 @@ Commands:
   --house-rules <path>       Path to house rules file
   --skip-planning            Execute the complete specification as one Worker task without creating a plan
   --target <path>            Target repository path (default: ".")
+  --application <name>       Logical application label for usage accounting
   --director-model <model>   Director model: haiku | sonnet | opus (default: "opus")
   --worker-model <model>      Worker model: haiku | sonnet | opus (default: "opus")
   --with-worker               Two-agent mode: Director plans, Worker implements (default: true)
@@ -209,6 +210,7 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
   "skipPlanning": false,
   "nonInteractive": false,
   "autoCommit": true,
+  "application": "my-app",
   "houseRules": "house-rules.md",
   "directorBackend": "claude-cli",
   "workerBackend": "claude-cli",
@@ -217,6 +219,36 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
 ```
 
 Model aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full ID directly (e.g., `claude-sonnet-5`).
+
+### Usage accounting
+
+cestDone writes a versioned structured record for every run under
+`~/.cestdone/usage/runs/YYYY/MM/`. The record is updated after each completed model
+call, so usage already consumed remains available when a later call or the overall
+run fails. Weekly analytical reports are saved under
+`~/.cestdone/usage/reports/weekly/` and the configured daemon runs the report every
+Friday at 20:00 `Europe/Madrid`.
+
+Usage is attributed by:
+
+- **application** — a stable logical label such as `sales` or `support`;
+- **invocation type** — `direct`, `schedule`, `webhook`, or `poller`;
+- Director/Worker role, workflow step, backend, and model.
+
+Set `application` on daemon jobs that should roll up together. Direct calls may use
+`--application <name>`; otherwise cestDone falls back to the target repository name
+and logs a warning.
+
+Token accounting preserves uncached input, cache creation, cache reads, and output
+separately. `totalProcessedTokens` is the sum of all four categories and is an
+activity measure, not a cost estimate. Agent SDK calls retain provider-reported USD
+cost. Claude CLI subscription calls report cost as `n/a (subscription)`, never as
+zero.
+
+The usage ledger stores execution metadata only. It never stores prompts, model
+responses, tool inputs or outputs, webhook payloads, credentials, or environment
+variables. Reporting is scheduled and agent-assisted; there is intentionally no
+public usage-reporting CLI or dashboard.
 
 ### Skip planning for structured jobs
 
@@ -393,6 +425,7 @@ Run a spec on a cron schedule. **Always triggers** — every time the cron fires
 | `cron` | yes | Cron expression (e.g. `0 2 * * *` = daily at 2am) |
 | `spec` | yes | Path to spec file |
 | `target` | no | Target repository path |
+| `application` | no | Logical application label for usage accounting |
 | `houseRules` | no | Path to house rules file |
 | `options` | no | Any `run` options to override |
 
@@ -408,6 +441,7 @@ Listen for HTTP POST requests and trigger a spec run with the payload injected v
 | `spec` | yes | Path to spec file (may contain `{{variables}}`) |
 | `secret` | no | HMAC secret for `X-Hub-Signature-256` validation |
 | `target` | no | Target repository path |
+| `application` | no | Logical application label for usage accounting |
 | `options` | no | Any `run` options to override |
 
 Multiple webhooks can share the same port if they have different paths.
@@ -424,6 +458,7 @@ Like a schedule, but with a **"only if changed" gate**. Periodically runs a comm
 | `url` | one of | URL to fetch |
 | `spec` | yes | Path to spec file (may contain `{{variables}}`) |
 | `target` | no | Target repository path |
+| `application` | no | Logical application label for usage accounting |
 | `options` | no | Any `run` options to override |
 
 ### Spec Templating

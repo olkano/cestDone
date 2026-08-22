@@ -199,7 +199,7 @@ describe('createDaemon', () => {
   // D-7
   it('when schedule fires, job is enqueued and executeRun is called', async () => {
     const daemonConfig = makeDaemonConfig({
-      schedules: [{ name: 'nightly', cron: '0 2 * * *', spec: 'specs/report.md' }],
+      schedules: [{ name: 'nightly', application: 'reporting', cron: '0 2 * * *', spec: 'specs/report.md' }],
     })
     const deps = makeDeps(daemonConfig)
     daemon = createDaemon(deps)
@@ -214,14 +214,23 @@ describe('createDaemon', () => {
 
     expect(deps.executeRun).toHaveBeenCalledWith(
       'specs/report.md',
-      expect.objectContaining({ nonInteractive: true }),
+      expect.objectContaining({
+        application: 'reporting',
+        nonInteractive: true,
+        invocationContext: expect.objectContaining({
+          type: 'schedule',
+          triggerName: 'nightly',
+          attempt: 1,
+          originalSpecPath: 'specs/report.md',
+        }),
+      }),
     )
   })
 
   // D-8
   it('when webhook fires, spec is templated and job runs', async () => {
     const daemonConfig = makeDaemonConfig({
-      webhooks: [{ name: 'gh', port: 0, spec: 'specs/triage.md' }],
+      webhooks: [{ name: 'gh', application: 'issues', port: 0, spec: 'specs/triage.md' }],
     })
     const deps = makeDeps(daemonConfig)
     daemon = createDaemon(deps)
@@ -232,7 +241,39 @@ describe('createDaemon', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 600))
 
-    expect(deps.executeRun).toHaveBeenCalled()
+    expect(deps.executeRun).toHaveBeenCalledWith(
+      expect.stringMatching(/[\\/]rendered[\\/].+\.md$/),
+      expect.objectContaining({
+        application: 'issues',
+        invocationContext: expect.objectContaining({
+          type: 'webhook', triggerName: 'gh', originalSpecPath: 'specs/triage.md',
+        }),
+      }),
+    )
+  })
+
+  it('propagates poller usage attribution to the run', async () => {
+    const daemonConfig = makeDaemonConfig({
+      pollers: [{ name: 'deps', application: 'dependencies', cron: '0 * * * *', command: 'echo ok', spec: 'specs/deps.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createPoller).mock.calls[0][1]
+    onTrigger(daemonConfig.pollers![0], 'changed')
+
+    await new Promise((resolve) => setTimeout(resolve, 600))
+
+    expect(deps.executeRun).toHaveBeenCalledWith(
+      expect.stringMatching(/[\\/]rendered[\\/].+\.md$/),
+      expect.objectContaining({
+        application: 'dependencies',
+        invocationContext: expect.objectContaining({
+          type: 'poller', triggerName: 'deps', originalSpecPath: 'specs/deps.md',
+        }),
+      }),
+    )
   })
 
   // D-9

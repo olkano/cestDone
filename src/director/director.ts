@@ -43,6 +43,7 @@ const MAX_WORKER_RETRIES = DEFAULTS.maxWorkerRetries
 export interface DirectorCallResult {
   response: DirectorResponse
   costUsd: number
+  actualCostUsd: number | null
   numTurns: number
   durationMs: number
   usage: TokenUsage
@@ -51,7 +52,7 @@ export interface DirectorCallResult {
 
 function recordDirectorCall(deps: DirectorDeps, result: DirectorCallResult): DirectorResponse {
   deps.costTracker.recordDirector({
-    costUsd: result.costUsd,
+    costUsd: result.actualCostUsd,
     inputTokens: result.usage.inputTokens,
     outputTokens: result.usage.outputTokens,
     cacheReadInputTokens: result.usage.cacheReadInputTokens,
@@ -59,6 +60,24 @@ function recordDirectorCall(deps: DirectorDeps, result: DirectorCallResult): Dir
   })
   deps.logger.log('Session', formatTotals(deps.costTracker))
   return result.response
+}
+
+function actualWorkerCost(result: WorkerResult): number | null {
+  // Backward-compatible with injected/test WorkerResult objects created before
+  // actualCostUsd was added. Runtime results always provide the field.
+  return result.actualCostUsd === undefined ? result.cost : result.actualCostUsd
+}
+
+function formatWorkerCost(result: WorkerResult): string {
+  const cost = actualWorkerCost(result)
+  return cost === null ? 'n/a (subscription)' : `$${cost.toFixed(2)}`
+}
+
+function formatAccumulatedWorkerCost(deps: DirectorDeps, fallback: number): string {
+  const total = deps.costTracker.getWorkerTotal()
+  if (total.subscriptionCalls > 0 && total.meteredCalls === 0) return 'n/a (subscription)'
+  if (total.subscriptionCalls > 0) return `$${total.costUsd.toFixed(2)} metered + subscription`
+  return `$${fallback.toFixed(2)}`
 }
 
 // === Planning flow ===
@@ -97,14 +116,14 @@ export async function runPlanningFlow(
   })
 
   deps.costTracker.recordWorker({
-    costUsd: planningResult.cost,
+    costUsd: actualWorkerCost(planningResult),
     inputTokens: planningResult.usage.inputTokens,
     outputTokens: planningResult.usage.outputTokens,
     cacheReadInputTokens: planningResult.usage.cacheReadInputTokens,
     cacheCreationInputTokens: planningResult.usage.cacheCreationInputTokens,
   })
   logger.log('Session', formatTotals(deps.costTracker))
-  logger.log('Director', `Planning Worker completed (cost: $${planningResult.cost.toFixed(2)})`)
+  logger.log('Director', `Planning Worker completed (cost: ${formatWorkerCost(planningResult)})`)
   assertWorkerSucceeded(planningResult, 'Planning Worker')
 
   // Read plan from disk — Worker should have written it
@@ -275,7 +294,7 @@ export async function runDirectExecution(
       backend: deps.workerBackend,
     }))
     deps.costTracker.recordWorker({
-      costUsd: workerResult.cost,
+      costUsd: actualWorkerCost(workerResult),
       inputTokens: workerResult.usage.inputTokens,
       outputTokens: workerResult.usage.outputTokens,
       cacheReadInputTokens: workerResult.usage.cacheReadInputTokens,
@@ -284,7 +303,7 @@ export async function runDirectExecution(
     logger.log('Session', formatTotals(deps.costTracker))
 
     const summary = workerResult.report?.summary ?? workerResult.message
-    deps.display(`\nWorker: ${summary} (cost: $${workerResult.cost.toFixed(2)})`)
+    deps.display(`\nWorker: ${summary} (cost: ${formatWorkerCost(workerResult)})`)
     if (workerResult.status === 'failed') {
       throw new Error(`Direct Worker failed: ${workerResult.message}`)
     }
@@ -424,7 +443,7 @@ async function executeTwoAgentPhase(
     }))
     totalWorkerCost += workerResult.cost
     deps.costTracker.recordWorker({
-      costUsd: workerResult.cost,
+      costUsd: actualWorkerCost(workerResult),
       inputTokens: workerResult.usage.inputTokens,
       outputTokens: workerResult.usage.outputTokens,
       cacheReadInputTokens: workerResult.usage.cacheReadInputTokens,
@@ -433,12 +452,12 @@ async function executeTwoAgentPhase(
     logger.log('Session', formatTotals(deps.costTracker))
 
     const summary = workerResult.report?.summary ?? workerResult.message
-    deps.display(`\nWorker: ${summary} (cost: $${workerResult.cost.toFixed(2)})`)
-    logger.log('Director', `Worker result: ${workerResult.status} (cost: $${workerResult.cost.toFixed(2)}, total: $${totalWorkerCost.toFixed(2)})`)
+    deps.display(`\nWorker: ${summary} (cost: ${formatWorkerCost(workerResult)})`)
+    logger.log('Director', `Worker result: ${workerResult.status} (cost: ${formatWorkerCost(workerResult)}, total: ${formatAccumulatedWorkerCost(deps, totalWorkerCost)})`)
     logger.logVerbose('Director', `Worker report: ${JSON.stringify(workerResult.report)}`)
 
     if (!shouldReview) {
-      deps.display(`\nTotal Worker cost: $${totalWorkerCost.toFixed(2)}`)
+      deps.display(`\nTotal Worker cost: ${formatAccumulatedWorkerCost(deps, totalWorkerCost)}`)
       break
     }
 
@@ -514,8 +533,8 @@ async function executeTwoAgentPhase(
     if (reviewResult.action !== 'done') {
       logger.log('Director', `Review returned '${reviewResult.action}' — treating as done`)
     }
-    deps.display(`\nTotal Worker cost: $${totalWorkerCost.toFixed(2)}`)
-    logger.log('Director', `Phase ${phase.number} done (total cost: $${totalWorkerCost.toFixed(2)}, sub-phases: ${completedSubPhases.length + 1})`)
+    deps.display(`\nTotal Worker cost: ${formatAccumulatedWorkerCost(deps, totalWorkerCost)}`)
+    logger.log('Director', `Phase ${phase.number} done (total cost: ${formatAccumulatedWorkerCost(deps, totalWorkerCost)}, sub-phases: ${completedSubPhases.length + 1})`)
     break
   }
 
@@ -614,10 +633,15 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
     maxTurns,
     resumeSessionId: params.resume,
     env: { ...process.env },
+    usageContext: {
+      role: 'director',
+      workflowStep: step,
+    },
     logger,
   })
 
-  logger.log('Director', `Call completed (cost: $${(result.costUsd ?? 0).toFixed(2)}, turns: ${result.numTurns}, success: ${result.success})`)
+  const costLabel = result.costUsd === null ? 'n/a (subscription)' : `$${result.costUsd.toFixed(2)}`
+  logger.log('Director', `Call completed (cost: ${costLabel}, turns: ${result.numTurns}, success: ${result.success})`)
   logger.log('Director', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
 
   if (!result.success) {
@@ -630,6 +654,7 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
   return {
     response,
     costUsd: result.costUsd ?? 0,
+    actualCostUsd: result.costUsd,
     numTurns: result.numTurns,
     durationMs: result.durationMs,
     usage: result.usage,

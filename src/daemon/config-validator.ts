@@ -44,6 +44,12 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     }
   }
 
+  function checkApplication(application: string | undefined, source: string): void {
+    if (application !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(application)) {
+      errors.push(`${source}: application must be a lowercase kebab-case identifier`)
+    }
+  }
+
   // Validate schedules
   for (const s of config.schedules ?? []) {
     const src = `schedule "${s.name || '(unnamed)'}"`
@@ -51,6 +57,7 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     if (!s.spec) errors.push(`${src}: spec is required`)
     if (!s.cron) errors.push(`${src}: cron is required`)
     else checkCron(s.cron, src)
+    checkApplication(s.application, src)
     checkRetry(s, src)
   }
 
@@ -64,6 +71,7 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     } else if (w.port < 1 || w.port > 65535) {
       errors.push(`${src}: port must be between 1 and 65535`)
     }
+    checkApplication(w.application, src)
     checkRetry(w, src)
   }
 
@@ -77,6 +85,7 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     if (!p.command && !p.url) {
       errors.push(`${src}: either command or url is required`)
     }
+    checkApplication(p.application, src)
     checkRetry(p, src)
   }
 

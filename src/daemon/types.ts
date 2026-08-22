@@ -8,6 +8,7 @@ export interface RetryConfig {
 
 export interface ScheduleConfig extends RetryConfig {
   name: string
+  application?: string
   cron: string
   spec: string
   target?: string
@@ -18,6 +19,7 @@ export interface ScheduleConfig extends RetryConfig {
 
 export interface WebhookConfig extends RetryConfig {
   name: string
+  application?: string
   port: number
   path?: string
   spec: string
@@ -28,6 +30,7 @@ export interface WebhookConfig extends RetryConfig {
 
 export interface PollingConfig extends RetryConfig {
   name: string
+  application?: string
   cron: string
   command?: string
   url?: string

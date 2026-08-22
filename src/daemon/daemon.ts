@@ -54,9 +54,11 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
   let stopped = false
   let runLoopPromise: Promise<void> | undefined
 
-  function enqueueFromSchedule(name: string, specPath: string, options?: Partial<RunOptions>, retry?: { retries?: number; retryDelayMs?: number }): void {
+  function enqueueFromSchedule(name: string, specPath: string, application?: string, options?: Partial<RunOptions>, retry?: { retries?: number; retryDelayMs?: number }): void {
     queue.enqueue({
       trigger: name,
+      sourceType: 'schedule',
+      application,
       specPath,
       options: options ?? {},
       maxRetries: retry?.retries ?? 0,
@@ -68,6 +70,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
   function enqueueFromWebhook(
     name: string,
     specPath: string,
+    application: string | undefined,
     payload: Record<string, unknown>,
     options?: Partial<RunOptions>,
     retry?: { retries?: number; retryDelayMs?: number },
@@ -79,6 +82,8 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
     }
     queue.enqueue({
       trigger: name,
+      sourceType: 'webhook',
+      application,
       specPath,
       options: options ?? {},
       templateContext: context,
@@ -91,6 +96,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
   function enqueueFromPoller(
     name: string,
     specPath: string,
+    application: string | undefined,
     output: string,
     options?: Partial<RunOptions>,
     retry?: { retries?: number; retryDelayMs?: number },
@@ -102,6 +108,8 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
     }
     queue.enqueue({
       trigger: name,
+      sourceType: 'poller',
+      application,
       specPath,
       options: options ?? {},
       templateContext: context,
@@ -137,6 +145,14 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
 
         const runOptions: RunOptions = {
           ...(job.options as Partial<RunOptions>),
+          ...(job.application ? { application: job.application } : {}),
+          invocationContext: {
+            type: job.sourceType,
+            triggerName: job.trigger,
+            daemonJobId: job.id,
+            attempt,
+            originalSpecPath: job.specPath,
+          },
           nonInteractive: true,
         }
 
@@ -205,7 +221,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
     // Create scheduler
     if (config.schedules?.length) {
       scheduler = createScheduler(config.schedules, (schedule) => {
-        enqueueFromSchedule(schedule.name, schedule.spec, {
+        enqueueFromSchedule(schedule.name, schedule.spec, schedule.application, {
           ...schedule.options,
           target: schedule.target,
           houseRules: schedule.houseRules,
@@ -230,7 +246,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
 
       for (const [, webhooks] of byPort) {
         const server = createWebhookServer(webhooks, (webhook, payload) => {
-          enqueueFromWebhook(webhook.name, webhook.spec, payload, {
+          enqueueFromWebhook(webhook.name, webhook.spec, webhook.application, payload, {
             ...webhook.options,
             target: webhook.target,
           }, { retries: webhook.retries, retryDelayMs: webhook.retryDelayMs })
@@ -244,7 +260,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
     // Create pollers
     if (config.pollers?.length) {
       poller = createPoller(config.pollers, (pollerConfig, output) => {
-        enqueueFromPoller(pollerConfig.name, pollerConfig.spec, output, {
+        enqueueFromPoller(pollerConfig.name, pollerConfig.spec, pollerConfig.application, output, {
           ...pollerConfig.options,
           target: pollerConfig.target,
         }, { retries: pollerConfig.retries, retryDelayMs: pollerConfig.retryDelayMs })

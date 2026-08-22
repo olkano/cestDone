@@ -54,6 +54,11 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
       maxTurns: options.maxTurns,
       maxBudgetUsd: options.maxBudgetUsd,
       env: { ...process.env },
+      usageContext: {
+        role: 'worker',
+        workflowStep: options.step,
+        phaseNumber: options.phase.number,
+      },
       logger,
     })
   } catch (err) {
@@ -63,6 +68,7 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
       status: 'failed',
       message: errorMsg,
       cost: 0,
+      actualCostUsd: null,
       numTurns: 0,
       durationMs: 0,
       usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
@@ -70,14 +76,18 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
     }
   }
 
-  logger.log('Worker', `Call completed (cost: $${(result.costUsd ?? 0).toFixed(2)}, turns: ${result.numTurns}, duration: ${formatDuration(result.durationMs)})`)
+  const costLabel = result.costUsd === null ? 'n/a (subscription)' : `$${result.costUsd.toFixed(2)}`
+  logger.log('Worker', `Call completed (cost: ${costLabel}, turns: ${result.numTurns}, duration: ${formatDuration(result.durationMs)})`)
   logger.log('Worker', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
   const toolSummary = Object.entries(result.toolCalls ?? {}).map(([name, count]) => `${name}:${count}`).join(' ')
   if (toolSummary) logger.log('Worker', `Tools: ${toolSummary}`)
 
   const workerResult = parseWorkerResult(result)
 
-  logger.log('Worker', `Result: ${workerResult.status} (cost: $${workerResult.cost.toFixed(2)}, turns: ${workerResult.numTurns})`)
+  const resultCostLabel = workerResult.actualCostUsd === null
+    ? 'n/a (subscription)'
+    : `$${workerResult.actualCostUsd.toFixed(2)}`
+  logger.log('Worker', `Result: ${workerResult.status} (cost: ${resultCostLabel}, turns: ${workerResult.numTurns})`)
   logger.logVerbose('Worker', `Parsed report: ${JSON.stringify(workerResult.report, null, 2)}`)
 
   return workerResult

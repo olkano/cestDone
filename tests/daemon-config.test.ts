@@ -267,4 +267,19 @@ describe('validateDaemonConfig', () => {
     const result = validateDaemonConfig({ schedules: [schedule()] })
     expect(result.valid).toBe(true)
   })
+
+  it('accepts lowercase kebab-case application labels', () => {
+    const result = validateDaemonConfig({
+      schedules: [schedule({ application: 'server-operations' })],
+      webhooks: [webhook({ application: 'sales' })],
+      pollers: [poller({ application: 'customer-support' })],
+    })
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects application labels that are not lowercase kebab-case', () => {
+    const result = validateDaemonConfig({ schedules: [schedule({ application: 'Sales Reports' })] })
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('schedule "test-schedule": application must be a lowercase kebab-case identifier')
+  })
 })

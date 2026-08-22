@@ -1,9 +1,12 @@
 // src/daemon/job-queue.ts
 import crypto from 'node:crypto'
+import type { InvocationType } from '../shared/types.js'
 
 export interface Job {
   id: string
   trigger: string // name of the trigger/schedule that created this
+  sourceType: Exclude<InvocationType, 'direct'>
+  application?: string
   specPath: string
   options: Record<string, unknown>
   templateContext?: unknown
