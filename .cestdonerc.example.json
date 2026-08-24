@@ -1,65 +1,198 @@
 {
   "targetRepoPath": ".",
-  "directorModel": "opus",
-  "workerModel": "opus",
-  "directorBackend": "claude-cli",
-  "workerBackend": "claude-cli",
-  "claudeCliPath": "claude",
-  "maxTurns": 100,
-  "directorMaxTurns": 50,
-  "withWorker": true,
-  "withReviews": true,
-  "withBashReviews": true,
-  "withHumanValidation": false,
-  "skipPlanning": false,
-  "nonInteractive": false,
-  "autoCommit": true,
-  "houseRules": "house-rules.md",
-  "centralLogDir": "~/.cestdone/logs",
+  "claudeCliPath": "C:/Users/dpire/AppData/Roaming/npm/claude.cmd",
+  "usageDir": "C:/Users/dpire/.cestdone/usage",
   "daemon": {
-    "logDir": "logs/daemon",
-    "pidFile": "logs/daemon/daemon.pid",
-    "cleanup": {
-      "maxRuns": 7,
-      "maxCentralLogs": 30
-    },
     "notifications": {
       "email": {
-        "recipients": "you@example.com"
+        "recipients": "daniel.piret@itmplatform.com"
       }
     },
     "schedules": [
       {
-        "name": "nightly-health-check",
+        "name": "weekly-accounting-update",
+        "application": "accounting",
+        "cron": "0 8 * * 1",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant/zz_Specifications/recurring-tasks/weekly-accounting-update.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "weekly-blog-update",
+        "application": "website",
+        "cron": "0 10 * * 4",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/itmplatform.com/zz_Specifications/recurring-cron-tasks/update-a-blog-post.md",
+        "target": "C:/Users/dpire/Code/itmplatform.com",
+        "options": {
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "daily-server-health",
+        "application": "server-operations",
         "cron": "0 23 * * *",
-        "spec": "/path/to/specs/health-check.md",
-        "target": "/path/to/target-repo",
-        "retries": 2,
-        "retryDelayMs": 120000,
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/ubuntu-linux-server/zz_Specifications/recurring_cron_tasks/server-and-application-health.md",
+        "target": "C:/Users/dpire/Code/ubuntu-linux-server",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "sonnet",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "monthly-invoices",
+        "application": "invoicing",
+        "cron": "0 13 20 * *",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/scripts/invoicing/generate-monthly-invoices.md",
+        "target": "C:/Users/dpire/Code/scripts",
         "options": {
           "skipPlanning": true,
           "directorModel": "sonnet",
           "workerModel": "sonnet"
         }
+      },
+      {
+        "name": "daily-sales-report",
+        "application": "sales",
+        "cron": "0 1 * * 2-6",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/hubspot-report/daily-sales-report.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/hubspot-report",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "weekly-sales-review",
+        "application": "sales",
+        "cron": "0 12 * * 1",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/hubspot-report/weekly-sales-review.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/hubspot-report",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "weekly-support-review",
+        "application": "support",
+        "cron": "0 8 * * 6",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/zz_Specifications/recurring-tasks/weekly-support-review.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "weekly-usage-report",
+        "application": "cestdone-observability",
+        "cron": "0 20 * * 5",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/cestdone/zz_Specifications/recurring-tasks/weekly-usage-report.md",
+        "target": "C:/Users/dpire/Code/cestdone",
+        "options": {
+          "skipPlanning": true,
+          "withReviews": false,
+          "withBashReviews": false,
+          "workerModel": "sonnet",
+          "autoCommit": false
+        }
+      }
+    ],
+    "_pausedSchedules_readme": "Entries below are NOT read by the daemon (only 'schedules' is). Kept here so the cron/config can be restored later by moving them back into 'schedules'.",
+    "pausedSchedules": [
+      {
+        "name": "internet-listening-scan",
+        "cron": "0 6 * * 1-5",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/olkano/Marketing/zz_Specifications/recurring_cron_tasks/internet-listening-scan.md",
+        "target": "C:/Users/dpire/Code/olkano",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "sonnet",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "internet-listening-refresh",
+        "cron": "0 7 * * 1",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/olkano/Marketing/zz_Specifications/recurring_cron_tasks/internet-listening-refresh.md",
+        "target": "C:/Users/dpire/Code/olkano",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "sonnet",
+          "autoCommit": false
+        }
       }
     ],
     "webhooks": [
       {
-        "name": "github-issue-triage",
-        "port": 3456,
-        "path": "/github",
-        "secret": "your-webhook-secret",
-        "spec": "/path/to/specs/triage.md",
-        "target": "/path/to/target-repo"
+        "name": "sales-feedback",
+        "application": "sales",
+        "port": 7799,
+        "path": "/sales-feedback",
+        "secret": "c63472feb88f816b19501a3afbcd610403d097cfa79c51ec",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/hubspot-report/process-feedback.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/hubspot-report",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "accounting-feedback",
+        "application": "accounting",
+        "port": 7799,
+        "path": "/accounting-feedback",
+        "secret": "c63472feb88f816b19501a3afbcd610403d097cfa79c51ec",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant/process-accounting-feedback.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
       }
     ],
     "pollers": [
       {
-        "name": "dependency-check",
-        "cron": "0 */6 * * *",
-        "command": "npm outdated --json",
-        "spec": "/path/to/specs/deps.md",
-        "target": "/path/to/target-repo"
+        "name": "helpscout-ticket-research",
+        "application": "support",
+        "cron": "*/10 * * * *",
+        "timezone": "Europe/Madrid",
+        "command": "powershell -NoProfile -File C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/tools/poll-helpscout.ps1",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/zz_Specifications/recurring-tasks/ticket-research.md",
+        "target": "C:/Users/dpire/Code/ITMPlatform",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "opus",
+          "workerModel": "opus",
+          "autoCommit": false
+        }
       }
     ]
   }
