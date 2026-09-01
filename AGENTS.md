@@ -13,7 +13,7 @@ the appropriate document:
 
 - Email sending (SendGrid, SMTP): see `Email` section below and `.env`
 - Daemon schedules, webhooks, pollers: `.cestdonerc.json`. GOTCHA (2026-08-19): the daemon's config watcher only reacts to fs.watch `change` events; an atomic write (temp file + rename, which Claude Code's Edit tool uses) makes it reload STALE content. After editing `.cestdonerc.json`, verify the reload in the daemon log (`C:\ProgramData\pm2\home\logs\cestdone-daemon-out.log`, look for the new trigger counts); if the change did not take, rewrite the file in place (`Set-Content` with the same content) to fire a clean `change` event.
-- Agent SDK internals: `agent-sdk-details.md`
+- Agent SDK internals: `src/backends/agent-sdk.ts`, its tests, and `docs/claude-agent-sdk-url.md`
 - SendGrid account, keys, domain auth: `C:\Users\dpire\Code\ITMPlatform\SENDGRID-ACCESS.md`
 - Azure Key Vault secrets: `C:\Users\dpire\Code\ITMPlatform\INFRASTRUCTURE.md`
 
@@ -22,10 +22,18 @@ the appropriate document:
 ```bash
 npm run build        # compile TypeScript
 npm test             # run all Vitest tests
-npm link             # install global `cestdone` command
+npm run lint         # TypeScript check without emitting
+npm link             # update the global command only when explicitly intended
 ```
 
-After code changes, run `npm run build` to update the global command.
+Follow existing TypeScript and pino logging patterns. Use TDD for meaningful core behavior, add edge cases afterward, and remove temporary diagnostics. After code changes, run `npm run build`; run `npm link` only when the task includes updating the global command.
+
+## Automation safety
+
+- A daemon config change can start, stop, or redirect autonomous schedules, webhooks, and pollers. Inspect the exact trigger count, specs, targets, options, application labels, and secrets before editing.
+- Specs and triggered agents can change other repositories, commit, push, send email, or call external systems. A request to change cestDone itself does not authorize running configured jobs.
+- Keep `.cestdonerc.json`, `.env`, webhook payloads, job logs, usage records, and generated reports free of credentials and unnecessary personal data.
+- Verify email notifications through provider and recipient evidence. A successful CLI exit alone does not prove delivery.
 
 ## PM2 daemon management
 
@@ -54,15 +62,10 @@ Logs: `C:\ProgramData\pm2\home\logs\cestdone-daemon-*.log`
 
 ## Azure Key Vault
 
-Secrets used by this project (SendGrid API key, etc.) are stored in Azure Key
-Vault `kv-itmplatform-prod`. Fetch them with:
-
-```powershell
-az keyvault secret show --vault-name kv-itmplatform-prod --name <secret-name> --query value --output tsv
-```
-
-Requires an active `az login` session. The developer identity has Key Vault
-Administrator role on all three vaults (prod, stage, demo).
+Secrets used by this project are stored in Azure Key Vault `kv-itmplatform-prod`.
+Access requires an active authorized Azure session. Retrieve a secret only when
+the task requires it, route it directly to the intended secure environment, and
+never print or paste its value into logs, chat, documentation, or commits.
 
 Key secrets relevant to cestdone:
 - `SendGridAPIKey` -- production SendGrid send key (used in `.env` as `SENDGRID_API_KEY`)
@@ -81,5 +84,4 @@ The send key comes from Azure Key Vault (`SendGridAPIKey` in
 `kv-itmplatform-prod`). SMTP/Zoho config is commented out in `.env` as a
 fallback.
 
-Domain `itmplatform.com` has full SendGrid domain authentication (SPF, DKIM,
-DMARC). Verified sender: `notifier@itmplatform.com`.
+Domain and sender configuration are external state. Recheck SendGrid before relying on them, and distinguish provider acceptance from recipient delivery.

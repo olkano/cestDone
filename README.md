@@ -189,8 +189,8 @@ cestdone run --spec recurring-job.md --target ./my-app --skip-planning
 cestdone run --spec spec.md --target ./my-app \
   --backend agent-sdk --director-model sonnet --worker-model haiku
 
-# House rules for coding standards
-cestdone run --spec spec.md --target ./my-app --house-rules house-rules.md
+# Repository agent rules as the worker instruction file
+cestdone run --spec spec.md --target ./my-app --house-rules AGENTS.md
 ```
 
 ## Configuration
@@ -211,7 +211,7 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
   "nonInteractive": false,
   "autoCommit": true,
   "application": "my-app",
-  "houseRules": "house-rules.md",
+  "houseRules": "AGENTS.md",
   "directorBackend": "claude-cli",
   "workerBackend": "claude-cli",
   "claudeCliPath": "claude"
@@ -373,6 +373,8 @@ The daemon watches `.cestdonerc.json` for changes. When you save the file, it au
 - **What persists**: the job queue and any currently running job continue uninterrupted
 - **Invalid config**: if the new config has errors (bad JSON, invalid cron, missing fields), the reload is skipped and a warning is logged. The daemon continues with the previous config
 - **Debounce**: changes are debounced (500ms) to handle editors that write to temp files then rename
+
+On Windows, an atomic temp-file rename can still emit only an `fs.watch` `rename` event, which the current watcher ignores. After editing `.cestdonerc.json`, verify the daemon log shows the new trigger counts. If it retained stale configuration, rewrite the same validated JSON in place to produce a `change` event and verify again.
 
 ### Daemon Configuration
 
