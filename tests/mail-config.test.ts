@@ -54,6 +54,53 @@ describe('loadMailConfig', () => {
     const config = loadMailConfig({})
     expect(config.from).toBe('')
   })
+
+  it('defaults SendGrid to sandbox mode outside Production', () => {
+    const config = loadMailConfig({
+      MAIL_PROVIDER: 'sendgrid',
+      MAIL_FROM: 'notifier@itmplatform.com',
+      SENDGRID_API_KEY: 'mail-key',
+      NODE_ENV: 'development',
+    })
+
+    expect(config.sendgrid).toEqual({
+      apiKey: 'mail-key',
+      sandboxMode: true,
+      liveSendApproved: false,
+    })
+  })
+
+  it('requires an explicit approval flag for live SendGrid automation outside Production', () => {
+    const config = loadMailConfig({
+      MAIL_PROVIDER: 'sendgrid',
+      MAIL_FROM: 'notifier@itmplatform.com',
+      SENDGRID_API_KEY: 'mail-key',
+      SENDGRID_SANDBOX_MODE: 'false',
+    })
+
+    expect(validateMailConfig(config).errors)
+      .toContain('SENDGRID_ALLOW_LIVE_SEND=true is required when sandbox mode is disabled outside Production')
+  })
+
+  it('accepts explicitly approved live SendGrid automation', () => {
+    const config = loadMailConfig({
+      MAIL_PROVIDER: 'sendgrid',
+      MAIL_FROM: 'notifier@itmplatform.com',
+      SENDGRID_API_KEY: 'mail-key',
+      SENDGRID_SANDBOX_MODE: 'false',
+      SENDGRID_ALLOW_LIVE_SEND: 'true',
+    })
+
+    expect(validateMailConfig(config)).toEqual({ valid: true, errors: [] })
+  })
+
+  it('rejects an invalid SendGrid sandbox value', () => {
+    expect(() => loadMailConfig({
+      MAIL_PROVIDER: 'sendgrid',
+      SENDGRID_API_KEY: 'mail-key',
+      SENDGRID_SANDBOX_MODE: 'sometimes',
+    })).toThrow('SENDGRID_SANDBOX_MODE must be true or false')
+  })
 })
 
 describe('validateMailConfig', () => {

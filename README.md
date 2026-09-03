@@ -541,13 +541,21 @@ Set these environment variables (or add to `.env`):
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `MAIL_PROVIDER` | No | `smtp` | Mail provider (`smtp`) |
+| `MAIL_PROVIDER` | No | `smtp` | Mail provider (`smtp` or `sendgrid`) |
 | `MAIL_FROM` | Yes | — | Sender email address |
+| `SENDGRID_API_KEY` | For SendGrid | n/a | Dedicated Mail Send-only credential |
+| `SENDGRID_SANDBOX_MODE` | No | `true` outside Production | Adds SendGrid sandbox mode so the provider validates without delivery |
+| `SENDGRID_ALLOW_LIVE_SEND` | For non-Production live SendGrid | `false` | Explicit approval guard for unattended or controlled real delivery |
 | `SMTP_HOST` | Yes | — | SMTP server hostname |
 | `SMTP_PORT` | No | `587` | SMTP port (587 for STARTTLS, 465 for SSL) |
 | `SMTP_USER` | Yes | — | SMTP username |
 | `SMTP_PASS` | Yes | — | SMTP password or app password |
 | `SMTP_SECURE` | No | auto | `true` for SSL (port 465), `false` for STARTTLS |
+
+The Windows daemon uses a dedicated automation key stored in the
+`ITM-SendGrid-cestdone-send` item in the operational 1Password vault. Its
+ignored `.env` sets sandbox mode to false and the live-send approval flag to
+true. Ordinary interactive testing keeps sandbox mode enabled.
 
 ### Example: Zoho Mail
 

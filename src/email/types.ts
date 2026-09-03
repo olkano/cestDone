@@ -35,5 +35,7 @@ export interface MailConfig {
   }
   sendgrid?: {
     apiKey: string
+    sandboxMode?: boolean
+    liveSendApproved?: boolean
   }
 }

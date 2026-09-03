@@ -11,7 +11,7 @@ import { SendGridMailProvider } from '../src/email/sendgrid-provider.js'
 const BASE_CONFIG: MailConfig = {
   provider: 'sendgrid',
   from: 'notifier@itmplatform.com',
-  sendgrid: { apiKey: 'SG.test-key' },
+  sendgrid: { apiKey: 'SG.test-key', sandboxMode: true, liveSendApproved: false },
 }
 
 let fetchSpy: ReturnType<typeof vi.spyOn>
@@ -61,6 +61,20 @@ describe('SendGridMailProvider', () => {
     expect(body.from).toEqual({ email: 'notifier@itmplatform.com' })
     expect(body.subject).toBe('Hi')
     expect(body.content).toEqual([{ type: 'text/plain', value: 'Hello' }])
+    expect(body.mail_settings).toEqual({ sandbox_mode: { enable: true } })
+  })
+
+  it('omits sandbox settings for an approved live-send configuration', async () => {
+    fetchSpy.mockResolvedValue(new Response(null, { status: 202 }))
+    const provider = new SendGridMailProvider({
+      ...BASE_CONFIG,
+      sendgrid: { apiKey: 'SG.test-key', sandboxMode: false, liveSendApproved: true },
+    })
+
+    await provider.send({ to: 'recipient@example.com', subject: 'Hi', body: 'Hello' })
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as any).body)
+    expect(body).not.toHaveProperty('mail_settings')
   })
 
   it('send() returns success with messageId on 202', async () => {

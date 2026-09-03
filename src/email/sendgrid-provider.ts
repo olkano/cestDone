@@ -18,17 +18,20 @@ interface SendGridPayload {
   subject: string
   content: Array<{ type: string; value: string }>
   attachments?: SendGridAttachment[]
+  mail_settings?: { sandbox_mode: { enable: boolean } }
 }
 
 export class SendGridMailProvider implements MailProvider {
   readonly name = 'sendgrid' as const
   private apiKey: string
   private from: string
+  private sandboxMode: boolean
 
   constructor(config: MailConfig) {
     if (!config.sendgrid?.apiKey) throw new Error('SendGrid API key required for SendGridMailProvider')
     this.apiKey = config.sendgrid.apiKey
     this.from = config.from
+    this.sandboxMode = config.sendgrid.sandboxMode ?? true
   }
 
   async send(message: MailMessage): Promise<MailResult> {
@@ -46,6 +49,10 @@ export class SendGridMailProvider implements MailProvider {
       from: { email: this.from },
       subject: message.subject,
       content,
+    }
+
+    if (this.sandboxMode) {
+      payload.mail_settings = { sandbox_mode: { enable: true } }
     }
 
     if (message.attachments && message.attachments.length > 0) {

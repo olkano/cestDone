@@ -60,15 +60,17 @@ Ecosystem config: `ecosystem.config.cjs` (restart policy, backoff delay).
 Entry point: `cestdone-pm2.cjs` (CJS wrapper that bypasses Commander).
 Logs: `C:\ProgramData\pm2\home\logs\cestdone-daemon-*.log`
 
-## Azure Key Vault
+## Deployed secret stores
 
 Secrets used by this project are stored in Azure Key Vault `kv-itmplatform-prod`.
 Access requires an active authorized Azure session. Retrieve a secret only when
 the task requires it, route it directly to the intended secure environment, and
 never print or paste its value into logs, chat, documentation, or commits.
 
-Key secrets relevant to cestdone:
-- `SendGridAPIKey` -- production SendGrid send key (used in `.env` as `SENDGRID_API_KEY`)
+The unattended SendGrid key is the dedicated `ITM-SendGrid-cestdone-send`
+item in the `ITM application servers` 1Password vault. It is provisioned into
+the ignored `.env` as `SENDGRID_API_KEY`; it must not reuse an Azure-deployed
+application key or a developer's local key.
 
 ## Email
 
@@ -78,10 +80,13 @@ Provider: SendGrid (via `src/email/sendgrid-provider.ts`). Configured in `.env`:
 MAIL_PROVIDER=sendgrid
 MAIL_FROM=notifier@itmplatform.com
 SENDGRID_API_KEY=SG.xxxxx
+SENDGRID_SANDBOX_MODE=false
+SENDGRID_ALLOW_LIVE_SEND=true
 ```
 
-The send key comes from Azure Key Vault (`SendGridAPIKey` in
-`kv-itmplatform-prod`). SMTP/Zoho config is commented out in `.env` as a
-fallback.
+The daemon is an approved live-delivery automation, so both flags are required.
+Interactive and test runs default to sandbox mode. Do not disable sandbox for
+an interactive run without an approved recipient and delivery read-back.
+SMTP/Zoho config is commented out in `.env` as a fallback.
 
 Domain and sender configuration are external state. Recheck SendGrid before relying on them, and distinguish provider acceptance from recipient delivery.
