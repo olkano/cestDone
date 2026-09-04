@@ -184,7 +184,7 @@
         "application": "support",
         "cron": "*/10 * * * *",
         "timezone": "Europe/Madrid",
-        "command": "powershell -NoProfile -File C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/tools/poll-helpscout.ps1",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/tools/poll-helpscout.ps1",
         "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/zz_Specifications/recurring-tasks/ticket-research.md",
         "target": "C:/Users/dpire/Code/ITMPlatform",
         "options": {
