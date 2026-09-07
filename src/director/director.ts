@@ -39,6 +39,9 @@ export interface DirectorDeps {
 
 const MAX_REJECTIONS = DEFAULTS.maxRejections
 const MAX_WORKER_RETRIES = DEFAULTS.maxWorkerRetries
+// Reviewer-gated direct runs need two Worker calls (work, then publish); the cap stops a reviewer
+// that keeps returning continue from running an unattended job indefinitely.
+const MAX_DIRECT_SUB_PHASES = 3
 
 export interface DirectorCallResult {
   response: DirectorResponse
@@ -275,12 +278,14 @@ export async function runDirectExecution(
     'Do not recalculate or override this date or weekday; use it for all date-dependent requirements.',
     'Execute the complete specification as one job. Do not create a plan or split the work into phases.',
     'Complete every required step before reporting success.',
+    'If the specification defines a reviewer gate, complete every step up to that gate, report success, and wait for the reviewer\'s instructions for the remaining steps.',
     'If any requirement remains incomplete, return status "partial" or "failed" and explain why.',
   ].join('\n')
 
   logger.log('Director', 'Skip planning: executing complete specification via one Worker call')
   let workerInstructions = instructions
   let fixRetries = 0
+  const completedSubPhases: string[] = []
 
   while (true) {
     const workerResult = await deps.workerExecute(buildWorkerOptions({
@@ -289,6 +294,7 @@ export async function runDirectExecution(
       config,
       houseRulesContent: spec.houseRulesContent,
       instructions: workerInstructions,
+      completedSubPhases: [...completedSubPhases],
       writeArtifacts: false,
       logger,
       backend: deps.workerBackend,
@@ -332,7 +338,7 @@ export async function runDirectExecution(
         phase.spec,
         reportContent,
         config.runDir,
-        [],
+        completedSubPhases,
         config.autoCommit !== false,
         false,
       ),
@@ -345,6 +351,26 @@ export async function runDirectExecution(
     })
     const reviewResult = recordDirectorCall(deps, reviewCallResult)
 
+    // A reviewer gate: the spec stops the Worker before an external write, the review decides,
+    // and the Worker resumes with the reviewer's instructions as the next sub-phase.
+    if (reviewResult.action === 'continue') {
+      if (completedSubPhases.length >= MAX_DIRECT_SUB_PHASES) {
+        throw new Error(`Direct review returned continue after ${MAX_DIRECT_SUB_PHASES} sub-phases: ${reviewResult.message}`)
+      }
+      completedSubPhases.push(summary)
+      fixRetries = 0
+      logger.log('Director', `Sub-phase ${completedSubPhases.length} accepted, continuing with reviewer instructions`)
+      deps.display(`\nSub-phase ${completedSubPhases.length} accepted. Continuing...`)
+      workerInstructions = [
+        instructions,
+        '',
+        'The reviewer accepted the previous sub-phase and issued the instructions below for the remaining steps.',
+        'Do not redo accepted work and do not repeat side effects that already happened.',
+        '',
+        `Reviewer instructions:\n${reviewResult.message}`,
+      ].join('\n')
+      continue
+    }
     if (reviewResult.action === 'fix' && fixRetries < MAX_WORKER_RETRIES) {
       fixRetries++
       logger.log('Director', `Review returned 'fix' (fix pass ${fixRetries}/${MAX_WORKER_RETRIES})`)

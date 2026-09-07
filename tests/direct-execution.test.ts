@@ -174,3 +174,56 @@ describe('runDirectExecution', () => {
     expect(deps.workerExecute).not.toHaveBeenCalled()
   })
 })
+
+describe('runDirectExecution reviewer gate', () => {
+  it('tells the Worker to stop at a reviewer gate defined by the specification', async () => {
+    const deps = makeDeps(workerResult('success'))
+
+    await runDirectExecution(SPEC, CONFIG, deps)
+
+    const options = vi.mocked(deps.workerExecute).mock.calls[0][0] as WorkerOptions
+    expect(options.instructions).toContain('If the specification defines a reviewer gate')
+    expect(options.completedSubPhases).toEqual([])
+  })
+
+  it('runs a second sub-phase with the reviewer instructions when the review returns continue', async () => {
+    const deps = makeDeps(workerResult('success'), backendResult('done'))
+    vi.mocked(deps.backend.invoke).mockResolvedValueOnce(backendResult('continue'))
+
+    await runDirectExecution(SPEC, CONFIG, deps)
+
+    expect(deps.workerExecute).toHaveBeenCalledTimes(2)
+    expect(deps.backend.invoke).toHaveBeenCalledTimes(2)
+    const second = vi.mocked(deps.workerExecute).mock.calls[1][0] as WorkerOptions
+    expect(second.instructions).toContain('Authoritative UTC run context')
+    expect(second.instructions).toContain('Reviewer instructions:\ncontinue message')
+    expect(second.instructions).toContain('do not repeat side effects that already happened')
+    expect(second.completedSubPhases).toEqual(['success summary'])
+    const secondReview = vi.mocked(deps.backend.invoke).mock.calls[1][0]
+    expect(secondReview.prompt).toContain('Previously Completed Sub-phases')
+    expect(secondReview.prompt).toContain('success summary')
+  })
+
+  it('resets the fix budget after an accepted sub-phase', async () => {
+    const deps = makeDeps(workerResult('success'), backendResult('done'))
+    const invoke = vi.mocked(deps.backend.invoke)
+    for (let i = 0; i < DEFAULTS.maxWorkerRetries; i++) invoke.mockResolvedValueOnce(backendResult('fix'))
+    invoke.mockResolvedValueOnce(backendResult('continue'))
+    invoke.mockResolvedValueOnce(backendResult('fix'))
+
+    await runDirectExecution(SPEC, CONFIG, deps)
+
+    // maxWorkerRetries fixes, one continue, one fix after the gate, then done.
+    expect(deps.workerExecute).toHaveBeenCalledTimes(DEFAULTS.maxWorkerRetries + 3)
+  })
+
+  it('fails when the review keeps returning continue beyond the sub-phase cap', async () => {
+    const deps = makeDeps(workerResult('success'), backendResult('continue'))
+
+    await expect(runDirectExecution(SPEC, CONFIG, deps))
+      .rejects.toThrow('Direct review returned continue after 3 sub-phases')
+
+    expect(deps.workerExecute).toHaveBeenCalledTimes(4)
+    expect(deps.backend.invoke).toHaveBeenCalledTimes(4)
+  })
+})

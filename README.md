@@ -256,6 +256,8 @@ Use `--skip-planning`, or set `"skipPlanning": true`, when the specification alr
 
 Direct execution is strict: a `partial` or `failed` Worker result fails the complete run, and a final review must return `done`. It requires Worker mode and cannot be combined with `--no-with-worker`. Planning remains the default for open-ended implementation specifications.
 
+A specification can define a **reviewer gate**: the Worker completes every step up to the gate (for example, drafting an external note without posting it), reports success, and the review returns `continue` with instructions for the remaining steps. The Worker then runs again with those instructions and the accepted sub-phase summary, and a further review must return `done`. `fix` still re-runs the Worker with corrections, and its retry budget resets after each accepted sub-phase. At most three sub-phases are accepted per direct run; a fourth `continue` fails the run so an unattended job cannot loop. The Help Scout ticket-research specification uses this gate to review a drafted note before it is posted.
+
 For date-dependent jobs, direct mode prepends an authoritative UTC date and weekday to the Worker instructions. Each run also holds an atomic per-target, per-spec lock in `.cestdone/locks/`; a second invocation fails instead of overlapping. Locks are released after normal completion and expire after six hours to recover from abandoned wrapper processes.
 
 Worker logs include authoritative counts of streamed tool calls, grouped by tool name (for example, `WebSearch:12`). These counts come from backend events rather than the model's self-report.

@@ -28,6 +28,8 @@ npm link             # update the global command only when explicitly intended
 
 Follow existing TypeScript and pino logging patterns. Use TDD for meaningful core behavior, add edge cases afterward, and remove temporary diagnostics. After code changes, run `npm run build`; run `npm link` only when the task includes updating the global command.
 
+The PM2 daemon imports `dist/` once at startup (`cestdone-pm2.cjs`) and runs jobs in-process, so a rebuild reaches scheduled and polled jobs only after `pm2 restart cestdone-daemon` from the elevated recipe below. Restart between jobs: a restart kills the running job.
+
 ## Automation safety
 
 - A daemon config change can start, stop, or redirect autonomous schedules, webhooks, and pollers. Inspect the exact trigger count, specs, targets, options, application labels, and secrets before editing.
