@@ -191,7 +191,8 @@
           "skipPlanning": true,
           "directorModel": "opus",
           "workerModel": "opus",
-          "autoCommit": false
+          "autoCommit": false,
+          "maxTurns": "200"
         }
       }
     ]
