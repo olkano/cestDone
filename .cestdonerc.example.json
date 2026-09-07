@@ -192,7 +192,8 @@
           "directorModel": "opus",
           "workerModel": "opus",
           "autoCommit": false,
-          "maxTurns": "200"
+          "maxTurns": "200",
+          "mcpConfig": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/tools/browser/mcp-playwright-headless.json"
         }
       }
     ]
