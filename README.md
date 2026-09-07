@@ -435,6 +435,8 @@ Run a spec on a cron schedule. **Always triggers** — every time the cron fires
 
 Listen for HTTP POST requests and trigger a spec run with the payload injected via templates.
 
+The installed server-health integration uses the existing report-hub relay and a sibling-owned processor; see [its configuration contract](docs/server-health-channel.md). Runtime `.cestdonerc.json` is ignored because it contains secrets; tracked integration documentation keeps values out of Git.
+
 | Field | Required | Description |
 |---|---|---|
 | `name` | yes | Unique name for this webhook |
