@@ -448,6 +448,11 @@ export class ClaudeCliBackend implements Backend {
       args.push('--max-turns', String(params.maxTurns))
     }
 
+    if (params.mcpConfig) {
+      // Strict: the Worker sees only the servers in this file, not the user's interactive MCP set.
+      args.push('--mcp-config', params.mcpConfig, '--strict-mcp-config')
+    }
+
     if (params.outputSchema) {
       args.push('--json-schema', JSON.stringify(params.outputSchema))
     }

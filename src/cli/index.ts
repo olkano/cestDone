@@ -45,6 +45,7 @@ export interface RunOptions {
   claudeCliPath?: string
   skipPlanning?: boolean
   nonInteractive?: boolean
+  mcpConfig?: string
 }
 
 export interface ResumeOptions {
@@ -65,6 +66,7 @@ export interface ResumeOptions {
   workerBackend?: string
   claudeCliPath?: string
   nonInteractive?: boolean
+  mcpConfig?: string
 }
 
 function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void {
@@ -73,6 +75,7 @@ function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void 
   if (options?.workerModel) config.workerModel = options.workerModel
   if (options?.directorMaxTurns) config.directorMaxTurns = parseInt(options.directorMaxTurns, 10)
   if (options?.maxTurns) config.maxTurns = parseInt(options.maxTurns, 10)
+  if (options?.mcpConfig) config.mcpConfig = options.mcpConfig
 
   // Only override booleans when CLI flag was explicitly passed
   if (options?.withWorker !== undefined) config.withWorker = options.withWorker
@@ -468,6 +471,7 @@ function addCommonOptions(cmd: Command): Command {
     .option('--worker-backend <type>', 'Override Worker backend: agent-sdk | claude-cli')
     .option('--claude-cli-path <path>', `Path to claude binary (default: "${DEFAULTS.claudeCliPath}")`)
     .option('--non-interactive', `Run without TTY, auto-approve plans (default: ${DEFAULTS.nonInteractive})`)
+    .option('--mcp-config <path>', 'MCP servers JSON for Workers, applied with --strict-mcp-config (Claude CLI backend)')
     .option('--auto-commit', `Auto-commit after each phase review (default: ${DEFAULTS.autoCommit})`)
     .option('--no-auto-commit', 'Disable auto-commit — user commits manually')
 }
@@ -498,7 +502,7 @@ if (isCliEntryPoint()) {
     .option('--house-rules <path>', 'Path to house rules file')
     .option('--skip-planning', 'Execute the complete specification as one Worker task without creating a plan')
   addCommonOptions(runCmd)
-    .action(async (opts: { spec: string; target?: string; application?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; skipPlanning?: boolean; nonInteractive?: boolean }) => {
+    .action(async (opts: { spec: string; target?: string; application?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; skipPlanning?: boolean; nonInteractive?: boolean; mcpConfig?: string }) => {
       await handleRun(opts.spec, {
         target: opts.target,
         application: opts.application,
@@ -518,6 +522,7 @@ if (isCliEntryPoint()) {
         claudeCliPath: opts.claudeCliPath,
         skipPlanning: opts.skipPlanning,
         nonInteractive: opts.nonInteractive,
+        mcpConfig: opts.mcpConfig,
       })
     })
 

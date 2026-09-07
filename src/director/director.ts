@@ -619,6 +619,7 @@ function buildWorkerOptions(params: {
     logger: params.logger,
     completedSubPhases: params.completedSubPhases,
     writeArtifacts: params.writeArtifacts,
+    mcpConfig: params.config.mcpConfig,
     backend: params.backend,
   }
 }

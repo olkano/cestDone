@@ -53,6 +53,7 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
       cwd: path.resolve(options.targetRepoPath),
       maxTurns: options.maxTurns,
       maxBudgetUsd: options.maxBudgetUsd,
+      mcpConfig: options.mcpConfig,
       env: { ...process.env },
       usageContext: {
         role: 'worker',

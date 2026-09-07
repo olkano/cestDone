@@ -554,6 +554,29 @@ describe('ClaudeCliBackend', () => {
       expect(args).toContain('20')
     })
 
+    it('passes --mcp-config with --strict-mcp-config when mcpConfig is provided', async () => {
+      mockSpawnSuccess(makeStreamOutput())
+      const backend = new ClaudeCliBackend()
+
+      await backend.invoke(makeInvocation({ mcpConfig: 'C:/mcp/support.json' }))
+
+      const { args } = getSpawnArgs()
+      expect(args).toContain('--mcp-config')
+      expect(args[args.indexOf('--mcp-config') + 1]).toBe('C:/mcp/support.json')
+      expect(args).toContain('--strict-mcp-config')
+    })
+
+    it('omits MCP flags when mcpConfig is absent', async () => {
+      mockSpawnSuccess(makeStreamOutput())
+      const backend = new ClaudeCliBackend()
+
+      await backend.invoke(makeInvocation({}))
+
+      const { args } = getSpawnArgs()
+      expect(args).not.toContain('--mcp-config')
+      expect(args).not.toContain('--strict-mcp-config')
+    })
+
     it('ignores maxBudgetUsd (no CLI equivalent)', async () => {
       mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()

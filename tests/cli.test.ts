@@ -413,6 +413,24 @@ describe('CLI flag wiring', () => {
   })
 
   // KF4: --with-bash-reviews implies --with-reviews
+  it('passes --mcp-config to config', async () => {
+    const plan = makeMockPlan([PENDING_PHASE])
+    const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(runPlanningFlow).mockResolvedValue({
+      planPath: '/tmp/spec.plan.md',
+      plan,
+    })
+    vi.mocked(parsePlan)
+      .mockReturnValueOnce(plan)
+      .mockReturnValueOnce(donePlan)
+
+    await handleRun('spec.md', { mcpConfig: '/mcp/support.json' })
+
+    const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
+    expect(configPassed.mcpConfig).toBe('/mcp/support.json')
+  })
+
   it('withBashReviews implies withReviews', async () => {
     const plan = makeMockPlan([PENDING_PHASE])
     const donePlan = makeMockPlan([{ ...PENDING_PHASE, status: 'done' as const, done: 'Done.' }])

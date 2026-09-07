@@ -163,6 +163,8 @@ Commands:
   --director-backend <type>  Override Director backend: agent-sdk | claude-cli
   --worker-backend <type>     Override Worker backend: agent-sdk | claude-cli
   --claude-cli-path <path>   Path to claude binary (default: "claude")
+  --mcp-config <path>        MCP servers JSON for Workers, applied with --strict-mcp-config
+                             (Claude CLI backend); Workers see only these servers
 ```
 
 `resume` accepts all the same options except `--house-rules`.
@@ -255,6 +257,8 @@ public usage-reporting CLI or dashboard.
 Use `--skip-planning`, or set `"skipPlanning": true`, when the specification already defines the complete ordered workflow. cestDone sends the full specification to one Worker and does not create or read a `.plan.md` file. If reviews are enabled, one final Director review runs after the Worker succeeds.
 
 Direct execution is strict: a `partial` or `failed` Worker result fails the complete run, and a final review must return `done`. It requires Worker mode and cannot be combined with `--no-with-worker`. Planning remains the default for open-ended implementation specifications.
+
+Workers can be given their own MCP servers with `--mcp-config <file>` or the `mcpConfig` option on a daemon trigger. The file is passed to the Claude CLI together with `--strict-mcp-config`, so the Worker sees exactly those servers and none of the interactive user's MCP set. The Director is not affected. The Help Scout ticket-research poller uses this for a pinned headless Playwright server.
 
 A specification can define a **reviewer gate**: the Worker completes every step up to the gate (for example, drafting an external note without posting it), reports success, and the review returns `continue` with instructions for the remaining steps. The Worker then runs again with those instructions and the accepted sub-phase summary, and a further review must return `done`. `fix` still re-runs the Worker with corrections, and its retry budget resets after each accepted sub-phase. At most three sub-phases are accepted per direct run; a fourth `continue` fails the run so an unattended job cannot loop. The Help Scout ticket-research specification uses this gate to review a drafted note before it is posted.
 

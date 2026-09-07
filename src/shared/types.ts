@@ -51,6 +51,7 @@ export interface Config {
   autoCommit?: boolean
   application?: string
   houseRules?: string       // Default path to house rules file (CLI --house-rules overrides)
+  mcpConfig?: string        // MCP servers JSON for Workers, applied with --strict-mcp-config (Claude CLI backend)
   centralLogDir?: string // e.g. ~/.cestdone/logs — dual-write all session logs here
   usageDir?: string // e.g. ~/.cestdone/usage — structured usage records and reports
   daemon?: import('../daemon/types.js').DaemonConfig
@@ -119,6 +120,7 @@ export interface WorkerOptions {
   logger: SessionLogger
   completedSubPhases?: string[]
   writeArtifacts?: boolean
+  mcpConfig?: string
   backend: Backend
 }
 
@@ -172,6 +174,7 @@ export interface BackendInvocation {
   maxTurns?: number
   maxBudgetUsd?: number
   resumeSessionId?: string
+  mcpConfig?: string
   env?: Record<string, string | undefined>
   usageContext?: UsageCallContext
   logger: SessionLogger

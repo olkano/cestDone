@@ -227,3 +227,17 @@ describe('runDirectExecution reviewer gate', () => {
     expect(deps.backend.invoke).toHaveBeenCalledTimes(4)
   })
 })
+
+describe('runDirectExecution Worker MCP configuration', () => {
+  it('passes the configured MCP file to the Worker and leaves it unset otherwise', async () => {
+    const withMcp = makeDeps(workerResult('success'))
+    await runDirectExecution(SPEC, { ...CONFIG, mcpConfig: '/mcp/support.json' }, withMcp)
+    const options = vi.mocked(withMcp.workerExecute).mock.calls[0][0] as WorkerOptions
+    expect(options.mcpConfig).toBe('/mcp/support.json')
+
+    const without = makeDeps(workerResult('success'))
+    await runDirectExecution(SPEC, CONFIG, without)
+    const plain = vi.mocked(without.workerExecute).mock.calls[0][0] as WorkerOptions
+    expect(plain.mcpConfig).toBeUndefined()
+  })
+})
