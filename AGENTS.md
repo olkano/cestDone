@@ -1,3 +1,5 @@
+> Read and follow [../AGENTS.md](../AGENTS.md) before using this repository.
+
 # cestDone agent instructions
 
 ## Required startup
