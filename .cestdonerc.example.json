@@ -180,6 +180,22 @@
     ],
     "pollers": [
       {
+        "name": "olkano-inbox-replies",
+        "application": "olkano-marketing",
+        "cron": "5 */2 * * *",
+        "timezone": "Europe/Madrid",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing/tools/poll-olkano-inbox.ps1",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing/respond.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false,
+          "maxTurns": "100"
+        }
+      },
+      {
         "name": "helpscout-ticket-research",
         "application": "support",
         "cron": "*/10 * * * *",
