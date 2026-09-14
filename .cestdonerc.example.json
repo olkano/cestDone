@@ -176,6 +176,20 @@
           "workerModel": "opus",
           "autoCommit": false
         }
+      },
+      {
+        "name": "natasha-jobs-feedback",
+        "application": "natasha-jobs",
+        "port": 7799,
+        "path": "/natasha-jobs-feedback",
+        "secret": "<the shared webhook secret, same value as the other hooks in the live file>",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/Natasha/zz_Specifications/recurring-tasks/process-feedback.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/Natasha",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
       }
     ],
     "pollers": [
