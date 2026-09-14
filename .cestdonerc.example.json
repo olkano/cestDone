@@ -117,6 +117,35 @@
           "workerModel": "sonnet",
           "autoCommit": false
         }
+      },
+      {
+        "name": "natasha-daily",
+        "application": "natasha-jobs",
+        "cron": "0 4 * * 1-6",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/Natasha/zz_Specifications/recurring-tasks/daily-digest.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/Natasha",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
+      },
+      {
+        "name": "natasha-weekly",
+        "application": "natasha-jobs",
+        "cron": "0 4 * * 0",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/Natasha/zz_Specifications/recurring-tasks/weekly-review.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/Natasha",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false
+        }
       }
     ],
     "_pausedSchedules_readme": "Entries below are NOT read by the daemon (only 'schedules' is). Kept here so the cron/config can be restored later by moving them back into 'schedules'.",
