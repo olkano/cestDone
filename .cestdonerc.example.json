@@ -219,6 +219,20 @@
           "workerModel": "opus",
           "autoCommit": false
         }
+      },
+      {
+        "name": "ppm-lead-scout-feedback",
+        "application": "ppm-lead-scout",
+        "port": 7799,
+        "path": "/ppm-lead-scout-feedback",
+        "secret": "<the shared webhook secret, same value as the other hooks in the live file>",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/ppm-lead-scout/zz_Specifications/recurring-tasks/process-feedback.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/ppm-lead-scout",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
       }
     ],
     "pollers": [
