@@ -146,6 +146,36 @@
           "workerModel": "claude-fable-5-1",
           "autoCommit": false
         }
+      },
+      {
+        "name": "ppm-lead-scout-daily",
+        "application": "ppm-lead-scout",
+        "cron": "0 5 * * 1-5",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/ppm-lead-scout/zz_Specifications/recurring-tasks/daily-digest.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/ppm-lead-scout",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
+      },
+      {
+        "name": "ppm-lead-scout-weekly",
+        "application": "ppm-lead-scout",
+        "cron": "0 6 * * 0",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/ppm-lead-scout/zz_Specifications/recurring-tasks/weekly-review.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/ppm-lead-scout",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
       }
     ],
     "_pausedSchedules_readme": "Entries below are NOT read by the daemon (only 'schedules' is). Kept here so the cron/config can be restored later by moving them back into 'schedules'.",
