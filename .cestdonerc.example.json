@@ -176,6 +176,51 @@
           "autoCommit": false,
           "maxTurns": "200"
         }
+      },
+      {
+        "name": "search-presence-daily",
+        "application": "search-presence-scout",
+        "cron": "30 6 * * 1-5",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/daily-actions.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
+      },
+      {
+        "name": "search-presence-weekly",
+        "application": "search-presence-scout",
+        "cron": "0 8 * * 0",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/weekly-review.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
+      },
+      {
+        "name": "search-presence-monthly",
+        "application": "search-presence-scout",
+        "cron": "0 13 1 * *",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/monthly-steer.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
       }
     ],
     "_pausedSchedules_readme": "Entries below are NOT read by the daemon (only 'schedules' is). Kept here so the cron/config can be restored later by moving them back into 'schedules'.",
@@ -258,6 +303,20 @@
         "secret": "<the shared webhook secret, same value as the other hooks in the live file>",
         "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/ppm-lead-scout/zz_Specifications/recurring-tasks/process-feedback.md",
         "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/ppm-lead-scout",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "search-presence-feedback",
+        "application": "search-presence-scout",
+        "port": 7799,
+        "path": "/search-presence-feedback",
+        "secret": "<the shared webhook secret, same value as the other hooks in the live file>",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/process-feedback.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
         "options": {
           "skipPlanning": true,
           "workerModel": "opus",
