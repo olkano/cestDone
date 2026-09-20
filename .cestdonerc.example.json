@@ -182,7 +182,7 @@
         "application": "search-presence-scout",
         "cron": "30 6 * * 1-5",
         "timezone": "Europe/Madrid",
-        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/daily-actions.md",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/operate.md",
         "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
         "options": {
           "skipPlanning": true,
