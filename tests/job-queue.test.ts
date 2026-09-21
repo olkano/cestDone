@@ -158,3 +158,78 @@ describe('createJobQueue', () => {
     expect(next?.trigger).toBe('b')
   })
 })
+
+describe('queued webhook coalescing', () => {
+  const input = (email: string, id: string, eligible = true) => ({
+    trigger: 'sales-feedback',
+    sourceType: 'webhook' as const,
+    specPath: 'sales.md',
+    options: {},
+    templateContext: {
+      trigger: { name: 'sales-feedback', type: 'webhook' },
+      timestamp: '2026-09-21T00:00:00.000Z',
+      payload: { id, email, message: `message ${id}`, messages: [{ id, email, message: `message ${id}` }], messagesJson: JSON.stringify([{ id, email, message: `message ${id}` }]) },
+    },
+    coalescing: { key: `sales-feedback:${email}`, eligible, maxMessages: 10, originalPayload: { id, email, message: `message ${id}` } },
+    maxRetries: 0,
+    retryDelayMs: 0,
+  })
+
+  it('does not merge the first immediately runnable message', () => {
+    const queue = createJobQueue()
+    const first = queue.enqueue(input('a@example.com', 'm-1', false))
+    queue.enqueue(input('a@example.com', 'm-2'))
+    expect(queue.dequeue()?.id).toBe(first.id)
+    expect(first.batchMemberIds).toBeUndefined()
+  })
+
+  it('merges compatible waiting messages in arrival order and preserves scalar fields', () => {
+    const queue = createJobQueue()
+    const first = queue.enqueue(input('a@example.com', 'm-1'))
+    const second = queue.enqueue(input('a@example.com', 'm-2'))
+    const job = queue.dequeue()!
+    const payload = (job.templateContext as { payload: Record<string, unknown> }).payload
+    expect(job.id).toBe(first.id)
+    expect(job.batchMemberIds).toEqual([second.id])
+    expect(payload.id).toBe('m-1')
+    expect(JSON.parse(payload.messagesJson as string).map((item: { id: string }) => item.id)).toEqual(['m-1', 'm-2'])
+    queue.markRunning(job.id)
+    expect(queue.getAll().filter((item) => item.status === 'running')).toHaveLength(2)
+    queue.markCompleted(job.id)
+    expect(queue.getAll().every((item) => item.status === 'completed')).toBe(true)
+  })
+
+  it('never mixes sender keys and leaves incompatible jobs queued', () => {
+    const queue = createJobQueue()
+    queue.enqueue(input('a@example.com', 'm-1'))
+    queue.enqueue(input('b@example.com', 'm-2'))
+    const job = queue.dequeue()!
+    expect(job.batchMemberIds).toBeUndefined()
+    queue.markRunning(job.id)
+    expect(queue.dequeue()?.templateContext).toMatchObject({ payload: { id: 'm-2' } })
+  })
+
+  it('does not reorder a compatible message across an incompatible queued job', () => {
+    const queue = createJobQueue()
+    const first = queue.enqueue(input('a@example.com', 'm-1'))
+    const other = queue.enqueue(input('b@example.com', 'm-2'))
+    queue.enqueue(input('a@example.com', 'm-3'))
+    expect(queue.dequeue()?.batchMemberIds).toBeUndefined()
+    queue.markRunning(first.id)
+    queue.markCompleted(first.id)
+    expect(queue.dequeue()?.id).toBe(other.id)
+  })
+
+  it('caps one batch at ten without loss and propagates failure only to its members', () => {
+    const queue = createJobQueue()
+    for (let i = 1; i <= 12; i++) queue.enqueue(input('a@example.com', `m-${i}`))
+    const first = queue.dequeue()!
+    expect(JSON.parse(((first.templateContext as { payload: { messagesJson: string } }).payload.messagesJson))).toHaveLength(10)
+    queue.markRunning(first.id)
+    queue.markFailed(first.id, 'failed')
+    expect(queue.getAll().filter((item) => item.status === 'failed')).toHaveLength(10)
+    expect(queue.getAll().filter((item) => item.status === 'queued')).toHaveLength(2)
+    const second = queue.dequeue()!
+    expect(JSON.parse(((second.templateContext as { payload: { messagesJson: string } }).payload.messagesJson))).toHaveLength(2)
+  })
+})

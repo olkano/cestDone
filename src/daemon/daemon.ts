@@ -56,6 +56,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
   let poller: Poller | undefined
   let pollerStateStore: PollerStateStore | undefined
   let stopped = false
+  let stopping = false
   let runLoopPromise: Promise<void> | undefined
   let reloadPromise: Promise<void> = Promise.resolve()
   const configDir = process.cwd()
@@ -96,10 +97,15 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
     payload: Record<string, unknown>,
     options?: Partial<RunOptions>,
     retry?: { retries?: number; retryDelayMs?: number },
+    coalesceQueued = false,
   ): void {
+    const originalPayload = structuredClone(payload)
+    const normalizedPayload = coalesceQueued
+      ? { ...payload, messages: [originalPayload], messagesJson: JSON.stringify([originalPayload]) }
+      : payload
     const context: TemplateContext = {
       trigger: { name, type: 'webhook' },
-      payload,
+      payload: normalizedPayload,
       timestamp: new Date().toISOString(),
     }
     const runOptions: RunOptions = { ...(options ?? {}), ...(application ? { application } : {}), nonInteractive: true }
@@ -113,6 +119,14 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       templateContext: context,
       maxRetries: retry?.retries ?? 0,
       retryDelayMs: retry?.retryDelayMs ?? 60_000,
+      ...(coalesceQueued && typeof payload.email === 'string' && payload.email.trim()
+        ? { coalescing: {
+            key: `${name}:${payload.email.trim().toLowerCase()}`,
+            eligible: Boolean(queue.getRunning()),
+            maxMessages: 10,
+            originalPayload,
+          } }
+        : {}),
     })
     deps.logger.info(`Enqueued job from webhook "${name}": ${specPath}`)
   }
@@ -237,6 +251,8 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       const job = queue.dequeue()
       if (job) {
         await processJob(job)
+      } else if (stopping) {
+        stopped = true
       } else {
         await new Promise((resolve) => setTimeout(resolve, QUEUE_POLL_MS))
       }
@@ -276,7 +292,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
           enqueueFromWebhook(webhook.name, webhook.spec, webhook.application, payload, {
             ...webhook.options,
             ...(webhook.target !== undefined ? { target: webhook.target } : {}),
-          }, { retries: webhook.retries, retryDelayMs: webhook.retryDelayMs })
+          }, { retries: webhook.retries, retryDelayMs: webhook.retryDelayMs }, webhook.coalesceQueued === true)
         })
         await server.start()
         webhookServers.push(server)
@@ -328,11 +344,10 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
 
     async stop(): Promise<void> {
       deps.logger.info('Daemon stopping')
-      stopped = true
-
       await stopTriggers()
+      stopping = true
 
-      // Wait for current job with timeout
+      // Drain every payload accepted before trigger shutdown, with a timeout.
       if (runLoopPromise) {
         await Promise.race([
           runLoopPromise,

@@ -84,6 +84,7 @@ import { writePidFile, removePidFile, isDaemonRunning } from '../src/daemon/pid.
 import { createScheduler } from '../src/daemon/scheduler.js'
 import { createWebhookServer } from '../src/daemon/webhook-server.js'
 import { createPoller } from '../src/daemon/poller.js'
+import { renderTemplate } from '../src/daemon/template.js'
 
 function makeDaemonConfig(overrides?: Partial<DaemonConfig>): DaemonConfig {
   return {
@@ -275,6 +276,57 @@ describe('createDaemon', () => {
         config: expect.objectContaining({ application: 'issues' }),
       }),
     )
+    const context = vi.mocked(renderTemplate).mock.calls.at(-1)?.[1]
+    expect(context?.payload).not.toHaveProperty('messagesJson')
+  })
+
+  it('coalesces only compatible webhook payloads accepted behind running work', async () => {
+    const daemonConfig = makeDaemonConfig({
+      webhooks: [{ name: 'sales-feedback', port: 0, spec: 'sales.md', coalesceQueued: true }],
+    })
+    const deps = makeDeps(daemonConfig)
+    let releaseFirst!: () => void
+    const firstRun = new Promise<void>((resolve) => { releaseFirst = resolve })
+    vi.mocked(deps.executeRun)
+      .mockImplementationOnce(() => firstRun)
+      .mockResolvedValue(undefined)
+    daemon = createDaemon(deps)
+    await daemon.start()
+    const onTrigger = vi.mocked(createWebhookServer).mock.calls[0][1]
+
+    onTrigger(daemonConfig.webhooks![0], { id: 'm-1', email: 'daniel@example.com', message: 'one' })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    onTrigger(daemonConfig.webhooks![0], { id: 'm-2', email: 'daniel@example.com', message: 'two' })
+    onTrigger(daemonConfig.webhooks![0], { id: 'm-3', email: 'daniel@example.com', message: 'three' })
+    releaseFirst()
+    await new Promise((resolve) => setTimeout(resolve, 700))
+
+    expect(deps.executeRun).toHaveBeenCalledTimes(2)
+    const contexts = vi.mocked(renderTemplate).mock.calls.slice(-2).map((call) => call[1])
+    expect(JSON.parse(contexts[0].payload.messagesJson as string).map((item: { id: string }) => item.id)).toEqual(['m-1'])
+    expect(JSON.parse(contexts[1].payload.messagesJson as string).map((item: { id: string }) => item.id)).toEqual(['m-2', 'm-3'])
+    expect(contexts[1].payload.id).toBe('m-2')
+  })
+
+  it('drains webhook payloads accepted before shutdown', async () => {
+    const daemonConfig = makeDaemonConfig({
+      webhooks: [{ name: 'sales-feedback', port: 0, spec: 'sales.md', coalesceQueued: true }],
+    })
+    const deps = makeDeps(daemonConfig)
+    let releaseFirst!: () => void
+    const firstRun = new Promise<void>((resolve) => { releaseFirst = resolve })
+    vi.mocked(deps.executeRun).mockImplementationOnce(() => firstRun).mockResolvedValue(undefined)
+    daemon = createDaemon(deps)
+    await daemon.start()
+    const onTrigger = vi.mocked(createWebhookServer).mock.calls[0][1]
+    onTrigger(daemonConfig.webhooks![0], { id: 'm-1', email: 'daniel@example.com' })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    onTrigger(daemonConfig.webhooks![0], { id: 'm-2', email: 'daniel@example.com' })
+    const stopping = daemon.stop()
+    releaseFirst()
+    await stopping
+    expect(deps.executeRun).toHaveBeenCalledTimes(2)
+    daemon = undefined
   })
 
   it('propagates poller usage attribution to the run', async () => {

@@ -94,6 +94,18 @@ describe('renderTemplate', () => {
     )
     expect(result).toBe(' and ')
   })
+
+  it('renders JSON-safe message arrays without re-expanding placeholder-like message text', () => {
+    const messages = [{ id: 'm-1', message: 'quotes " new\nline ü braces {{payload.secret}} ```' }]
+    const ctx: TemplateContext = {
+      ...baseContext,
+      payload: { messagesJson: JSON.stringify(messages), secret: 'must-not-expand' },
+    }
+    const rendered = renderTemplate('Messages: {{payload.messagesJson}}', ctx)
+    expect(JSON.parse(rendered.slice('Messages: '.length))).toEqual(messages)
+    expect(rendered).toContain('{{payload.secret}}')
+    expect(rendered).not.toContain('must-not-expand')
+  })
 })
 
 describe('extractVariables', () => {

@@ -516,11 +516,14 @@ The installed server-health integration uses the existing report-hub relay and a
 | `path` | no | URL path to match (default: `/`) |
 | `spec` | yes | Path to spec file (may contain `{{variables}}`) |
 | `secret` | no | HMAC secret for `X-Hub-Signature-256` validation |
+| `coalesceQueued` | no | When `true`, combine up to 10 compatible webhook payloads already waiting behind running work; compatibility is the same webhook and `payload.email` |
 | `target` | no | Target repository path |
 | `application` | no | Logical application label for usage accounting |
 | `options` | no | Any `run` options to override |
 
 Multiple webhooks can share the same port if they have different paths.
+
+Queued coalescing is opt-in and adds no debounce. The first payload starts as soon as the queue is free. Payloads accepted while work is running remain individually tracked, and compatible waiting payloads are presented to the next run in arrival order. The template context preserves the first payload's scalar fields and adds `payload.messages` plus the JSON-safe `payload.messagesJson`. Different webhook names or sender emails never share a batch, and messages above the 10-item cap remain queued for the next batch. With the setting absent or `false`, behavior is unchanged.
 
 ### Pollers
 

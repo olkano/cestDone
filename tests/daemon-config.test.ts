@@ -282,4 +282,11 @@ describe('validateDaemonConfig', () => {
     expect(result.valid).toBe(false)
     expect(result.errors).toContain('schedule "test-schedule": application must be a lowercase kebab-case identifier')
   })
+
+  it('accepts boolean queued coalescing only on webhooks', () => {
+    expect(validateDaemonConfig({ webhooks: [webhook({ coalesceQueued: true })] }).valid).toBe(true)
+    const result = validateDaemonConfig({ webhooks: [webhook({ coalesceQueued: 'yes' as unknown as boolean })] })
+    expect(result.valid).toBe(false)
+    expect(result.errors[0]).toContain('coalesceQueued must be a boolean')
+  })
 })

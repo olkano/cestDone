@@ -75,6 +75,9 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     }
     checkApplication(w.application, src)
     if (w.host !== undefined && !w.host.trim()) errors.push(`${src}: host must be a non-empty string`)
+    if (w.coalesceQueued !== undefined && typeof w.coalesceQueued !== 'boolean') {
+      errors.push(`${src}: coalesceQueued must be a boolean`)
+    }
     checkRetry(w, src)
   }
 

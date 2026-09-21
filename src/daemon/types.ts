@@ -26,6 +26,7 @@ export interface WebhookConfig extends RetryConfig {
   spec: string
   target?: string
   secret?: string
+  coalesceQueued?: boolean
   options?: Partial<RunOptions>
 }
 
