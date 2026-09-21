@@ -5,6 +5,11 @@ import { mapSdkUsage, formatToolCall } from '../shared/types.js'
 
 export class AgentSdkBackend implements Backend {
   readonly name: BackendType = 'agent-sdk'
+  readonly provider = 'claude' as const
+  readonly capabilities = {
+    resume: true, structuredOutput: true, exactToolAllowlist: true,
+    maxTurns: true, maxBudgetUsd: true, perInvocationMcpConfig: false,
+  } as const
 
   async invoke(params: BackendInvocation): Promise<BackendResult> {
     const { prompt, logger } = params
@@ -80,6 +85,8 @@ export class AgentSdkBackend implements Backend {
             numTurns: msg.num_turns ?? 0,
             durationMs: msg.duration_ms ?? 0,
             usage,
+            billingMode: 'metered',
+            usageStatus: 'reported',
             toolCalls,
             success,
             errorMessage: success ? undefined : (msg.result ?? msg.subtype),
@@ -95,6 +102,8 @@ export class AgentSdkBackend implements Backend {
         numTurns: 0,
         durationMs: 0,
         usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+        billingMode: 'metered',
+        usageStatus: 'unavailable',
         toolCalls,
         success: false,
         errorMessage,
@@ -110,6 +119,8 @@ export class AgentSdkBackend implements Backend {
       numTurns: 0,
       durationMs: 0,
       usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+      billingMode: 'metered',
+      usageStatus: 'unavailable',
       toolCalls,
       success: false,
       errorMessage: 'Session ended with no result',

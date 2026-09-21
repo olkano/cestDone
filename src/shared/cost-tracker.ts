@@ -1,10 +1,11 @@
 // src/shared/cost-tracker.ts
-import type { TokenUsage } from './types.js'
+import type { BillingMode, TokenUsage } from './types.js'
 
 export interface UsageSnapshot extends TokenUsage {
   costUsd: number
   meteredCalls: number
   subscriptionCalls: number
+  unknownBillingCalls: number
 }
 
 function emptySnapshot(): UsageSnapshot {
@@ -12,6 +13,7 @@ function emptySnapshot(): UsageSnapshot {
     costUsd: 0,
     meteredCalls: 0,
     subscriptionCalls: 0,
+    unknownBillingCalls: 0,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadInputTokens: 0,
@@ -24,6 +26,7 @@ function addSnapshots(a: UsageSnapshot, b: UsageSnapshot): UsageSnapshot {
     costUsd: a.costUsd + b.costUsd,
     meteredCalls: a.meteredCalls + b.meteredCalls,
     subscriptionCalls: a.subscriptionCalls + b.subscriptionCalls,
+    unknownBillingCalls: a.unknownBillingCalls + b.unknownBillingCalls,
     inputTokens: a.inputTokens + b.inputTokens,
     outputTokens: a.outputTokens + b.outputTokens,
     cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
@@ -35,11 +38,11 @@ export class CostTracker {
   private directorTotal: UsageSnapshot = emptySnapshot()
   private workerTotal: UsageSnapshot = emptySnapshot()
 
-  recordDirector(snapshot: TokenUsage & { costUsd: number | null }): void {
+  recordDirector(snapshot: TokenUsage & { costUsd: number | null; billingMode?: BillingMode }): void {
     this.directorTotal = addSnapshots(this.directorTotal, normalizeSnapshot(snapshot))
   }
 
-  recordWorker(snapshot: TokenUsage & { costUsd: number | null }): void {
+  recordWorker(snapshot: TokenUsage & { costUsd: number | null; billingMode?: BillingMode }): void {
     this.workerTotal = addSnapshots(this.workerTotal, normalizeSnapshot(snapshot))
   }
 
@@ -56,12 +59,14 @@ export class CostTracker {
   }
 }
 
-function normalizeSnapshot(snapshot: TokenUsage & { costUsd: number | null }): UsageSnapshot {
+function normalizeSnapshot(snapshot: TokenUsage & { costUsd: number | null; billingMode?: BillingMode }): UsageSnapshot {
+  const billingMode = snapshot.billingMode ?? (snapshot.costUsd === null ? 'subscription' : 'metered')
   return {
     ...snapshot,
     costUsd: snapshot.costUsd ?? 0,
-    meteredCalls: snapshot.costUsd === null ? 0 : 1,
-    subscriptionCalls: snapshot.costUsd === null ? 1 : 0,
+    meteredCalls: billingMode === 'metered' ? 1 : 0,
+    subscriptionCalls: billingMode === 'subscription' ? 1 : 0,
+    unknownBillingCalls: billingMode === 'unknown' ? 1 : 0,
   }
 }
 
@@ -80,8 +85,13 @@ function totalProcessed(snap: UsageSnapshot): number {
 }
 
 function formatCost(snap: UsageSnapshot): string {
-  if (snap.subscriptionCalls > 0 && snap.meteredCalls === 0) return 'n/a (subscription)'
-  if (snap.subscriptionCalls > 0) return `$${snap.costUsd.toFixed(2)} metered + subscription`
+  if (snap.subscriptionCalls > 0 && snap.meteredCalls === 0 && snap.unknownBillingCalls === 0) return 'n/a (subscription)'
+  if (snap.meteredCalls > 0 && snap.subscriptionCalls === 0 && snap.unknownBillingCalls === 0) return `$${snap.costUsd.toFixed(2)}`
+  const labels: string[] = []
+  if (snap.meteredCalls > 0) labels.push(`$${snap.costUsd.toFixed(2)} known metered`)
+  if (snap.subscriptionCalls > 0) labels.push('subscription')
+  if (snap.unknownBillingCalls > 0) labels.push('unknown billing')
+  if (labels.length > 0) return labels.join(' + ')
   return `$${snap.costUsd.toFixed(2)}`
 }
 

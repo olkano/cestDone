@@ -71,12 +71,13 @@ This gives full traceability of every Director↔Worker interaction. You can ins
 - **Two-agent mode** (default): Director delegates planning and implementation to Workers. The Director is a thin orchestrator — it never reads code directly, only reviews through report files and diffs.
 - **Director-only mode** (`--no-with-worker`): The Director does everything. Simpler, but the Director's context carries more weight.
 
-### Two Backends
+### Agent providers and backends
 
 - **Claude CLI** (default): Spawns `claude -p` under the hood. Uses your Claude Max or Pro subscription — no API key, no per-token billing. Authenticate with `claude auth login`.
 - **Agent SDK** (`--backend agent-sdk`): Uses `@anthropic-ai/claude-agent-sdk` with per-token API billing. Requires `ANTHROPIC_API_KEY` in the environment.
+- **Codex SDK** (configured profile): Uses the pinned local Codex client with saved ChatGPT authentication. It does not use an OpenAI API key. Calls consume the selected ChatGPT account's Codex allowance and may consume account credits under that account's plan.
 
-You can mix backends per agent (e.g., Director on CLI, Worker on API) with `--director-backend` and `--worker-backend`.
+Use named agent profiles to assign Claude or Codex to the whole job, Director, or Worker. The legacy backend flags remain available for Claude only. Codex deliberately rejects `CODEX_API_KEY`, `OPENAI_API_KEY`, API access tokens, and base URL overrides in its child environment.
 
 ## Quick Start
 
@@ -121,6 +122,16 @@ With Agent SDK backend (requires `ANTHROPIC_API_KEY`):
 cestdone run --spec spec.md --target ./my-app --backend agent-sdk
 ```
 
+With a configured Codex profile and saved ChatGPT login:
+
+```bash
+cestdone run --spec spec.md --target ./my-app --agent codex
+
+# Mixed providers
+cestdone run --spec spec.md --target ./my-app \
+  --director-agent claude --worker-agent codex
+```
+
 Resume a partially completed plan:
 
 ```bash
@@ -149,6 +160,9 @@ Commands:
   --skip-planning            Execute the complete specification as one Worker task without creating a plan
   --target <path>            Target repository path (default: ".")
   --application <name>       Logical application label for usage accounting
+  --agent <profile>          Named agent profile for both Director and Worker
+  --director-agent <profile> Override the Director agent profile
+  --worker-agent <profile>   Override the Worker agent profile
   --director-model <model>   Director model: haiku | sonnet | opus (default: "opus")
   --worker-model <model>      Worker model: haiku | sonnet | opus (default: "opus")
   --with-worker               Two-agent mode: Director plans, Worker implements (default: true)
@@ -159,7 +173,7 @@ Commands:
   --no-with-bash-reviews     Disable Bash in reviews
   --with-human-validation    Require human approval of plan (default: false)
   --non-interactive          Run without TTY — auto-approves plans, skips clarifications (default: false)
-  --backend <type>           Backend for both agents: agent-sdk | claude-cli (default: "claude-cli")
+  --backend <type>           Legacy Claude backend for both agents: agent-sdk | claude-cli
   --director-backend <type>  Override Director backend: agent-sdk | claude-cli
   --worker-backend <type>     Override Worker backend: agent-sdk | claude-cli
   --claude-cli-path <path>   Path to claude binary (default: "claude")
@@ -202,6 +216,25 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
 ```json
 {
   "targetRepoPath": ".",
+  "defaultAgent": "claude",
+  "agentProfiles": {
+    "claude": {
+      "provider": "claude",
+      "backend": "claude-cli",
+      "directorModel": "opus",
+      "workerModel": "opus"
+    },
+    "codex": {
+      "provider": "codex",
+      "backend": "codex-sdk",
+      "directorModel": "<exact-account-supported-model-id>",
+      "workerModel": "<exact-account-supported-model-id>",
+      "directorReasoningEffort": "medium",
+      "workerReasoningEffort": "medium",
+      "callTimeoutMs": 3600000,
+      "webSearchMode": "cached"
+    }
+  },
   "maxTurns": 100,
   "directorModel": "opus",
   "workerModel": "opus",
@@ -221,6 +254,38 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
 ```
 
 Model aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full ID directly (e.g., `claude-sonnet-5`).
+
+`defaultAgent` selects the profile used when no selector is supplied. `--agent` overrides it for one invocation, while `--director-agent` and `--worker-agent` override individual roles. A daemon trigger uses the same fields under `options`, for example `"options": { "agent": "codex" }`. A queued daemon job keeps its resolved provider, model, timeout, permissions, paths, and profile even if configuration reloads before execution.
+
+Codex profiles require `provider: "codex"`, `backend: "codex-sdk"`, and exact model IDs. Authenticate the selected persistent home with the bundled client using ChatGPT login. Set `CESTDONE_CODEX_HOME` to an absolute existing directory outside the target repository when a service or test must use a home other than the invoking user's `~/.codex`. cestDone checks `codex login status`, requires `Logged in using ChatGPT`, and never initiates login or copies credentials.
+
+The Codex adapter supports elapsed-time limits, reasoning effort, resumable threads, native structured output, and local sandbox modes. It does not support the Claude `maxBudgetUsd` or per-invocation `mcpConfig` options. Codex-home MCP servers have their own permissions and are not the same tools or connections available in an interactive Codex session.
+
+### Codex end-to-end verification
+
+The live suite is opt-in and is never part of `npm test`. It consumes the selected ChatGPT account's Codex allowance. Build first, then supply both an exact supported model and a persistent Codex home that is already logged in with ChatGPT. The normal invoking-user home is valid:
+
+```powershell
+npm run build
+npm run test:e2e:codex -- --model <exact-model-id> --codex-home <absolute-test-home> --output <absolute-report-path>
+```
+
+The supplied home may be the invoking user's normal interactive home. Its configured plugins, hooks, notifications, skills, and MCP servers remain available; cestDone does not suppress or rewrite them. The harness creates temporary Git fixtures, runs E1 through E10 serially, verifies artifacts, commits, usage, daemon cleanup, and read-only sandbox behavior, and deletes only its marker-verified temporary root after success. Add `--include-claude --claude-model <model-or-alias>` to run both mixed-provider directions; otherwise those checks are reported as `NOT RUN`.
+
+If a later case fails after earlier cases passed, rerun with `--resume-evidence <failed-report-path>`. The harness reuses only matching PASS evidence for the same model and reasoning effort, then executes the failed and remaining cases without repeating successful model work.
+
+E10 requires a working local Codex sandbox helper. On Windows, use the pinned client’s `doctor --json` output to diagnose `sandbox.helpers`. A provisioning failure is reported as `Prerequisite SANDBOX_HELPER`; do not count absence of the attempted sentinel as a sandbox pass when the helper could not start.
+
+If a separate home is desired for operational reasons, provision it on Windows without using a global client by creating an empty persistent directory, resolving the pinned binary, and completing its interactive ChatGPT login:
+
+```powershell
+$env:CODEX_HOME = 'C:\path\outside\the\fixture\codex-e2e-home'
+$codex = node --input-type=module -e "import('./dist/backends/codex-runtime.js').then(m => console.log(m.resolveCodexRuntime().executablePath))"
+& $codex login
+& $codex login status
+```
+
+Do not place an API key in that home or copy `auth.json` from another home. Login provisioning is a user action and is separate from the harness.
 
 ### Usage accounting
 
@@ -244,8 +309,8 @@ and logs a warning.
 Token accounting preserves uncached input, cache creation, cache reads, and output
 separately. `totalProcessedTokens` is the sum of all four categories and is an
 activity measure, not a cost estimate. Agent SDK calls retain provider-reported USD
-cost. Claude CLI subscription calls report cost as `n/a (subscription)`, never as
-zero.
+cost. Claude CLI and saved-login Codex subscription calls report subscription
+billing separately from known metered cost. Missing cost is never rendered as zero.
 
 The usage ledger stores execution metadata only. It never stores prompts, model
 responses, tool inputs or outputs, webhook payloads, credentials, or environment

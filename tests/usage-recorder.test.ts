@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { Backend, BackendInvocation, BackendResult } from '../src/shared/types.js'
 import type { SessionLogger } from '../src/shared/logger.js'
 import { UsageRecorder, UsageTrackingBackend, normalizeApplication } from '../src/usage/recorder.js'
-import type { UsageRunRecordV1 } from '../src/usage/types.js'
+import type { UsageRunRecordV2 } from '../src/usage/types.js'
 
 const tempDirs: string[] = []
 
@@ -76,7 +76,8 @@ describe('UsageRecorder', () => {
     await new UsageTrackingBackend(backend, recorder).invoke(makeInvocation())
     recorder.finalize('completed')
 
-    const record = JSON.parse(fs.readFileSync(recorder.recordPath, 'utf-8')) as UsageRunRecordV1
+    const record = JSON.parse(fs.readFileSync(recorder.recordPath, 'utf-8')) as UsageRunRecordV2
+    expect(record.schemaVersion).toBe(2)
     expect(record.status).toBe('completed')
     expect(record.application).toBe('sales-reporting')
     expect(record.invocation).toEqual({ type: 'schedule', triggerName: 'daily-sales', daemonJobId: 'job-1', attempt: 1 })
@@ -84,6 +85,7 @@ describe('UsageRecorder', () => {
     expect(record.calls[0]).toMatchObject({
       role: 'worker', workflowStep: 4, phaseNumber: 1,
       backend: 'claude-cli', model: 'claude-sonnet-5', actualCostUsd: null,
+      provider: 'claude', profile: null, billingMode: 'subscription', usageStatus: 'reported',
       totalProcessedTokens: 100,
     })
     expect(record.totals).toMatchObject({ calls: 1, totalProcessedTokens: 100, actualCostUsd: null, callsWithActualCost: 0 })
@@ -96,7 +98,7 @@ describe('UsageRecorder', () => {
     recorder.recordCall('agent-sdk', makeInvocation(), makeResult({ costUsd: 0.12 }))
     recorder.finalize('failed', new TypeError('sensitive detail'))
 
-    const record = JSON.parse(fs.readFileSync(recorder.recordPath, 'utf-8')) as UsageRunRecordV1
+    const record = JSON.parse(fs.readFileSync(recorder.recordPath, 'utf-8')) as UsageRunRecordV2
     expect(record.status).toBe('failed')
     expect(record.errorCategory).toBe('TypeError')
     expect(record.calls).toHaveLength(1)
@@ -119,5 +121,23 @@ describe('UsageRecorder', () => {
   it('normalizes application labels', () => {
     expect(normalizeApplication('  ITM Platform / Sales  ')).toBe('itm-platform-sales')
     expect(normalizeApplication('***')).toBe('unknown')
+  })
+
+  it('records one unavailable failed call when a backend throws', async () => {
+    const recorder = makeRecorder(makeTempDir())
+    const backend: Backend = {
+      name: 'codex-sdk', provider: 'codex',
+      preflight: vi.fn().mockResolvedValue({ ok: true }),
+      invoke: vi.fn().mockRejectedValue(new Error('sensitive provider output')),
+    }
+    await expect(new UsageTrackingBackend(backend, recorder).invoke({ ...makeInvocation(), profileName: 'codex' }))
+      .rejects.toThrow('sensitive provider output')
+    const record = recorder.getRecord()
+    expect(record.calls).toHaveLength(1)
+    expect(record.calls[0]).toMatchObject({
+      provider: 'codex', profile: 'codex', success: false,
+      usageStatus: 'unavailable', errorCategory: 'process_failed',
+    })
+    expect(JSON.stringify(record)).not.toContain('sensitive provider output')
   })
 })

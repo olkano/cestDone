@@ -1,12 +1,18 @@
 # Codex agent provider for cestDone
 
-Status: Proposed, fact-checked implementation specification.
+Status: In progress. The provider, selection, orchestration, usage V2, daemon snapshots, offline tests, documentation, and opt-in E2E harness are implemented. Offline acceptance and the live E1-E10 gate must be recorded separately before this specification moves to `done/`.
 
 Reviewed: 2026-09-20. SDK compatibility target: `@openai/codex-sdk@0.155.1` and its matching `@openai/codex@0.155.1` runtime.
 
 Authentication: Saved ChatGPT client login only. No OpenAI API-key execution, Responses API implementation, or automatic provider fallback.
 
-This task changes the specification only. A subsequent request to implement this specification authorizes the code, offline tests, and isolated test harness described here. Running the live test harness consumes the selected account's Codex allowance and must be within that subsequent request's testing scope. Production jobs, service credentials, live daemon configuration, PM2 restart, global CLI updates, commits, and pushes remain separate operational actions.
+The implementation request authorizes the code, offline tests, and isolated test harness described here. Running the live test harness consumes the selected account's Codex allowance. Production jobs, service credentials, live daemon configuration, PM2 restart, global CLI updates, commits, and pushes remain separate operational actions.
+
+Implementation evidence on 2026-09-20: the bundled `codex-cli 0.155.1` resolved and the invoking user's ordinary home reported `Logged in using ChatGPT`. The live harness may use that home as configured; it does not suppress its plugins, notifications, hooks, skills, or MCP servers. Live E1-E10 results are recorded separately from offline acceptance.
+
+Offline evidence on 2026-09-20: `npm test` passed 50 files and 720 tests, `npm run lint` passed, and `npm run build` passed. The real-SDK transport test uses the pinned SDK with only its child-process launch intercepted.
+
+Live evidence on 2026-09-20 with the invoking user's normal, unsuppressed Codex home and `gpt-5.6-sol`: E1-E9 passed through the pinned ChatGPT-authenticated client. E10 is blocked by `Prerequisite SANDBOX_HELPER`; the pinned client's `doctor --json` reports `sandbox.helpers` failed because elevated Windows sandbox provisioning recorded `helper_unknown_error`, with repair/reinstall of the approved Codex distribution as remediation. The local sandbox command and model tool attempt both failed at helper process creation, so absence of the sentinel is not misreported as a read-only enforcement pass. Mixed Claude/Codex cases were NOT RUN because `--include-claude` was not requested. Sanitized evidence is retained in `codex-e2e-2026-09-20.json`.
 
 ## Contents
 
@@ -258,7 +264,7 @@ Use one helper for preflight and invocation environments. Merge the parent envir
 
 Reject a nonempty `CODEX_API_KEY` in either environment input before constructing the SDK. Remove `CODEX_API_KEY`, `OPENAI_API_KEY`, `CODEX_ACCESS_TOKEN`, `OPENAI_BASE_URL`, and `CESTDONE_CODEX_HOME` from the child environment. Preserve ordinary PATH, TEMP, SystemRoot, proxy/CA settings, and application variables needed by approved jobs. Map the selected home to child `CODEX_HOME`.
 
-Never pass SDK `apiKey` or `baseUrl`. Force the built-in provider, ChatGPT login method, and official endpoint values listed in section 6.3 for every inference call. Do not try to infer routing from a login label or parse arbitrary user TOML to guess the effective endpoint. Machine/workspace policy can restrict runtime settings; an incompatible enforced policy is a configuration error.
+Never pass SDK `apiKey` or `baseUrl`, and do not force `model_provider` or `openai_base_url`. In the failed live attempt, passing the `model_provider: 'openai'` plus `openai_base_url: 'https://api.openai.com/v1'` override pair made the pinned client query the API model endpoint and produced `403 Missing scopes: api.model.read` under a ChatGPT login. The normal ChatGPT-authenticated client may still report its internal provider name as `openai`; that label alone does not mean API billing. Force the ChatGPT login method and ChatGPT endpoint listed in section 6.3 while allowing the authenticated client to retain its normal provider route. Machine/workspace policy can restrict runtime settings; an incompatible enforced policy is a configuration error.
 
 Add shell-environment exclusions for provider authentication variables using the pinned runtime's `shell_environment_policy.filters`. Do not blanket-strip application API keys needed by operational jobs. Do not promise secrecy from an unrestricted agent: it may read local credential files even when environment variables are excluded.
 
@@ -346,25 +352,16 @@ For every Codex invocation, explicitly set:
 
 ```typescript
 {
-  model_provider: 'openai',
   forced_login_method: 'chatgpt',
   chatgpt_base_url: 'https://chatgpt.com/backend-api/',
-  openai_base_url: 'https://api.openai.com/v1',
-  agents: { enabled: false },
-  features: {
-    multi_agent: false,
-    hooks: false,
-    shell_snapshot: false,
-  },
-  notify: [],
 }
 ```
 
-A saved ChatGPT login uses the ChatGPT route; explicitly pinning the built-in API endpoint does not authorize API-key authentication. Do not expose arbitrary SDK `config` or `configOverrides` through an agent profile.
+A saved ChatGPT login uses the ChatGPT route. Do not pin the API provider or API endpoint: that changes routing rather than merely constraining authentication. Do not expose arbitrary SDK `config` or `configOverrides` through an agent profile.
 
-Use an explicit shell-environment policy with provider-auth filters. Override the complete policy, including an empty `set` map, so inherited `set` values cannot reintroduce excluded keys. Preserve application variables using `inherit: 'all'` and `ignore_default_excludes: true`, then explicitly exclude `CODEX_API_KEY`, `OPENAI_API_KEY`, and `CODEX_ACCESS_TOKEN`. Set this complete table through one constant raw `configOverrides` entry, `shell_environment_policy={...}`, because flattened leaf overrides do not reliably remove inherited sibling fields. Do not interpolate user text into that raw entry. Keep the constant policy in one helper and verify the generated CLI overrides through the real SDK transport test. Do not combine new `filters` with legacy `exclude`/`include_only` in the same policy.
+Use an explicit shell-environment policy with provider-auth filters. Override the complete policy, including an empty `set` map, so inherited `set` values cannot reintroduce excluded keys. Preserve application variables using `inherit: 'all'` and `ignore_default_excludes: true`, then explicitly exclude `CODEX_API_KEY`, `OPENAI_API_KEY`, and `CODEX_ACCESS_TOKEN`. In Codex 0.155.1, `filters` is a TOML map whose pattern keys have `"include"` or `"exclude"` values, not a string array. Set the complete table through one constant raw `configOverrides` entry, `shell_environment_policy={inherit="all",ignore_default_excludes=true,filters={"CODEX_API_KEY"="exclude","OPENAI_API_KEY"="exclude","CODEX_ACCESS_TOKEN"="exclude"},set={}}`, because flattened leaf overrides do not reliably remove inherited sibling fields. Do not interpolate user text into that raw entry. Keep the constant policy in one helper and verify the generated CLI overrides through the real SDK transport test. Do not combine new `filters` with legacy `exclude`/`include_only` in the same policy.
 
-Disable hooks and legacy notifications because they can launch independent commands. Disable both multi-agent switches because cestDone owns Worker lifetimes and accounting. Repository `AGENTS.md` and supported skills remain available. This is not a sandbox against a malicious specification, repository, or unrestricted shell command.
+Do not override the selected Codex home's plugins, hooks, notifications, skills, MCP servers, multi-agent settings, or shell-snapshot setting. They remain governed by the user's Codex configuration. This is not a sandbox against a malicious specification, repository, configured integration, or unrestricted shell command.
 
 Pass `BackendInvocation.systemPrompt` as `developer_instructions`; do not replace Codex base instructions or suppress repository rules. Build a Codex client per invocation when configuration differs. Keep the original developer instruction text in private per-thread adapter state and supply the same value on resume; do not append it again to the user prompt or concatenate another copy. Omitted instructions on resume must not accidentally restore different user-home developer instructions.
 
@@ -599,7 +596,7 @@ Add `tests/codex-sdk-backend.test.ts` using synthetic SDK streams for:
 - Timeout during an active generator, iterator cleanup, timer cleanup, cancellation watchdog, no early successful return.
 - API override detection before client construction, API-key login rejected, unknown login method rejected, stdout/stderr variants, preflight timeout, bounded output, and redaction.
 - Windows mixed-case environment overrides, undefined overlay deletion, PATH/helper injection, spaces and Unicode in paths, explicit native override, version mismatch, unsupported platform, missing optional package.
-- No `apiKey`/`baseUrl` passed, forced ChatGPT/built-in provider routing, hooks/notifications/subagents disabled, and all credential filters present.
+- No `apiKey`/`baseUrl`, API provider, or API endpoint passed; ChatGPT login routing is forced, configured Codex-home integrations are preserved, and all credential filters are present.
 
 Add a separate transport test importing the real pinned SDK, not a fake `Codex` class. Intercept its `child_process.spawn` import with Vitest and delegate to a real Node fixture process that reads stdin and emits canned JSONL. Intercept only the process launch boundary, leaving SDK serialization, temporary output-schema creation, generator parsing, and AbortSignal handling intact.
 
@@ -652,7 +649,7 @@ npm run test:e2e:codex -- --model <account-supported-model-id> --codex-home <abs
 
 Placeholders must be replaced before execution. The first command proves Codex integration; the second additionally proves both real mixed-provider directions. If the optional Claude check is omitted/unavailable, report it as NOT RUN, not passed.
 
-The test home is a persistent, independently authenticated home owned by the invoking OS identity, with no application MCP servers/plugins/hooks configured. Preflight must require its ChatGPT login. Do not create an API key, copy desktop credentials, or delete the home in cleanup. If login/account/model/sandbox prerequisites are unavailable, fail the requested live test with a named prerequisite and retain offline results separately.
+The supplied home is a persistent ChatGPT-authenticated Codex home owned by the invoking OS identity and may be the user's normal interactive home. Preserve its application MCP servers, plugins, hooks, notifications, skills, and other configuration. Preflight must require its ChatGPT login. Do not create an API key, copy desktop credentials, rewrite the home, or delete it in cleanup. If login/account/model/sandbox prerequisites are unavailable, fail the requested live test with a named prerequisite and retain offline results separately.
 
 ### 11.2 Isolation and fixture
 
@@ -672,6 +669,8 @@ Spawn the built absolute `dist/cli/index.js` with cwd set to the fixture config 
 
 Run cases serially with a 10-minute cap per case and a 45-minute cap for the complete invocation, no automatic rerun of successful side effects, and fresh fixture state per independent case. These caps include child cleanup and also apply when mixed cases are requested. The harness must not pass until it reads back artifacts and usage.
 
+Support `--resume-evidence <failed-report-path>` for a matching model and reasoning effort. Reuse only cases recorded as PASS, identify the source run ID in the combined evidence, and execute the failed and remaining cases. This prevents successful subscription-backed cases from being repeated while still producing one final E1-E10 report.
+
 | ID | Scenario / invocation | Required assertions |
 |---|---|---|
 | E1 | Both roles Codex: `run --spec <direct-spec> --target <repo> --agent codex --skip-planning --no-auto-commit --non-interactive` | Exit 0; host `node --test` passes; artifact includes both rule markers; no plan file; HEAD unchanged; V2 record has successful Codex Worker and Review, subscription billing, null dollar cost. |
@@ -683,7 +682,7 @@ Run cases serially with a 10-minute cap per case and a 45-minute cap for the com
 | E7 | Default selection | Run without `--agent` against fixture root `defaultAgent: codex`; usage proves Codex. Change default to a second named Codex profile with a different marker/setting and prove the new profile wins; explicit selector still overrides it. |
 | E8 | Loopback daemon Codex job | Start an isolated foreground daemon using only fixture webhook configuration; POST once; wait for correlated completed usage/artifact, not just HTTP acceptance; HEAD unchanged; stop daemon and verify PID/listener cleanup. |
 | E9 | Auth/control negative cases | API override uses a fake string; missing-login case uses a separate empty temporary home; unsupported MCP/budget cases fail before any artifact/model usage. Do not switch a real auth cache into API mode to test rejection. |
-| E10 | Runtime sandbox probe | Through the pinned runtime's local sandbox command or a bounded adapter call, prove a write is denied under read-only. A model merely choosing not to write is insufficient. If a local sandbox probe is unavailable, use a harmless model command that actually attempts the write and inspect denial/tool evidence plus absence of the sentinel. |
+| E10 | Runtime sandbox probe | Through the pinned runtime's local sandbox command or a bounded adapter call, prove a write is denied under read-only. A model merely choosing not to write is insufficient. If a local sandbox probe is unavailable, use a harmless model command that actually attempts the write and inspect denial/tool evidence plus absence of the sentinel. A Windows `helper_unknown_error` or failed sandbox provisioning is `Prerequisite SANDBOX_HELPER`, not a pass; confirm it with `codex doctor --json` and repair the approved client before retrying. |
 
 For E6, the existing generic `git add -A` prompt is unsafe with unrelated dirty files. Update the shared review commit instructions to stage only verified task files and leave pre-existing/unrelated changes untouched. Add an offline prompt regression and a tracked, pre-modified unrelated sentinel in this live fixture. No new host-side auto-commit subsystem is required.
 
@@ -700,6 +699,8 @@ Do not assert exact token counts in live tests. Assert sane nonnegative counts, 
 Set per-case and overall limits, report progress at least every 30 seconds, and terminate only the harness-owned process tree when a case times out. On Windows use verified fixture child PIDs, not image-name matching. A background process that outlives its case is a failed cleanup check.
 
 Stop listeners, watchers, timers, and owned child processes in `finally`. Delete only paths under the exact marker-verified temporary root. On failure, preserve that root for diagnosis and print its path; on success, retain only the small sanitized evidence report at an explicit output path. Never delete a user home, auth file, actual repository, or a supplied Codex home. Do not use global Git config, production usage directories, production PID files, or live daemon cleanup settings.
+
+On Windows, terminating a Node child with `SIGTERM` does not reliably run JavaScript signal handlers. After terminating and verifying the exact harness-owned PID, the harness may remove only that fixture daemon's stale PID file before asserting that its loopback listener is unreachable. It must never remove a production or unverified PID file.
 
 The harness's successful result proves the fixture workflow under its invoking identity. It does not prove PM2 Local System authentication, every production MCP integration, or live job completion.
 

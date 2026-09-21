@@ -3,8 +3,12 @@ import path from 'node:path'
 import type {
   UsageBreakdownV1,
   UsageCallRecordV1,
+  UsageCallRecordV2,
   UsagePeriodSnapshotV1,
+  UsagePeriodSnapshotV2,
+  UsageRunRecord,
   UsageRunRecordV1,
+  UsageRunRecordV2,
   UsageRunSummaryV1,
   UsageTotalsV1,
 } from './types.js'
@@ -25,15 +29,19 @@ export interface AggregateUsageOptions extends UsagePeriod {
 }
 
 interface LoadedRecords {
-  records: UsageRunRecordV1[]
+  records: NormalizedRun[]
   filesRead: number
   invalidFiles: number
   unsupportedSchemaFiles: number
 }
 
+type UsageEvidence = 'reported' | 'unavailable' | 'legacy'
+type NormalizedCall = UsageCallRecordV2 & { usageEvidence: UsageEvidence }
+type NormalizedRun = Omit<UsageRunRecordV2, 'calls'> & { calls: NormalizedCall[] }
+
 interface CallWithRun {
-  call: UsageCallRecordV1
-  run: UsageRunRecordV1
+  call: NormalizedCall
+  run: NormalizedRun
 }
 
 function walkJsonFiles(root: string): string[] {
@@ -62,7 +70,7 @@ function isValidCall(value: unknown): value is UsageCallRecordV1 {
     typeof call.completedAt === 'string' &&
     (call.role === 'director' || call.role === 'worker') &&
     typeof call.workflowStep === 'number' &&
-    (call.backend === 'agent-sdk' || call.backend === 'claude-cli') &&
+    (call.backend === 'agent-sdk' || call.backend === 'claude-cli' || call.backend === 'codex-sdk') &&
     typeof call.model === 'string' &&
     typeof call.success === 'boolean' &&
     isFiniteNonNegative(call.durationMs) &&
@@ -75,10 +83,24 @@ function isValidCall(value: unknown): value is UsageCallRecordV1 {
     (call.actualCostUsd === null || isFiniteNonNegative(call.actualCostUsd))
 }
 
-function isValidRecord(value: unknown): value is UsageRunRecordV1 {
+function isValidCallV2(value: unknown): value is UsageCallRecordV2 {
+  if (!isValidCall(value)) return false
+  const call = value as Partial<UsageCallRecordV2>
+  return (call.provider === 'claude' || call.provider === 'codex') &&
+    (call.profile === null || typeof call.profile === 'string') &&
+    ['subscription', 'metered', 'unknown'].includes(call.billingMode ?? '') &&
+    (call.usageStatus === 'reported' || call.usageStatus === 'unavailable') &&
+    (call.reasoningOutputTokens === undefined || isFiniteNonNegative(call.reasoningOutputTokens))
+}
+
+function isValidRecord(value: unknown): value is UsageRunRecord {
   if (!value || typeof value !== 'object') return false
   const record = value as Partial<UsageRunRecordV1>
-  return record.schemaVersion === 1 &&
+  const schemaVersion = (record as { schemaVersion?: unknown }).schemaVersion
+  const callsValid = Array.isArray(record.calls) && (schemaVersion === 1
+    ? record.calls.every(isValidCall)
+    : schemaVersion === 2 && record.calls.every(isValidCallV2))
+  return (schemaVersion === 1 || schemaVersion === 2) &&
     typeof record.runId === 'string' &&
     typeof record.startedAt === 'string' &&
     (record.status === 'running' || record.status === 'completed' || record.status === 'failed') &&
@@ -88,7 +110,25 @@ function isValidRecord(value: unknown): value is UsageRunRecordV1 {
     typeof record.originalSpecPath === 'string' &&
     typeof record.targetRepoPath === 'string' &&
     typeof record.runDir === 'string' &&
-    Array.isArray(record.calls) && record.calls.every(isValidCall)
+    callsValid
+}
+
+function normalizeRecord(record: UsageRunRecord): NormalizedRun {
+  if (record.schemaVersion === 2) {
+    return { ...record, calls: record.calls.map(call => ({ ...call, usageEvidence: call.usageStatus })) }
+  }
+  return {
+    ...record,
+    schemaVersion: 2,
+    calls: record.calls.map(call => ({
+      ...call,
+      provider: 'claude',
+      profile: null,
+      billingMode: 'unknown',
+      usageStatus: 'reported',
+      usageEvidence: 'legacy',
+    })),
+  }
 }
 
 export function loadUsageRecords(usageDir: string): LoadedRecords {
@@ -97,12 +137,12 @@ export function loadUsageRecords(usageDir: string): LoadedRecords {
   for (const file of files) {
     try {
       const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown
-      if (parsed && typeof parsed === 'object' && (parsed as { schemaVersion?: unknown }).schemaVersion !== 1) {
+      if (parsed && typeof parsed === 'object' && ![1, 2].includes((parsed as { schemaVersion?: number }).schemaVersion ?? -1)) {
         loaded.unsupportedSchemaFiles++
       } else if (!isValidRecord(parsed)) {
         loaded.invalidFiles++
       } else {
-        loaded.records.push(parsed)
+        loaded.records.push(normalizeRecord(parsed))
       }
     } catch {
       loaded.invalidFiles++
@@ -135,10 +175,10 @@ function emptyBreakdown(key: string): UsageBreakdownV1 {
 }
 
 function buildBreakdown(items: readonly CallWithRun[], keyOf: (item: CallWithRun) => string): UsageBreakdownV1[] {
-  const groups = new Map<string, { calls: UsageCallRecordV1[]; runs: Map<string, UsageRunRecordV1> }>()
+  const groups = new Map<string, { calls: NormalizedCall[]; runs: Map<string, NormalizedRun> }>()
   for (const item of items) {
     const key = keyOf(item)
-    const group = groups.get(key) ?? { calls: [], runs: new Map<string, UsageRunRecordV1>() }
+    const group = groups.get(key) ?? { calls: [], runs: new Map<string, NormalizedRun>() }
     group.calls.push(item.call)
     group.runs.set(item.run.runId, item.run)
     groups.set(key, group)
@@ -166,7 +206,7 @@ function localTimestamp(date: Date, timezone: string): string {
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`
 }
 
-export function aggregateUsage(options: AggregateUsageOptions): UsagePeriodSnapshotV1 {
+export function aggregateUsage(options: AggregateUsageOptions): UsagePeriodSnapshotV2 {
   if (!(options.start < options.end)) throw new Error('Usage period start must be before end')
   const loaded = loadUsageRecords(options.usageDir)
   const applications = options.applications ? new Set(options.applications) : undefined
@@ -208,7 +248,7 @@ export function aggregateUsage(options: AggregateUsageOptions): UsagePeriodSnaps
   const terminalRuns = completedRuns + failedRuns
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: (options.now ?? (() => new Date()))().toISOString(),
     period: {
       startUtc: options.start.toISOString(),
@@ -233,11 +273,18 @@ export function aggregateUsage(options: AggregateUsageOptions): UsagePeriodSnaps
     byRole: buildBreakdown(calls, item => item.call.role),
     byBackend: buildBreakdown(calls, item => item.call.backend),
     byModel: buildBreakdown(calls, item => item.call.model),
+    byProvider: buildBreakdown(calls, item => item.call.provider),
+    byProfile: buildBreakdown(calls, item => item.call.profile ?? 'legacy'),
+    byBillingMode: buildBreakdown(calls, item => item.call.billingMode),
     topRuns,
     dataQuality: {
       filesRead: loaded.filesRead,
       invalidFiles: loaded.invalidFiles,
       unsupportedSchemaFiles: loaded.unsupportedSchemaFiles,
+      reportedCalls: calls.filter(item => item.call.usageEvidence === 'reported').length,
+      unavailableCalls: calls.filter(item => item.call.usageEvidence === 'unavailable').length,
+      legacyCalls: calls.filter(item => item.call.usageEvidence === 'legacy').length,
+      unknownCostCalls: calls.filter(item => item.call.actualCostUsd === null && item.call.billingMode !== 'subscription').length,
     },
   }
 }

@@ -101,7 +101,7 @@ describe('executeWorker', () => {
         status: expect.any(Object),
         summary: expect.any(Object),
       }),
-      required: ['status', 'summary'],
+      required: expect.arrayContaining(['status', 'summary', 'filesChanged', 'testsRun', 'issues']),
     }))
   })
 

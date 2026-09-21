@@ -7,7 +7,13 @@ import { fileURLToPath } from 'node:url'
 // Load .env from the cestdone installation directory (not cwd),
 // so SMTP credentials work even when invoked from a target repo.
 const __cestdoneRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
-try { process.loadEnvFile(path.join(__cestdoneRoot, '.env')) } catch { /* .env is optional */ }
+const __explicitEnvFile = process.env.CESTDONE_ENV_FILE
+if (__explicitEnvFile) {
+  if (!path.isAbsolute(__explicitEnvFile)) throw new Error('CESTDONE_ENV_FILE must be an absolute path')
+  process.loadEnvFile(__explicitEnvFile)
+} else {
+  try { process.loadEnvFile(path.join(__cestdoneRoot, '.env')) } catch { /* installation .env is optional */ }
+}
 import { Command } from 'commander'
 import { loadConfig, DEFAULTS } from '../shared/config.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
@@ -18,20 +24,20 @@ import { executeWorker } from '../worker/worker.js'
 import { ensureGitRepo } from '../shared/git.js'
 import { createSessionLogger, type SessionLogger } from '../shared/logger.js'
 import { CostTracker, formatFinalSummary } from '../shared/cost-tracker.js'
-import type { FreeFormSpec, Config, BackendType } from '../shared/types.js'
+import type { FreeFormSpec, Config, BackendType, AgentSelectionOptions, ResolvedRunAgents, Backend } from '../shared/types.js'
 import { createBackend } from '../backends/index.js'
 import { NonInteractiveEscalationError } from '../daemon/errors.js'
 import { acquireRunLock } from '../shared/run-lock.js'
 import { UsageRecorder, UsageTrackingBackend, normalizeApplication } from '../usage/recorder.js'
 import type { RunInvocationContext } from '../shared/types.js'
+import { resolveRunAgents } from '../shared/agent-selection.js'
+import { resolveCodexHome } from '../backends/codex-sdk.js'
 
-export interface RunOptions {
+export interface RunOptions extends AgentSelectionOptions {
   target?: string
   application?: string
   invocationContext?: RunInvocationContext
   houseRules?: string
-  directorModel?: string
-  workerModel?: string
   directorMaxTurns?: string
   maxTurns?: string
   withWorker?: boolean
@@ -39,21 +45,16 @@ export interface RunOptions {
   withBashReviews?: boolean
   withHumanValidation?: boolean
   autoCommit?: boolean
-  backend?: string
-  directorBackend?: string
-  workerBackend?: string
   claudeCliPath?: string
   skipPlanning?: boolean
   nonInteractive?: boolean
   mcpConfig?: string
 }
 
-export interface ResumeOptions {
+export interface ResumeOptions extends AgentSelectionOptions {
   target?: string
   application?: string
   invocationContext?: RunInvocationContext
-  directorModel?: string
-  workerModel?: string
   directorMaxTurns?: string
   maxTurns?: string
   withWorker?: boolean
@@ -61,12 +62,22 @@ export interface ResumeOptions {
   withBashReviews?: boolean
   withHumanValidation?: boolean
   autoCommit?: boolean
-  backend?: string
-  directorBackend?: string
-  workerBackend?: string
   claudeCliPath?: string
   nonInteractive?: boolean
   mcpConfig?: string
+}
+
+export interface PreparedRun {
+  readonly config: Config
+  readonly configDir: string
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value)
+    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child)
+  }
+  return value
 }
 
 function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void {
@@ -124,30 +135,114 @@ function applyFlags(config: Config, options?: RunOptions | ResumeOptions): void 
   }
 }
 
+function applyResolvedAgents(config: Config, options?: RunOptions | ResumeOptions): ResolvedRunAgents {
+  const resolved = resolveRunAgents(config, options ?? {}, process.env)
+  config.resolvedAgents = resolved
+  config.directorBackend = resolved.director.backend
+  config.workerBackend = resolved.worker.backend
+  config.directorModel = resolved.director.model
+  config.workerModel = resolved.worker.model
+  return resolved
+}
+
+function resolveConfigPath(value: string | undefined, configDir: string): string | undefined {
+  return value ? path.resolve(configDir, value) : undefined
+}
+
+export function prepareRun(
+  specPath: string,
+  options: RunOptions | ResumeOptions = {},
+  rootConfig: Config = loadConfig(),
+  configDir: string = process.cwd(),
+): PreparedRun {
+  const config = structuredClone(rootConfig)
+  delete config.daemon
+  const resolvedSpecPath = path.resolve(configDir, specPath)
+  config.targetRepoPath = resolveTargetDir(options.target, config.targetRepoPath, resolvedSpecPath, configDir)
+  config.runDir = '.cestdone'
+  applyFlags(config, options)
+  const agents = applyResolvedAgents(config, options)
+  config.houseRules = resolveConfigPath(options && 'houseRules' in options ? options.houseRules ?? config.houseRules : config.houseRules, configDir)
+  config.mcpConfig = resolveConfigPath(config.mcpConfig, configDir)
+  if (config.centralLogDir) config.centralLogDir = path.resolve(configDir, config.centralLogDir)
+  if (config.usageDir) config.usageDir = path.resolve(configDir, config.usageDir)
+  if (agents.director.provider === 'codex' || agents.worker.provider === 'codex') {
+    config.codexHome = resolveCodexHome(process.env, config.targetRepoPath)
+  }
+  return deepFreeze({ config: structuredClone(config), configDir: path.resolve(configDir) })
+}
+
+interface RunBackends { director: Backend; worker: Backend }
+
+function createRunBackends(config: Config): RunBackends {
+  const agents = config.resolvedAgents ?? applyResolvedAgents(config)
+  const bySelection = new Map<string, Backend>()
+  const get = (selection: typeof agents.director): Backend => {
+    const key = JSON.stringify(selection)
+    const existing = bySelection.get(key)
+    if (existing) return existing
+    const backend = createBackend(selection, config)
+    bySelection.set(key, backend)
+    return backend
+  }
+  return { director: get(agents.director), worker: get(agents.worker) }
+}
+
+function logCodexCompatibility(config: Config, logger: SessionLogger): void {
+  const agents = config.resolvedAgents
+  if (agents && (agents.director.provider === 'codex' || agents.worker.provider === 'codex')) {
+    logger.log('Config', 'Codex does not support maxTurns; callTimeoutMs is the provider call limit. Workflow retry and sub-phase caps still apply.')
+  }
+}
+
+async function preflightForRun(config: Config, active: { director: boolean; worker: boolean }, backends: RunBackends): Promise<void> {
+  const agents = config.resolvedAgents ?? applyResolvedAgents(config)
+  if (active.director && agents.director.provider === 'codex' && config.withReviews && config.withBashReviews === false) {
+    throw new Error('Codex reviews cannot enforce --no-with-bash-reviews; use a Claude Director for that restriction')
+  }
+  if ((active.director && agents.director.provider === 'codex') || (active.worker && agents.worker.provider === 'codex')) {
+    if (config.maxBudgetUsd !== undefined) throw new Error('maxBudgetUsd is unsupported for active Codex roles')
+  }
+  if (active.worker && agents.worker.provider === 'codex' && config.mcpConfig) throw new Error('mcpConfig is unsupported for a Codex Worker')
+  const candidates = [active.director ? backends.director : undefined, active.worker ? backends.worker : undefined].filter(Boolean)
+  const seen = new Set<Backend>()
+  for (const backend of candidates) {
+    if (!backend || seen.has(backend)) continue
+    seen.add(backend)
+    const result = await backend.preflight({ cwd: config.targetRepoPath })
+    if (!result.ok) throw new Error(result.error ?? `${backend.provider ?? backend.name} preflight failed`)
+  }
+}
+
 export async function handleRun(
   specPath: string,
-  options?: RunOptions
+  options?: RunOptions,
+  prepared?: PreparedRun,
 ): Promise<void> {
   const startTime = Date.now()
   const specName = path.basename(specPath, path.extname(specPath))
-  const resolvedSpecPath = path.resolve(specPath)
+  const resolvedSpecPath = path.resolve(prepared?.configDir ?? process.cwd(), specPath)
 
-  const config = loadConfig()
-  const targetDir = resolveTargetDir(options?.target, config.targetRepoPath, resolvedSpecPath)
-  config.targetRepoPath = targetDir
+  const preparedRun = prepared ?? prepareRun(specPath, options)
+  const config = structuredClone(preparedRun.config)
+  const targetDir = config.targetRepoPath
   config.runDir = generateRunDir(specName)
 
   const absRunDir = path.join(targetDir, config.runDir)
   const centralLogDir = config.centralLogDir ?? DEFAULTS.centralLogDir
-  const logger = createSessionLogger({ specName, runDir: absRunDir, centralLogDir })
-
-  applyFlags(config, options)
 
   if (!config.nonInteractive) ensureTTY()
   if (config.nonInteractive) {
     process.env.GIT_TERMINAL_PROMPT = '0'
     process.env.GCM_INTERACTIVE = 'never'
   }
+  const backends = createRunBackends(config)
+  await preflightForRun(config, {
+    director: !config.skipPlanning || Boolean(config.withReviews),
+    worker: true,
+  }, backends)
+  const logger = createSessionLogger({ specName, runDir: absRunDir, centralLogDir })
+  logCodexCompatibility(config, logger)
   ensureGitRepo(targetDir)
   const releaseRunLock = acquireRunLock(targetDir, specName)
   const explicitApplication = options?.application ?? config.application
@@ -179,7 +274,7 @@ export async function handleRun(
     }
 
     const costTracker = new CostTracker()
-    const deps = buildDeps(logger, costTracker, config, usageRecorder)
+    const deps = buildDeps(logger, costTracker, config, usageRecorder, backends)
     const freeFormSpec: FreeFormSpec = {
       text: specText,
       houseRulesContent,
@@ -246,28 +341,30 @@ export async function handleRun(
 
 export async function handleResume(
   specPath: string,
-  options?: ResumeOptions
+  options?: ResumeOptions,
+  prepared?: PreparedRun,
 ): Promise<void> {
   const startTime = Date.now()
   const specName = path.basename(specPath, path.extname(specPath))
-  const resolvedSpecPath = path.resolve(specPath)
+  const resolvedSpecPath = path.resolve(prepared?.configDir ?? process.cwd(), specPath)
 
-  const config = loadConfig()
-  const targetDir = resolveTargetDir(options?.target, config.targetRepoPath, resolvedSpecPath)
-  config.targetRepoPath = targetDir
+  const preparedRun = prepared ?? prepareRun(specPath, options)
+  const config = structuredClone(preparedRun.config)
+  const targetDir = config.targetRepoPath
   config.runDir = generateRunDir(specName)
 
   const absRunDir = path.join(targetDir, config.runDir)
   const centralLogDir = config.centralLogDir ?? DEFAULTS.centralLogDir
-  const logger = createSessionLogger({ specName, runDir: absRunDir, centralLogDir })
-
-  applyFlags(config, options)
 
   if (!config.nonInteractive) ensureTTY()
   if (config.nonInteractive) {
     process.env.GIT_TERMINAL_PROMPT = '0'
     process.env.GCM_INTERACTIVE = 'never'
   }
+  const backends = createRunBackends(config)
+  await preflightForRun(config, { director: true, worker: Boolean(config.withWorker) }, backends)
+  const logger = createSessionLogger({ specName, runDir: absRunDir, centralLogDir })
+  logCodexCompatibility(config, logger)
   ensureGitRepo(targetDir)
   const releaseRunLock = acquireRunLock(targetDir, specName)
   const explicitApplication = options?.application ?? config.application
@@ -295,7 +392,7 @@ export async function handleResume(
     }
 
     const costTracker = new CostTracker()
-    const deps = buildDeps(logger, costTracker, config, usageRecorder)
+    const deps = buildDeps(logger, costTracker, config, usageRecorder, backends)
     await executeAllPhases(planPath, config, deps)
     logFinalSummary(logger, costTracker, startTime)
     runSucceeded = true
@@ -335,16 +432,16 @@ async function executeAllPhases(
   deps.display('\nAll phases complete.')
 }
 
-function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Config, usageRecorder?: UsageRecorder): DirectorDeps {
+function buildDeps(logger: SessionLogger, costTracker?: CostTracker, config?: Config, usageRecorder?: UsageRecorder, preparedBackends?: RunBackends): DirectorDeps {
   const effectiveConfig = config ?? { targetRepoPath: DEFAULTS.targetRepoPath, runDir: '.cestdone', maxTurns: DEFAULTS.maxTurns }
   const ni = effectiveConfig.nonInteractive ?? false
 
-  const directorBackend = createBackend(
-    config?.directorBackend ?? DEFAULTS.backend,
+  const directorBackend = preparedBackends?.director ?? createBackend(
+    config?.resolvedAgents?.director ?? config?.directorBackend ?? DEFAULTS.backend,
     effectiveConfig
   )
-  const workerBackend = createBackend(
-    config?.workerBackend ?? DEFAULTS.backend,
+  const workerBackend = preparedBackends?.worker ?? createBackend(
+    config?.resolvedAgents?.worker ?? config?.workerBackend ?? DEFAULTS.backend,
     effectiveConfig
   )
 
@@ -426,9 +523,9 @@ export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
  * 2. Non-default targetRepoPath from .cestdonerc.json
  * 3. Spec file's parent directory (so specs inside a repo "just work")
  */
-function resolveTargetDir(explicitTarget: string | undefined, configTarget: string, specPath: string): string {
-  if (explicitTarget) return path.resolve(explicitTarget)
-  if (configTarget !== DEFAULTS.targetRepoPath) return path.resolve(configTarget)
+function resolveTargetDir(explicitTarget: string | undefined, configTarget: string, specPath: string, baseDir = process.cwd()): string {
+  if (explicitTarget) return path.resolve(baseDir, explicitTarget)
+  if (configTarget !== DEFAULTS.targetRepoPath) return path.resolve(baseDir, configTarget)
   return path.dirname(specPath)
 }
 
@@ -455,6 +552,9 @@ function addCommonOptions(cmd: Command): Command {
   return cmd
     .option('--target <path>', 'Target repository path (default: spec file\'s parent directory)')
     .option('--application <name>', 'Logical application label for usage accounting')
+    .option('--agent <profile>', 'Agent profile for both Director and Worker')
+    .option('--director-agent <profile>', 'Override the Director agent profile')
+    .option('--worker-agent <profile>', 'Override the Worker agent profile')
     .option('--director-model <model>', `Director model: haiku | sonnet | opus (default: "${DEFAULTS.directorModel}")`)
     .option('--worker-model <model>', `Worker model: haiku | sonnet | opus (default: "${DEFAULTS.workerModel}")`)
     .option('--director-max-turns <n>', `Max turns for Director steps (default: ${DEFAULTS.directorMaxTurnsDefault})`)
@@ -466,7 +566,7 @@ function addCommonOptions(cmd: Command): Command {
     .option('--with-bash-reviews', `Allow Bash in reviews, implies --with-reviews (default: ${DEFAULTS.withBashReviews})`)
     .option('--no-with-bash-reviews', 'Disable Bash in reviews')
     .option('--with-human-validation', `Require human approval of plan (default: ${DEFAULTS.withHumanValidation})`)
-    .option('--backend <type>', `Backend for both agents: agent-sdk (API billing) | claude-cli (subscription) (default: "${DEFAULTS.backend}")`)
+    .option('--backend <type>', `Legacy Claude backend for both agents: agent-sdk | claude-cli (default: "${DEFAULTS.backend}")`)
     .option('--director-backend <type>', 'Override Director backend: agent-sdk | claude-cli')
     .option('--worker-backend <type>', 'Override Worker backend: agent-sdk | claude-cli')
     .option('--claude-cli-path <path>', `Path to claude binary (default: "${DEFAULTS.claudeCliPath}")`)
@@ -502,53 +602,18 @@ if (isCliEntryPoint()) {
     .option('--house-rules <path>', 'Path to house rules file')
     .option('--skip-planning', 'Execute the complete specification as one Worker task without creating a plan')
   addCommonOptions(runCmd)
-    .action(async (opts: { spec: string; target?: string; application?: string; houseRules?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; skipPlanning?: boolean; nonInteractive?: boolean; mcpConfig?: string }) => {
-      await handleRun(opts.spec, {
-        target: opts.target,
-        application: opts.application,
-        houseRules: opts.houseRules,
-        directorModel: opts.directorModel,
-        workerModel: opts.workerModel,
-        directorMaxTurns: opts.directorMaxTurns,
-        maxTurns: opts.maxTurns,
-        withWorker: opts.withWorker,
-        withReviews: opts.withReviews,
-        withBashReviews: opts.withBashReviews,
-        withHumanValidation: opts.withHumanValidation,
-        autoCommit: opts.autoCommit,
-        backend: opts.backend,
-        directorBackend: opts.directorBackend,
-        workerBackend: opts.workerBackend,
-        claudeCliPath: opts.claudeCliPath,
-        skipPlanning: opts.skipPlanning,
-        nonInteractive: opts.nonInteractive,
-        mcpConfig: opts.mcpConfig,
-      })
+    .action(async (opts: RunOptions & { spec: string }) => {
+      const { spec, ...options } = opts
+      await handleRun(spec, options)
     })
 
   const resumeCmd = program.command('resume')
     .description('Resume execution from an existing .plan.md file')
     .requiredOption('--spec <path>', 'Path to spec file (required)')
   addCommonOptions(resumeCmd)
-    .action(async (opts: { spec: string; target?: string; application?: string; directorModel?: string; workerModel?: string; directorMaxTurns?: string; maxTurns?: string; withWorker?: boolean; withReviews?: boolean; withBashReviews?: boolean; withHumanValidation?: boolean; autoCommit?: boolean; backend?: string; directorBackend?: string; workerBackend?: string; claudeCliPath?: string; nonInteractive?: boolean }) => {
-      await handleResume(opts.spec, {
-        target: opts.target,
-        application: opts.application,
-        directorModel: opts.directorModel,
-        workerModel: opts.workerModel,
-        directorMaxTurns: opts.directorMaxTurns,
-        maxTurns: opts.maxTurns,
-        withWorker: opts.withWorker,
-        withReviews: opts.withReviews,
-        withBashReviews: opts.withBashReviews,
-        withHumanValidation: opts.withHumanValidation,
-        autoCommit: opts.autoCommit,
-        backend: opts.backend,
-        directorBackend: opts.directorBackend,
-        workerBackend: opts.workerBackend,
-        claudeCliPath: opts.claudeCliPath,
-        nonInteractive: opts.nonInteractive,
-      })
+    .action(async (opts: ResumeOptions & { spec: string }) => {
+      const { spec, ...options } = opts
+      await handleResume(spec, options)
     })
 
   const daemonCmd = program.command('daemon')
@@ -584,8 +649,8 @@ if (isCliEntryPoint()) {
       const configPath = path.resolve(process.cwd(), '.cestdonerc.json')
       const watcher = createConfigWatcher({
         configPath,
-        onReload: (newDaemonConfig) => {
-          daemon.reload(newDaemonConfig).catch((err) => {
+        onReload: (newConfig) => {
+          daemon.reload(newConfig).catch((err) => {
             logger.error(`Config reload failed: ${(err as Error).message}`)
           })
         },

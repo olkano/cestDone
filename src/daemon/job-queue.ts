@@ -1,6 +1,7 @@
 // src/daemon/job-queue.ts
 import crypto from 'node:crypto'
 import type { InvocationType } from '../shared/types.js'
+import type { PreparedRun } from '../cli/index.js'
 
 export interface Job {
   id: string
@@ -9,6 +10,7 @@ export interface Job {
   application?: string
   specPath: string
   options: Record<string, unknown>
+  preparedRun?: PreparedRun
   templateContext?: unknown
   status: 'queued' | 'running' | 'completed' | 'failed'
   createdAt: Date

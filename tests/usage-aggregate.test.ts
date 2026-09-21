@@ -107,7 +107,7 @@ describe('aggregateUsage', () => {
     const usageDir = makeTempDir()
     writeRecord(usageDir, 'valid.json', run())
     fs.writeFileSync(path.join(usageDir, 'runs', '2026', '08', 'broken.json'), '{bad', 'utf-8')
-    writeRecord(usageDir, 'future.json', { schemaVersion: 2 })
+    writeRecord(usageDir, 'future.json', { schemaVersion: 3 })
 
     const snapshot = aggregateUsage({
       usageDir,
@@ -116,8 +116,36 @@ describe('aggregateUsage', () => {
       timezone: 'Europe/Madrid',
     })
 
-    expect(snapshot.dataQuality).toEqual({ filesRead: 3, invalidFiles: 1, unsupportedSchemaFiles: 1 })
+    expect(snapshot.dataQuality).toMatchObject({ filesRead: 3, invalidFiles: 1, unsupportedSchemaFiles: 1, legacyCalls: 1 })
     expect(snapshot.totals.calls).toBe(1)
+  })
+
+  it('aggregates V2 provider, profile, billing, and unavailable usage separately', () => {
+    const usageDir = makeTempDir()
+    const v2Call = {
+      ...call({ backend: 'codex-sdk', model: 'gpt-test' }),
+      provider: 'codex' as const, profile: 'codex', billingMode: 'subscription' as const,
+      usageStatus: 'reported' as const, reasoningOutputTokens: 5,
+    }
+    const unavailable = {
+      ...v2Call, callId: 'call-2', usageStatus: 'unavailable' as const,
+      inputTokens: 999, totalProcessedTokens: 999,
+    }
+    writeRecord(usageDir, 'v2.json', {
+      ...run({ calls: [] }), schemaVersion: 2, calls: [v2Call, unavailable],
+    })
+    const snapshot = aggregateUsage({
+      usageDir,
+      start: new Date('2026-08-14T18:00:00Z'),
+      end: new Date('2026-08-21T18:00:00Z'),
+      timezone: 'Europe/Madrid',
+    })
+    expect(snapshot.schemaVersion).toBe(2)
+    expect(snapshot.byProvider[0].key).toBe('codex')
+    expect(snapshot.byProfile[0].key).toBe('codex')
+    expect(snapshot.byBillingMode[0].key).toBe('subscription')
+    expect(snapshot.dataQuality).toMatchObject({ reportedCalls: 1, unavailableCalls: 1, legacyCalls: 0 })
+    expect(snapshot.totals.inputTokens).toBe(10)
   })
 })
 

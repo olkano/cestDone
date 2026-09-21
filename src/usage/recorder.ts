@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Backend, BackendInvocation, BackendResult, BackendType, RunInvocationContext } from '../shared/types.js'
+import type { AgentProvider, Backend, BackendInvocation, BackendResult, BackendType, BillingMode, RunInvocationContext } from '../shared/types.js'
 import type { SessionLogger } from '../shared/logger.js'
-import type { UsageCallRecordV1, UsageRunRecordV1, UsageTotalsV1 } from './types.js'
+import type { UsageCallRecordV1, UsageCallRecordV2, UsageRunRecordV2, UsageTotalsV1 } from './types.js'
 
 const EMPTY_TOTALS: UsageTotalsV1 = {
   calls: 0,
@@ -46,18 +46,20 @@ export function totalProcessedTokens(usage: {
   return usage.inputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens + usage.outputTokens
 }
 
-export function calculateUsageTotals(calls: readonly UsageCallRecordV1[]): UsageTotalsV1 {
+export function calculateUsageTotals(calls: readonly (UsageCallRecordV1 | UsageCallRecordV2)[]): UsageTotalsV1 {
   const totals = { ...EMPTY_TOTALS }
   let knownCost = 0
   for (const call of calls) {
     totals.calls++
     if (call.success) totals.successfulCalls++
     else totals.failedCalls++
-    totals.inputTokens += call.inputTokens
-    totals.cacheCreationInputTokens += call.cacheCreationInputTokens
-    totals.cacheReadInputTokens += call.cacheReadInputTokens
-    totals.outputTokens += call.outputTokens
-    totals.totalProcessedTokens += call.totalProcessedTokens
+    if (!('usageStatus' in call) || call.usageStatus === 'reported') {
+      totals.inputTokens += call.inputTokens
+      totals.cacheCreationInputTokens += call.cacheCreationInputTokens
+      totals.cacheReadInputTokens += call.cacheReadInputTokens
+      totals.outputTokens += call.outputTokens
+      totals.totalProcessedTokens += call.totalProcessedTokens
+    }
     if (call.actualCostUsd !== null) {
       totals.callsWithActualCost++
       knownCost += call.actualCostUsd
@@ -72,7 +74,7 @@ export class UsageRecorder {
   readonly recordPath: string
   private readonly now: () => Date
   private active = true
-  private record: UsageRunRecordV1
+  private record: UsageRunRecordV2
 
   constructor(private readonly options: UsageRecorderOptions) {
     this.now = options.now ?? (() => new Date())
@@ -86,7 +88,7 @@ export class UsageRecorder {
     )
     this.recordPath = path.join(recordsDir, `${this.runId}.json`)
     this.record = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       runId: this.runId,
       startedAt,
       status: 'running',
@@ -106,10 +108,13 @@ export class UsageRecorder {
     this.persist('initialize')
   }
 
-  recordCall(backend: BackendType, invocation: BackendInvocation, result: BackendResult): void {
+  recordCall(backend: BackendType, invocation: BackendInvocation, result: BackendResult, provider?: AgentProvider): void {
     if (!this.active || !invocation.usageContext) return
     const usage = result.usage
-    const call: UsageCallRecordV1 = {
+    const resolvedProvider = provider ?? (backend === 'codex-sdk' ? 'codex' : 'claude')
+    const billingMode: BillingMode = result.billingMode ?? (backend === 'agent-sdk' ? 'metered' : backend === 'claude-cli' ? 'subscription' : 'unknown')
+    const usageStatus = result.usageStatus ?? 'reported'
+    const call: UsageCallRecordV2 = {
       callId: crypto.randomUUID(),
       completedAt: this.now().toISOString(),
       role: invocation.usageContext.role,
@@ -118,6 +123,10 @@ export class UsageRecorder {
         ? { phaseNumber: invocation.usageContext.phaseNumber }
         : {}),
       backend,
+      provider: resolvedProvider,
+      profile: invocation.profileName ?? null,
+      billingMode,
+      usageStatus,
       model: invocation.model,
       success: result.success,
       durationMs: result.durationMs,
@@ -128,6 +137,9 @@ export class UsageRecorder {
       outputTokens: usage.outputTokens,
       totalProcessedTokens: totalProcessedTokens(usage),
       actualCostUsd: result.costUsd,
+      ...(invocation.reasoningEffort ? { reasoningEffort: invocation.reasoningEffort } : {}),
+      ...(result.reasoningOutputTokens !== undefined ? { reasoningOutputTokens: result.reasoningOutputTokens } : {}),
+      ...(result.errorCategory ? { errorCategory: result.errorCategory } : {}),
     }
     this.record.calls.push(call)
     this.record.totals = calculateUsageTotals(this.record.calls)
@@ -145,7 +157,7 @@ export class UsageRecorder {
     this.persist('finalize')
   }
 
-  getRecord(): UsageRunRecordV1 {
+  getRecord(): UsageRunRecordV2 {
     return structuredClone(this.record)
   }
 
@@ -166,21 +178,35 @@ export class UsageRecorder {
 
 export class UsageTrackingBackend implements Backend {
   readonly name: BackendType
+  readonly provider
+  readonly capabilities
 
   constructor(
     private readonly backend: Backend,
     private readonly recorder: UsageRecorder,
   ) {
     this.name = backend.name
+    this.provider = backend.provider
+    this.capabilities = backend.capabilities
   }
 
   async invoke(params: BackendInvocation): Promise<BackendResult> {
-    const result = await this.backend.invoke(params)
-    this.recorder.recordCall(this.name, params, result)
-    return result
+    try {
+      const result = await this.backend.invoke(params)
+      this.recorder.recordCall(this.name, params, result, this.backend.provider)
+      return result
+    } catch (error) {
+      const billingMode: BillingMode = this.name === 'agent-sdk' ? 'metered' : this.name === 'claude-cli' ? 'subscription' : 'unknown'
+      this.recorder.recordCall(this.name, params, {
+        output: '', costUsd: null, numTurns: 0, durationMs: 0,
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+        success: false, billingMode, usageStatus: 'unavailable', errorCategory: 'process_failed',
+      }, this.backend.provider)
+      throw error
+    }
   }
 
-  preflight(): Promise<{ ok: boolean; error?: string }> {
-    return this.backend.preflight()
+  preflight(context?: import('../shared/types.js').BackendPreflightContext): Promise<import('../shared/types.js').PreflightResult> {
+    return this.backend.preflight(context)
   }
 }

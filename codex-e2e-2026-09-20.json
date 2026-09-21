@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-09-20T14-05-24-248Z-b62d9819",
+  "status": "FAIL",
+  "model": "gpt-5.6-sol",
+  "reasoning": "medium",
+  "cases": [
+    {
+      "id": "E1",
+      "status": "PASS",
+      "durationMs": 120512,
+      "artifactHash": "113887e6668405a5e31619cf6c74259ca95e9656b8aa38f509f0ae74551b0283",
+      "hostTestExitCode": 0,
+      "usage": {
+        "calls": 2,
+        "processedTokens": 365409
+      },
+      "commit": "e1f1f60c575a307ebe615b6fca77da43ac83d47b",
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E2",
+      "status": "PASS",
+      "durationMs": 46091,
+      "artifactHash": "2136de9a2234a708f3d589dbf330fd69e35fa0715f191d847111d2275a54a011",
+      "hostTestExitCode": 0,
+      "usage": {
+        "calls": 1,
+        "processedTokens": 141651
+      },
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E3",
+      "status": "PASS",
+      "durationMs": 292530,
+      "artifactHash": "e324f7a9732189d3df8b1ceccaa3133c675f296cc322018f2a5bea9e9135c4fc",
+      "planHash": "b510e3eaae4ccba81e1d0f83b0bc8c08c54d7c248b17fce0cb153ad5db2bee8b",
+      "hostTestExitCode": 0,
+      "usageCalls": 7,
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E4",
+      "status": "PASS",
+      "durationMs": 120463,
+      "artifactHash": "6c433983d61091b11bf6b44392df991ffea17ab4d80022750473e7536e681bfe",
+      "hostTestExitCode": 0,
+      "usageCalls": 3,
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E5",
+      "status": "PASS",
+      "durationMs": 228176,
+      "artifactHash": "107769260e03426fbfe935bba6ef2580df6d8ff07ff31069577ee2a4cd6a9331",
+      "hostTestExitCode": 0,
+      "usageCalls": 5,
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E6",
+      "status": "PASS",
+      "durationMs": 77297,
+      "commit": "6030ec9b49e9ddfb5824fb31fb687b44d1b8992e",
+      "parent": "1d3cd950e9c87674ff0488beff63836a439dc4a6",
+      "author": "cestDone E2E <cestdone-e2e@example.invalid>",
+      "changedPaths": [
+        "result.json",
+        "sum.mjs"
+      ],
+      "artifactHash": "643cd45dfcd7256100edd8392cf6db6bba1b431922cf75e41f2c4920b9babcaa",
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E7",
+      "status": "PASS",
+      "durationMs": 135450,
+      "observations": [
+        {
+          "suffix": "default",
+          "profile": "codex",
+          "reasoningEffort": "medium"
+        },
+        {
+          "suffix": "changed",
+          "profile": "codex-alt",
+          "reasoningEffort": "low"
+        },
+        {
+          "suffix": "override",
+          "profile": "codex",
+          "reasoningEffort": "medium"
+        }
+      ],
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E8",
+      "status": "PASS",
+      "durationMs": 52207,
+      "artifactHash": "e97fcf94376510be733c06c2afbe891aaab979d4453cdf5ec69796db97fde226",
+      "usage": {
+        "calls": 1,
+        "processedTokens": 124596
+      },
+      "port": 10945,
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E9",
+      "status": "PASS",
+      "durationMs": 2111,
+      "checks": 4,
+      "reusedFromRunId": "2026-09-20T14-04-26-748Z-68ba9844"
+    },
+    {
+      "id": "E10",
+      "status": "FAIL",
+      "durationMs": 696,
+      "error": "Prerequisite SANDBOX_HELPER: pinned Codex Windows sandbox provisioning failed; run `codex doctor --json` and repair the approved Codex distribution before retrying E10"
+    },
+    {
+      "id": "M1",
+      "status": "NOT RUN",
+      "reason": "--include-claude was not requested"
+    },
+    {
+      "id": "M2",
+      "status": "NOT RUN",
+      "reason": "--include-claude was not requested"
+    }
+  ],
+  "error": "Prerequisite SANDBOX_HELPER: pinned Codex Windows sandbox provisioning failed; run `codex doctor --json` and repair the approved Codex distribution before retrying E10",
+  "retainedFixtureRoot": "C:\\Users\\dpire\\AppData\\Local\\Temp\\cestdone Codex é 2026-09-20T14-05-24-248Z-b62d9819 nbhMO4"
+}

@@ -19,6 +19,9 @@ vi.mock('../src/shared/logger.js', () => ({
 import { ensureTTY, askApproval, askInput } from '../src/cli/prompt.js'
 import { loadConfig } from '../src/shared/config.js'
 import { handleRun, handleResume } from '../src/cli/index.js'
+import { AgentSdkBackend } from '../src/backends/agent-sdk.js'
+
+const preflightSpy = vi.spyOn(AgentSdkBackend.prototype, 'preflight')
 
 const VALID_PLAN_CONTENT = [
   '# Plan: Integration Test',
@@ -86,6 +89,7 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-integ-'))
   process.env.CESTDONE_DIRECTOR_MODEL = 'claude-sonnet-5'
   process.env.CESTDONE_WORKER_MODEL = 'claude-haiku-4-5'
+  preflightSpy.mockResolvedValue({ ok: true, billingMode: 'metered' })
 
   vi.mocked(ensureTTY).mockReturnValue(undefined)
   vi.mocked(askApproval).mockResolvedValue({ approved: true })

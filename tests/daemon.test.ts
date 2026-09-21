@@ -7,7 +7,7 @@ import type { DaemonLogger } from '../src/daemon/daemon-logger.js'
 
 // Mock all daemon sub-modules
 vi.mock('../src/daemon/config-validator.js', () => ({
-  validateDaemonConfig: vi.fn().mockReturnValue({ valid: true, errors: [] }),
+  validateConfig: vi.fn().mockReturnValue({ valid: true, errors: [] }),
 }))
 
 vi.mock('../src/daemon/notifications.js', () => ({
@@ -74,7 +74,7 @@ vi.mock('node:fs', async () => {
 })
 
 import { createDaemon } from '../src/daemon/daemon.js'
-import { validateDaemonConfig } from '../src/daemon/config-validator.js'
+import { validateConfig } from '../src/daemon/config-validator.js'
 import { notifyJobFailure } from '../src/daemon/notifications.js'
 import { writePidFile, removePidFile, isDaemonRunning } from '../src/daemon/pid.js'
 import { createScheduler } from '../src/daemon/scheduler.js'
@@ -125,7 +125,7 @@ afterEach(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(validateDaemonConfig).mockReturnValue({ valid: true, errors: [] })
+  vi.mocked(validateConfig).mockReturnValue({ valid: true, errors: [] })
   vi.mocked(isDaemonRunning).mockReturnValue(false)
 })
 
@@ -139,7 +139,7 @@ describe('createDaemon', () => {
 
   // D-2
   it('throws on invalid daemon config', () => {
-    vi.mocked(validateDaemonConfig).mockReturnValue({ valid: false, errors: ['bad cron'] })
+    vi.mocked(validateConfig).mockReturnValue({ valid: false, errors: ['bad cron'] })
     expect(() => createDaemon(makeDeps())).toThrow('Invalid daemon config')
   })
 
@@ -224,6 +224,9 @@ describe('createDaemon', () => {
           originalSpecPath: 'specs/report.md',
         }),
       }),
+      expect.objectContaining({
+        config: expect.objectContaining({ application: 'reporting' }),
+      }),
     )
   })
 
@@ -249,6 +252,9 @@ describe('createDaemon', () => {
           type: 'webhook', triggerName: 'gh', originalSpecPath: 'specs/triage.md',
         }),
       }),
+      expect.objectContaining({
+        config: expect.objectContaining({ application: 'issues' }),
+      }),
     )
   })
 
@@ -273,6 +279,9 @@ describe('createDaemon', () => {
           type: 'poller', triggerName: 'deps', originalSpecPath: 'specs/deps.md',
         }),
       }),
+      expect.objectContaining({
+        config: expect.objectContaining({ application: 'dependencies' }),
+      }),
     )
   })
 
@@ -295,6 +304,27 @@ describe('createDaemon', () => {
       expect.anything(),
       expect.objectContaining({ message: 'run failed' }),
     )
+  })
+
+  it('dispatches the next queued job after a settled failure', async () => {
+    const daemonConfig = makeDaemonConfig({
+      schedules: [{ name: 'queue', cron: '0 * * * *', spec: 'spec.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    vi.mocked(deps.executeRun)
+      .mockRejectedValueOnce(new Error('first job failed'))
+      .mockResolvedValueOnce(undefined)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    const onTrigger = vi.mocked(createScheduler).mock.calls[0][1]
+    onTrigger(daemonConfig.schedules![0])
+    onTrigger(daemonConfig.schedules![0])
+
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    expect(deps.executeRun).toHaveBeenCalledTimes(2)
+    expect(deps.logger.jobEnd).toHaveBeenCalledWith(expect.anything(), expect.any(Error))
+    expect(deps.logger.jobEnd).toHaveBeenCalledWith(expect.anything())
   })
 
   // D-14: Retry on failure
@@ -341,6 +371,7 @@ describe('createDaemon', () => {
     await new Promise((resolve) => setTimeout(resolve, 800))
 
     expect(deps.executeRun).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(deps.executeRun).mock.calls[0][2]).toBe(vi.mocked(deps.executeRun).mock.calls[1][2])
     // jobEnd called without error (success)
     expect(deps.logger.jobEnd).toHaveBeenCalledWith(expect.anything())
   })
@@ -525,7 +556,7 @@ describe('createDaemon', () => {
       schedules: [{ name: 'new-schedule', cron: '30 * * * *', spec: 'new.md' }],
     }
 
-    await daemon.reload(newConfig)
+    await daemon.reload({ ...deps.config, daemon: newConfig })
 
     // Old scheduler was stopped
     expect(mockScheduler.stop).toHaveBeenCalled()
@@ -551,7 +582,7 @@ describe('createDaemon', () => {
     onTrigger(daemonConfig.schedules![0])
 
     // Reload with empty config
-    await daemon.reload(makeDaemonConfig())
+    await daemon.reload({ ...deps.config, daemon: makeDaemonConfig() })
 
     // Job should still process
     await new Promise((resolve) => setTimeout(resolve, 600))
@@ -564,9 +595,21 @@ describe('createDaemon', () => {
     daemon = createDaemon(deps)
     await daemon.start()
 
-    await daemon.reload(makeDaemonConfig())
+    await daemon.reload({ ...deps.config, daemon: makeDaemonConfig() })
 
     expect(deps.logger.info).toHaveBeenCalledWith('Reloading daemon configuration...')
     expect(deps.logger.info).toHaveBeenCalledWith('Daemon configuration reloaded')
+  })
+
+  it('reload() rejects an invalid full config before stopping active triggers', async () => {
+    const deps = makeDeps(makeDaemonConfig({ schedules: [{ name: 'old', cron: '0 * * * *', spec: 'old.md' }] }))
+    daemon = createDaemon(deps)
+    await daemon.start()
+    const mockScheduler = (await import('../src/daemon/scheduler.js') as { _mockScheduler: { stop: ReturnType<typeof vi.fn> } })._mockScheduler
+    mockScheduler.stop.mockClear()
+    vi.mocked(validateConfig).mockReturnValueOnce({ valid: false, errors: ['bad agent profile'] })
+
+    await expect(daemon.reload({ ...deps.config, daemon: makeDaemonConfig() })).rejects.toThrow('bad agent profile')
+    expect(mockScheduler.stop).not.toHaveBeenCalled()
   })
 })

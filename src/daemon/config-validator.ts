@@ -1,6 +1,8 @@
 // src/daemon/config-validator.ts
 import { Cron } from 'croner'
 import type { DaemonConfig } from './types.js'
+import type { Config } from '../shared/types.js'
+import { resolveRunAgents, validateAgentProfiles } from '../shared/agent-selection.js'
 
 export interface ValidationResult {
   valid: boolean
@@ -72,6 +74,7 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
       errors.push(`${src}: port must be between 1 and 65535`)
     }
     checkApplication(w.application, src)
+    if (w.host !== undefined && !w.host.trim()) errors.push(`${src}: host must be a non-empty string`)
     checkRetry(w, src)
   }
 
@@ -117,5 +120,22 @@ export function validateDaemonConfig(config: DaemonConfig): ValidationResult {
     }
   }
 
+  return { valid: errors.length === 0, errors }
+}
+
+export function validateConfig(config: Config): ValidationResult {
+  const profileValidation = validateAgentProfiles(config)
+  const daemonValidation = config.daemon ? validateDaemonConfig(config.daemon) : { valid: true, errors: [] }
+  const errors = [...profileValidation.errors, ...daemonValidation.errors]
+  const triggers = [
+    ...(config.daemon?.schedules ?? []).map(item => ({ source: `schedule "${item.name}"`, options: item.options ?? {} })),
+    ...(config.daemon?.webhooks ?? []).map(item => ({ source: `webhook "${item.name}"`, options: item.options ?? {} })),
+    ...(config.daemon?.pollers ?? []).map(item => ({ source: `poller "${item.name}"`, options: item.options ?? {} })),
+  ]
+  for (const trigger of triggers) {
+    try { resolveRunAgents(config, trigger.options, {}) } catch (error) {
+      errors.push(`${trigger.source}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   return { valid: errors.length === 0, errors }
 }

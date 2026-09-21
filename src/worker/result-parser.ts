@@ -1,6 +1,7 @@
 // src/worker/result-parser.ts
 import type { WorkerResult, WorkerReport, BackendResult } from '../shared/types.js'
 import { mapSdkUsage } from '../shared/types.js'
+import { isWorkerWire, normalizeWorkerWire } from '../shared/output-schemas.js'
 
 export interface SDKResultLike {
   type: 'result'
@@ -21,6 +22,8 @@ export function parseResult(msg: SDKResultLike): WorkerResult {
     numTurns: msg.num_turns,
     durationMs: msg.duration_ms,
     usage: mapSdkUsage(msg.usage),
+    billingMode: 'metered' as const,
+    usageStatus: 'reported' as const,
   }
 
   if (msg.subtype !== 'success') {
@@ -51,6 +54,10 @@ export function parseWorkerResult(result: BackendResult): WorkerResult {
     numTurns: result.numTurns,
     durationMs: result.durationMs,
     usage: result.usage,
+    billingMode: result.billingMode,
+    usageStatus: result.usageStatus,
+    reasoningOutputTokens: result.reasoningOutputTokens,
+    errorCategory: result.errorCategory,
     toolCalls: result.toolCalls,
   }
 
@@ -75,10 +82,8 @@ export function parseWorkerResult(result: BackendResult): WorkerResult {
 }
 
 function extractReportFromOutput(output: unknown): WorkerReport {
-  if (output && typeof output === 'object') {
-    const obj = output as Record<string, unknown>
-    if (obj.status && obj.summary) return output as WorkerReport
-  }
+  const normalized = normalizeWorkerWire(output)
+  if (isWorkerWire(normalized)) return fromWire(normalized as Record<string, unknown>)
   if (typeof output === 'string') {
     return { status: 'partial', summary: output }
   }
@@ -87,15 +92,16 @@ function extractReportFromOutput(output: unknown): WorkerReport {
 
 function extractReport(msg: SDKResultLike): WorkerReport {
   if (msg.structured_output && typeof msg.structured_output === 'object') {
-    return msg.structured_output as WorkerReport
+    const normalized = normalizeWorkerWire(msg.structured_output)
+    if (isWorkerWire(normalized)) return fromWire(normalized as Record<string, unknown>)
+    return { status: 'failed', summary: 'Worker returned invalid structured output' }
   }
 
   if (msg.result) {
     try {
       const parsed = JSON.parse(msg.result) as WorkerReport
-      if (parsed.status && parsed.summary) {
-        return parsed
-      }
+      const normalized = normalizeWorkerWire(parsed)
+      if (isWorkerWire(normalized)) return fromWire(normalized as Record<string, unknown>)
     } catch {
       // Not JSON — fall through to raw text
     }
@@ -109,5 +115,15 @@ function extractReport(msg: SDKResultLike): WorkerReport {
   return {
     status: 'partial',
     summary: '(no output)',
+  }
+}
+
+function fromWire(value: Record<string, unknown>): WorkerReport {
+  return {
+    status: value.status as WorkerReport['status'],
+    summary: value.summary as string,
+    ...(value.filesChanged !== null ? { filesChanged: value.filesChanged as string[] } : {}),
+    ...(value.testsRun !== null ? { testsRun: value.testsRun as WorkerReport['testsRun'] } : {}),
+    ...(value.issues !== null ? { issues: value.issues as string[] } : {}),
   }
 }

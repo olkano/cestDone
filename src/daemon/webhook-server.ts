@@ -7,6 +7,7 @@ export interface WebhookServer {
   start(): Promise<void>
   stop(): Promise<void>
   readonly port: number
+  readonly host: string | undefined
 }
 
 function normalizePath(p: string | undefined): string {
@@ -45,6 +46,7 @@ export function createWebhookServer(
   onTrigger: (webhook: WebhookConfig, payload: Record<string, unknown>) => void,
 ): WebhookServer {
   const listenPort = webhooks[0].port
+  const listenHost = webhooks[0].host
 
   // Build a map from normalized path to webhook config
   const pathMap = new Map<string, WebhookConfig>()
@@ -102,7 +104,7 @@ export function createWebhookServer(
     start(): Promise<void> {
       return new Promise((resolve, reject) => {
         server.once('error', reject)
-        server.listen(listenPort, () => {
+        server.listen(listenPort, listenHost, () => {
           const addr = server.address()
           if (addr && typeof addr === 'object') {
             actualPort = addr.port
@@ -123,6 +125,9 @@ export function createWebhookServer(
 
     get port(): number {
       return actualPort
+    },
+    get host(): string | undefined {
+      return listenHost
     },
   }
 }

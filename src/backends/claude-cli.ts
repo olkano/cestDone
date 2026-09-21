@@ -106,6 +106,8 @@ export function parseCliResult(stdout: string, outputSchema?: object): BackendRe
     numTurns: parsed.num_turns,
     durationMs: parsed.duration_ms,
     usage: mapSdkUsage(parsed.usage),
+    billingMode: 'subscription',
+    usageStatus: 'reported',
     success,
     errorMessage: success ? undefined
       : isUsageLimitReached ? 'Claude AI usage limit reached. Try again later.'
@@ -143,6 +145,8 @@ export function parseStreamResultEvent(event: StreamEvent, outputSchema?: object
     numTurns: event.num_turns ?? 0,
     durationMs: event.duration_ms ?? 0,
     usage: mapSdkUsage(event.usage),
+    billingMode: 'subscription',
+    usageStatus: 'reported',
     success,
     errorMessage: success ? undefined
       : isPromptTooLong ? 'Session context too large - prompt is too long. Consider starting a fresh session.'
@@ -265,6 +269,11 @@ export function resolveCmd(cmdPath: string): { bin: string; prefix: string[] } {
 
 export class ClaudeCliBackend implements Backend {
   readonly name: BackendType = 'claude-cli'
+  readonly provider = 'claude' as const
+  readonly capabilities = {
+    resume: true, structuredOutput: true, exactToolAllowlist: false,
+    maxTurns: true, maxBudgetUsd: false, perInvocationMcpConfig: true,
+  } as const
 
   constructor(private readonly cliPath: string = DEFAULTS.claudeCliPath) {}
 
@@ -366,7 +375,7 @@ export class ClaudeCliBackend implements Backend {
           ? `claude binary not found (ENOENT): ${err.message}`
           : `CLI error: ${err.message}`
         params.logger.log('CLI', `Spawn error: ${errorMessage}`)
-        finish({ output: null, sessionId: undefined, costUsd: null, numTurns: 0, durationMs: 0, usage: ZERO_USAGE, success: false, errorMessage })
+        finish({ output: null, sessionId: undefined, costUsd: null, numTurns: 0, durationMs: 0, usage: ZERO_USAGE, billingMode: 'subscription', usageStatus: 'unavailable', success: false, errorMessage })
       })
 
       child.on('close', (code) => {
@@ -381,7 +390,7 @@ export class ClaudeCliBackend implements Backend {
         // No result event — fall back to error handling
         const errorMessage = `CLI exited with code ${code} without result event: ${stderrText.slice(0, 500)}`
         params.logger.log('CLI', errorMessage)
-        finish({ output: null, rawText: stderrText, sessionId, costUsd: null, numTurns: 0, durationMs: 0, usage: ZERO_USAGE, success: false, errorMessage })
+        finish({ output: null, rawText: stderrText, sessionId, costUsd: null, numTurns: 0, durationMs: 0, usage: ZERO_USAGE, billingMode: 'subscription', usageStatus: 'unavailable', success: false, errorMessage })
       })
     })
   }

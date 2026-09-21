@@ -1,7 +1,7 @@
 // src/daemon/config-watcher.ts
 import fs from 'node:fs'
-import type { DaemonConfig } from './types.js'
-import { validateDaemonConfig } from './config-validator.js'
+import type { Config } from '../shared/types.js'
+import { validateConfig } from './config-validator.js'
 
 export interface ConfigWatcher {
   start(): void
@@ -11,7 +11,7 @@ export interface ConfigWatcher {
 export interface ConfigWatcherOptions {
   configPath: string
   debounceMs?: number
-  onReload: (daemonConfig: DaemonConfig) => void
+  onReload: (config: Config) => void
   onError: (error: Error) => void
 }
 
@@ -30,20 +30,19 @@ export function createConfigWatcher(options: ConfigWatcherOptions): ConfigWatche
     debounceTimer = setTimeout(() => {
       try {
         const raw = fs.readFileSync(configPath, 'utf-8')
-        const parsed = JSON.parse(raw)
-        const daemonConfig: DaemonConfig | undefined = parsed.daemon
-        if (!daemonConfig) {
+        const parsed = JSON.parse(raw) as Config
+        if (!parsed.daemon) {
           onError(new Error('No "daemon" section found in config'))
           return
         }
 
-        const validation = validateDaemonConfig(daemonConfig)
+        const validation = validateConfig(parsed)
         if (!validation.valid) {
           onError(new Error(`Invalid daemon config:\n${validation.errors.join('\n')}`))
           return
         }
 
-        onReload(daemonConfig)
+        onReload(parsed)
       } catch (err) {
         // Partial write or invalid JSON -- ignore, will retry on next save
         onError(err instanceof Error ? err : new Error(String(err)))

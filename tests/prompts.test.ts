@@ -266,7 +266,8 @@ describe('buildReviewPrompt', () => {
   it('includes git commit instructions', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR)
 
-    expect(prompt).toContain('git add -A')
+    expect(prompt).toContain('git add -- <only verified task file paths>')
+    expect(prompt).toContain('Leave pre-existing and unrelated changes unstaged')
     expect(prompt).toContain('git commit')
     expect(prompt).toContain('Do NOT commit if the Worker reported test failures')
   })
@@ -275,7 +276,7 @@ describe('buildReviewPrompt', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR, [], false)
 
     expect(prompt).not.toContain('## Git Commits')
-    expect(prompt).not.toContain('git add -A')
+    expect(prompt).not.toContain('git add --')
     expect(prompt).not.toContain('git commit')
   })
 
@@ -294,7 +295,7 @@ describe('buildReviewPrompt', () => {
   it('retains git commit instructions when autoCommit=true explicitly', () => {
     const prompt = buildReviewPrompt(1, 'Setup', 'Plan', '{"status":"success"}', TEST_RUN_DIR, [], true)
 
-    expect(prompt).toContain('git add -A')
+    expect(prompt).toContain('git add -- <only verified task file paths>')
     expect(prompt).toContain('git commit')
   })
 

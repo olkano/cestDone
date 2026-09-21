@@ -2,6 +2,25 @@
   "targetRepoPath": ".",
   "claudeCliPath": "C:/Users/dpire/AppData/Roaming/npm/claude.cmd",
   "usageDir": "C:/Users/dpire/.cestdone/usage",
+  "defaultAgent": "claude",
+  "agentProfiles": {
+    "claude": {
+      "provider": "claude",
+      "backend": "claude-cli",
+      "directorModel": "opus",
+      "workerModel": "opus"
+    },
+    "codex": {
+      "provider": "codex",
+      "backend": "codex-sdk",
+      "directorModel": "replace-with-exact-codex-model-id",
+      "workerModel": "replace-with-exact-codex-model-id",
+      "directorReasoningEffort": "medium",
+      "workerReasoningEffort": "medium",
+      "callTimeoutMs": 3600000,
+      "webSearchMode": "cached"
+    }
+  },
   "daemon": {
     "notifications": {
       "email": {

@@ -13,8 +13,62 @@ export interface Phase {
 }
 
 
-export type BackendType = 'agent-sdk' | 'claude-cli'
+export type AgentProvider = 'claude' | 'codex'
+export type BackendType = 'agent-sdk' | 'claude-cli' | 'codex-sdk'
 export type ModelAlias = 'haiku' | 'sonnet' | 'opus'
+export type CodexReasoningEffort =
+  | 'minimal' | 'low' | 'medium' | 'high'
+  | 'xhigh' | 'max' | 'ultra' | 'persistent'
+export type WebSearchMode = 'disabled' | 'cached' | 'live'
+export type AccessMode = 'read-only' | 'workspace-write' | 'unrestricted'
+export type BillingMode = 'subscription' | 'metered' | 'unknown'
+export type UsageStatus = 'reported' | 'unavailable'
+export type BackendErrorCategory =
+  | 'configuration_error' | 'runtime_missing' | 'authentication_failed'
+  | 'model_unavailable' | 'rate_limited' | 'timeout' | 'schema_violation'
+  | 'sandbox_denied' | 'mcp_initialization_failed' | 'process_failed'
+  | 'cancellation_incomplete'
+
+export interface AgentProfile {
+  provider: AgentProvider
+  backend: BackendType
+  directorBackend?: BackendType
+  workerBackend?: BackendType
+  directorModel: string
+  workerModel: string
+  directorReasoningEffort?: CodexReasoningEffort
+  workerReasoningEffort?: CodexReasoningEffort
+  callTimeoutMs?: number
+  webSearchMode?: WebSearchMode
+  codexCliPath?: string
+}
+
+export interface AgentSelectionOptions {
+  agent?: string
+  directorAgent?: string
+  workerAgent?: string
+  backend?: string
+  directorBackend?: string
+  workerBackend?: string
+  directorModel?: string
+  workerModel?: string
+}
+
+export interface ResolvedAgentSelection {
+  profileName: string | null
+  provider: AgentProvider
+  backend: BackendType
+  model: string
+  reasoningEffort?: CodexReasoningEffort
+  callTimeoutMs?: number
+  webSearchMode?: WebSearchMode
+  codexCliPath?: string
+}
+
+export interface ResolvedRunAgents {
+  director: Readonly<ResolvedAgentSelection>
+  worker: Readonly<ResolvedAgentSelection>
+}
 export type InvocationType = 'direct' | 'schedule' | 'webhook' | 'poller'
 
 export interface RunInvocationContext {
@@ -45,6 +99,9 @@ export interface Config {
   withHumanValidation?: boolean
   directorBackend?: BackendType
   workerBackend?: BackendType
+  defaultAgent?: string
+  agentProfiles?: Record<string, AgentProfile>
+  resolvedAgents?: ResolvedRunAgents
   claudeCliPath?: string
   skipPlanning?: boolean
   nonInteractive?: boolean
@@ -52,6 +109,7 @@ export interface Config {
   application?: string
   houseRules?: string       // Default path to house rules file (CLI --house-rules overrides)
   mcpConfig?: string        // MCP servers JSON for Workers, applied with --strict-mcp-config (Claude CLI backend)
+  codexHome?: string        // resolved persistent Codex home; never credential contents
   centralLogDir?: string // e.g. ~/.cestdone/logs — dual-write all session logs here
   usageDir?: string // e.g. ~/.cestdone/usage — structured usage records and reports
   daemon?: import('../daemon/types.js').DaemonConfig
@@ -102,6 +160,10 @@ export interface WorkerResult {
   numTurns: number
   durationMs: number
   usage: TokenUsage
+  billingMode?: BillingMode
+  usageStatus?: UsageStatus
+  reasoningOutputTokens?: number
+  errorCategory?: BackendErrorCategory
   toolCalls?: Record<string, number>
   report: WorkerReport | null
 }
@@ -122,6 +184,10 @@ export interface WorkerOptions {
   writeArtifacts?: boolean
   mcpConfig?: string
   backend: Backend
+  accessMode?: AccessMode
+  reasoningEffort?: CodexReasoningEffort
+  timeoutMs?: number
+  profileName?: string | null
 }
 
 export interface FreeFormSpec {
@@ -177,6 +243,10 @@ export interface BackendInvocation {
   mcpConfig?: string
   env?: Record<string, string | undefined>
   usageContext?: UsageCallContext
+  accessMode?: AccessMode
+  reasoningEffort?: CodexReasoningEffort
+  timeoutMs?: number
+  profileName?: string | null
   logger: SessionLogger
 }
 
@@ -188,6 +258,10 @@ export interface BackendResult {
   numTurns: number
   durationMs: number
   usage: TokenUsage
+  billingMode: BillingMode
+  usageStatus: UsageStatus
+  reasoningOutputTokens?: number
+  errorCategory?: BackendErrorCategory
   toolCalls?: Record<string, number>
   success: boolean
   errorMessage?: string
@@ -195,8 +269,32 @@ export interface BackendResult {
 
 export interface Backend {
   invoke(params: BackendInvocation): Promise<BackendResult>
-  preflight(): Promise<{ ok: boolean; error?: string }>
+  preflight(context?: BackendPreflightContext): Promise<PreflightResult>
   name: BackendType
+  readonly provider: AgentProvider
+  readonly capabilities: BackendCapabilities
+}
+
+export interface BackendPreflightContext {
+  cwd: string
+  env?: NodeJS.ProcessEnv
+}
+
+export interface PreflightResult {
+  ok: boolean
+  error?: string
+  errorCategory?: BackendErrorCategory
+  billingMode?: BillingMode
+  runtimeVersion?: string
+}
+
+export interface BackendCapabilities {
+  resume: boolean
+  structuredOutput: boolean
+  exactToolAllowlist: boolean
+  maxTurns: boolean
+  maxBudgetUsd: boolean
+  perInvocationMcpConfig: boolean
 }
 
 /** Formats a tool call for logging — shows meaningful details per tool type. */

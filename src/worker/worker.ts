@@ -4,26 +4,9 @@ import { getTools } from './permissions.js'
 import { buildWorkerPrompt } from './worker-prompt.js'
 import { parseWorkerResult } from './result-parser.js'
 import type { WorkerOptions, WorkerResult } from '../shared/types.js'
-import { formatDuration } from '../shared/types.js'
-
-export const WORKER_REPORT_SCHEMA = {
-  type: 'object' as const,
-  properties: {
-    status: { type: 'string', enum: ['success', 'partial', 'failed'] },
-    summary: { type: 'string' },
-    filesChanged: { type: 'array', items: { type: 'string' } },
-    testsRun: {
-      type: 'object',
-      properties: {
-        passed: { type: 'number' },
-        failed: { type: 'number' },
-        skipped: { type: 'number' },
-      },
-    },
-    issues: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['status', 'summary'],
-}
+import { formatDuration, WorkflowStep } from '../shared/types.js'
+import { WORKER_REPORT_SCHEMA } from '../shared/output-schemas.js'
+export { WORKER_REPORT_SCHEMA } from '../shared/output-schemas.js'
 
 export async function executeWorker(options: WorkerOptions): Promise<WorkerResult> {
   const { logger, backend } = options
@@ -60,6 +43,10 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
         workflowStep: options.step,
         phaseNumber: options.phase.number,
       },
+      accessMode: options.accessMode ?? (options.step === WorkflowStep.Analyze ? 'read-only' : 'unrestricted'),
+      reasoningEffort: options.reasoningEffort,
+      timeoutMs: options.timeoutMs,
+      profileName: options.profileName,
       logger,
     })
   } catch (err) {
@@ -70,6 +57,9 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
       message: errorMsg,
       cost: 0,
       actualCostUsd: null,
+      billingMode: 'unknown',
+      usageStatus: 'unavailable',
+      errorCategory: 'process_failed',
       numTurns: 0,
       durationMs: 0,
       usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
@@ -77,7 +67,9 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
     }
   }
 
-  const costLabel = result.costUsd === null ? 'n/a (subscription)' : `$${result.costUsd.toFixed(2)}`
+  const costLabel = result.costUsd !== null
+    ? `$${result.costUsd.toFixed(2)}`
+    : result.billingMode === 'subscription' ? 'n/a (subscription)' : `n/a (${result.billingMode} billing)`
   logger.log('Worker', `Call completed (cost: ${costLabel}, turns: ${result.numTurns}, duration: ${formatDuration(result.durationMs)})`)
   logger.log('Worker', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
   const toolSummary = Object.entries(result.toolCalls ?? {}).map(([name, count]) => `${name}:${count}`).join(' ')
@@ -85,9 +77,9 @@ export async function executeWorker(options: WorkerOptions): Promise<WorkerResul
 
   const workerResult = parseWorkerResult(result)
 
-  const resultCostLabel = workerResult.actualCostUsd === null
-    ? 'n/a (subscription)'
-    : `$${workerResult.actualCostUsd.toFixed(2)}`
+  const resultCostLabel = workerResult.actualCostUsd !== null
+    ? `$${workerResult.actualCostUsd.toFixed(2)}`
+    : workerResult.billingMode === 'subscription' ? 'n/a (subscription)' : `n/a (${workerResult.billingMode ?? 'unknown'} billing)`
   logger.log('Worker', `Result: ${workerResult.status} (cost: ${resultCostLabel}, turns: ${workerResult.numTurns})`)
   logger.logVerbose('Worker', `Parsed report: ${JSON.stringify(workerResult.report, null, 2)}`)
 

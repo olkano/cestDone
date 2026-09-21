@@ -365,7 +365,7 @@ describe('runPhase', () => {
     expect(firstOpts.outputSchema).toEqual(
       expect.objectContaining({
         type: 'object',
-        required: ['action', 'message'],
+        required: expect.arrayContaining(['action', 'message', 'questions']),
       }),
     )
   })
@@ -605,8 +605,8 @@ describe('runPhase', () => {
     expect(mockBackend.invoke).toHaveBeenCalledTimes(2)
   })
 
-  // RV4: Without reviews, Worker runs exactly once (no retry loop)
-  it('without reviews, Worker runs exactly once per phase', async () => {
+  // RV4: Without reviews, a failed Worker must not advance the phase.
+  it('without reviews, rejects a failed Worker after one call', async () => {
     setupDirectorResponses(
       { action: 'done', message: 'Phase done.' },
     )
@@ -614,7 +614,8 @@ describe('runPhase', () => {
     deps.workerExecute = vi.fn().mockResolvedValueOnce(makeWorkerError())
     const config = { ...TEST_CONFIG, withReviews: false }
 
-    await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
+    await expect(runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps))
+      .rejects.toThrow('Worker did not complete phase')
 
     expect(deps.workerExecute).toHaveBeenCalledTimes(1)
   })
@@ -808,7 +809,7 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, configNoCommit, 'plan.md', deps)
 
     const reviewPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt
-    expect(reviewPrompt).not.toContain('git add -A')
+    expect(reviewPrompt).not.toContain('git add --')
     expect(reviewPrompt).not.toContain('git commit')
     expect(reviewPrompt).toContain('Do NOT commit any changes')
   })
@@ -823,7 +824,7 @@ describe('runPhase', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, TEST_CONFIG, 'plan.md', deps)
 
     const reviewPrompt = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0].prompt
-    expect(reviewPrompt).toContain('git add -A')
+    expect(reviewPrompt).toContain('git add -- <only verified task file paths>')
     expect(reviewPrompt).toContain('git commit')
   })
 })
@@ -875,6 +876,7 @@ describe('runPlanningFlow', () => {
     const revisionOpts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[1][0] as WorkerOptions
     expect(revisionOpts.step).toBe(WorkflowStep.Plan)
     expect(revisionOpts.rawPrompt).toBeDefined()
+    expect(deps.costTracker.getWorkerTotal().meteredCalls).toBe(2)
     expect(result.plan.title).toBe('Test Project')
   })
 
@@ -1182,8 +1184,8 @@ describe('executeDirector', () => {
     expect(opts.model).toBe('claude-sonnet-5')
   })
 
-  // EXT1: rawText fallback uses 'done' action (not 'analyze')
-  it('falls back to done action when rawText is not structured JSON', async () => {
+  // Malformed Director output must never be promoted to completion.
+  it('rejects raw text that is not structured JSON', async () => {
     ;(mockBackend.invoke as ReturnType<typeof vi.fn>).mockResolvedValue({
       output: null,
       rawText: 'Phase complete. Built the scaffold with tests.',
@@ -1195,21 +1197,17 @@ describe('executeDirector', () => {
       success: true,
     })
 
-    const result = await executeDirector({
+    await expect(executeDirector({
       prompt: 'Write a summary',
       step: WorkflowStep.Complete,
       systemPromptText: 'system',
       config: TEST_CONFIG,
       logger: mockLogger,
       backend: mockBackend,
-    })
-
-    expect(result.response.action).toBe('done')
-    expect(result.response.message).toContain('Phase complete')
+    })).rejects.toThrow('invalid structured output')
   })
 
-  // EXT2: rawText fallback preserves full text as message
-  it('preserves full rawText as message in fallback', async () => {
+  it('rejects another plain-text Director response', async () => {
     ;(mockBackend.invoke as ReturnType<typeof vi.fn>).mockResolvedValue({
       output: null,
       rawText: 'A detailed summary of everything that happened.',
@@ -1221,15 +1219,13 @@ describe('executeDirector', () => {
       success: true,
     })
 
-    const result = await executeDirector({
+    await expect(executeDirector({
       prompt: 'test',
       step: WorkflowStep.Review,
       systemPromptText: 'system',
       config: TEST_CONFIG,
       logger: mockLogger,
       backend: mockBackend,
-    })
-
-    expect(result.response.message).toBe('A detailed summary of everything that happened.')
+    })).rejects.toThrow('invalid structured output')
   })
 })

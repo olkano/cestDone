@@ -12,6 +12,7 @@
     "start": "node --env-file=.env dist/cli/index.js",
     "dev": "tsx --env-file=.env src/cli/index.ts",
     "test": "vitest run",
+    "test:e2e:codex": "node scripts/codex-e2e.mjs",
     "test:watch": "vitest",
     "lint": "tsc --noEmit"
   },
@@ -27,6 +28,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.41",
+    "@openai/codex-sdk": "0.155.1",
+    "ajv": "8.17.1",
     "commander": "^13.0.0",
     "croner": "^10.0.1",
     "marked": "^18.0.9",

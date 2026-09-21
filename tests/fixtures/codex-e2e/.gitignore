@@ -1,0 +1,5 @@
+.cestdone/
+logs/
+usage/
+result.json
+phase-*.json

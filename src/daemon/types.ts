@@ -21,6 +21,7 @@ export interface WebhookConfig extends RetryConfig {
   name: string
   application?: string
   port: number
+  host?: string
   path?: string
   spec: string
   target?: string

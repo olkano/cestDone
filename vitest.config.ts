@@ -6,5 +6,8 @@ export default defineConfig({
     globals: true,
     root: '.',
     include: ['tests/**/*.test.ts'],
+    server: {
+      deps: { inline: ['@openai/codex-sdk'] },
+    },
   },
 })

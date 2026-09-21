@@ -1,4 +1,4 @@
-import type { BackendType, InvocationType } from '../shared/types.js'
+import type { AgentProvider, BackendErrorCategory, BackendType, BillingMode, CodexReasoningEffort, InvocationType, UsageStatus } from '../shared/types.js'
 
 export interface UsageCallRecordV1 {
   callId: string
@@ -53,6 +53,23 @@ export interface UsageRunRecordV1 {
   totals: UsageTotalsV1
 }
 
+export interface UsageCallRecordV2 extends UsageCallRecordV1 {
+  provider: AgentProvider
+  profile: string | null
+  billingMode: BillingMode
+  usageStatus: UsageStatus
+  reasoningEffort?: CodexReasoningEffort
+  reasoningOutputTokens?: number
+  errorCategory?: BackendErrorCategory
+}
+
+export interface UsageRunRecordV2 extends Omit<UsageRunRecordV1, 'schemaVersion' | 'calls'> {
+  schemaVersion: 2
+  calls: UsageCallRecordV2[]
+}
+
+export type UsageRunRecord = UsageRunRecordV1 | UsageRunRecordV2
+
 export interface UsageBreakdownV1 extends UsageTotalsV1 {
   key: string
   runs: number
@@ -103,5 +120,18 @@ export interface UsagePeriodSnapshotV1 {
     filesRead: number
     invalidFiles: number
     unsupportedSchemaFiles: number
+  }
+}
+
+export interface UsagePeriodSnapshotV2 extends Omit<UsagePeriodSnapshotV1, 'schemaVersion' | 'dataQuality'> {
+  schemaVersion: 2
+  byProvider: UsageBreakdownV1[]
+  byProfile: UsageBreakdownV1[]
+  byBillingMode: UsageBreakdownV1[]
+  dataQuality: UsagePeriodSnapshotV1['dataQuality'] & {
+    reportedCalls: number
+    unavailableCalls: number
+    legacyCalls: number
+    unknownCostCalls: number
   }
 }

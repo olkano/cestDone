@@ -1,6 +1,6 @@
 // src/director/director.ts
 import path from 'node:path'
-import type { Phase, PhaseStatus, Config, DirectorResponse, WorkerResult, WorkerOptions, FreeFormSpec, Plan, TokenUsage, Backend, BackendResult } from '../shared/types.js'
+import type { Phase, PhaseStatus, Config, DirectorResponse, WorkerResult, WorkerOptions, FreeFormSpec, Plan, TokenUsage, Backend, BackendResult, BillingMode, UsageStatus, BackendErrorCategory } from '../shared/types.js'
 import { WorkflowStep } from '../shared/types.js'
 import { CostTracker, formatTotals } from '../shared/cost-tracker.js'
 import {
@@ -12,8 +12,8 @@ import {
   buildPlanningWorkerPrompt,
   buildPlanRevisionWorkerPrompt,
   buildExecutionSystemPrompt,
-  DIRECTOR_RESPONSE_SCHEMA,
 } from './prompts.js'
+import { DIRECTOR_RESPONSE_SCHEMA, isDirectorWire, normalizeDirectorWire } from '../shared/output-schemas.js'
 import { getDirectorModel, getWorkerModel } from './model-selector.js'
 import { parsePlan, getPlanPath } from '../shared/plan-parser.js'
 import { detectEnvironment } from '../shared/environment.js'
@@ -50,6 +50,10 @@ export interface DirectorCallResult {
   numTurns: number
   durationMs: number
   usage: TokenUsage
+  billingMode: BillingMode
+  usageStatus: UsageStatus
+  reasoningOutputTokens?: number
+  errorCategory?: BackendErrorCategory
   sessionId: string
 }
 
@@ -60,6 +64,7 @@ function recordDirectorCall(deps: DirectorDeps, result: DirectorCallResult): Dir
     outputTokens: result.usage.outputTokens,
     cacheReadInputTokens: result.usage.cacheReadInputTokens,
     cacheCreationInputTokens: result.usage.cacheCreationInputTokens,
+    billingMode: result.billingMode,
   })
   deps.logger.log('Session', formatTotals(deps.costTracker))
   return result.response
@@ -71,13 +76,27 @@ function actualWorkerCost(result: WorkerResult): number | null {
   return result.actualCostUsd === undefined ? result.cost : result.actualCostUsd
 }
 
+function recordWorkerUsage(deps: DirectorDeps, result: WorkerResult): void {
+  deps.costTracker.recordWorker({
+    costUsd: actualWorkerCost(result),
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    cacheReadInputTokens: result.usage.cacheReadInputTokens,
+    cacheCreationInputTokens: result.usage.cacheCreationInputTokens,
+    billingMode: result.billingMode,
+  })
+  deps.logger.log('Session', formatTotals(deps.costTracker))
+}
+
 function formatWorkerCost(result: WorkerResult): string {
   const cost = actualWorkerCost(result)
-  return cost === null ? 'n/a (subscription)' : `$${cost.toFixed(2)}`
+  if (cost !== null) return `$${cost.toFixed(2)}`
+  return result.billingMode === 'subscription' ? 'n/a (subscription)' : `n/a (${result.billingMode ?? 'unknown'} billing)`
 }
 
 function formatAccumulatedWorkerCost(deps: DirectorDeps, fallback: number): string {
   const total = deps.costTracker.getWorkerTotal()
+  if (total.unknownBillingCalls > 0) return total.meteredCalls > 0 ? `$${total.costUsd.toFixed(2)} known metered + unknown billing` : 'n/a (unknown billing)'
   if (total.subscriptionCalls > 0 && total.meteredCalls === 0) return 'n/a (subscription)'
   if (total.subscriptionCalls > 0) return `$${total.costUsd.toFixed(2)} metered + subscription`
   return `$${fallback.toFixed(2)}`
@@ -103,20 +122,16 @@ export async function runPlanningFlow(
   const promptPath = path.join(config.targetRepoPath, config.runDir, 'phase-0-prompt.md')
   try { deps.writeFile(promptPath, rawPrompt) } catch { /* best-effort */ }
 
-  const planningResult = await deps.workerExecute({
+  const planningResult = await deps.workerExecute(buildWorkerOptions({
     step: WorkflowStep.Plan,
     phase: syntheticPhase,
-    model: getWorkerModel(config.workerModel),
-    targetRepoPath: config.targetRepoPath,
-    runDir: config.runDir,
+    config,
     houseRulesContent: spec.houseRulesContent,
     instructions: '',
     rawPrompt,
-    maxTurns: config.maxTurns,
-    maxBudgetUsd: config.maxBudgetUsd,
     logger,
     backend: deps.workerBackend,
-  })
+  }))
 
   deps.costTracker.recordWorker({
     costUsd: actualWorkerCost(planningResult),
@@ -124,6 +139,7 @@ export async function runPlanningFlow(
     outputTokens: planningResult.usage.outputTokens,
     cacheReadInputTokens: planningResult.usage.cacheReadInputTokens,
     cacheCreationInputTokens: planningResult.usage.cacheCreationInputTokens,
+    billingMode: planningResult.billingMode,
   })
   logger.log('Session', formatTotals(deps.costTracker))
   logger.log('Director', `Planning Worker completed (cost: ${formatWorkerCost(planningResult)})`)
@@ -153,19 +169,17 @@ export async function runPlanningFlow(
       logger.log('Director', `Plan format invalid (attempt ${planFixAttempts}/${MAX_PLAN_FIX_ATTEMPTS}): ${(err as Error).message}. Spawning Revision Worker.`)
 
       const revisionPrompt = buildPlanRevisionWorkerPrompt(planPath, (err as Error).message)
-      const revisionResult = await deps.workerExecute({
+      const revisionResult = await deps.workerExecute(buildWorkerOptions({
         step: WorkflowStep.Plan,
         phase: syntheticPhase,
-        model: getWorkerModel(config.workerModel),
-        targetRepoPath: config.targetRepoPath,
-        runDir: config.runDir,
+        config,
         houseRulesContent: spec.houseRulesContent,
         instructions: '',
         rawPrompt: revisionPrompt,
-        maxTurns: config.maxTurns,
         logger,
         backend: deps.workerBackend,
-      })
+      }))
+      recordWorkerUsage(deps, revisionResult)
       assertWorkerSucceeded(revisionResult, 'Plan Revision Worker')
 
       currentPlanContent = deps.readFile(planPath)
@@ -192,35 +206,31 @@ export async function runPlanningFlow(
         )
         rejectionCount = 0
         const escPrompt = buildPlanRevisionWorkerPrompt(planPath, `Human escalation. Guidance: ${guidance}`)
-        const revisionResult = await deps.workerExecute({
+        const revisionResult = await deps.workerExecute(buildWorkerOptions({
           step: WorkflowStep.Plan,
           phase: syntheticPhase,
-          model: getWorkerModel(config.workerModel),
-          targetRepoPath: config.targetRepoPath,
-          runDir: config.runDir,
+          config,
           houseRulesContent: spec.houseRulesContent,
           instructions: '',
           rawPrompt: escPrompt,
-          maxTurns: config.maxTurns,
           logger,
           backend: deps.workerBackend,
-        })
+        }))
+        recordWorkerUsage(deps, revisionResult)
         assertWorkerSucceeded(revisionResult, 'Plan Revision Worker')
       } else {
         const revPrompt = buildPlanRevisionWorkerPrompt(planPath, feedback ?? '')
-        const revisionResult = await deps.workerExecute({
+        const revisionResult = await deps.workerExecute(buildWorkerOptions({
           step: WorkflowStep.Plan,
           phase: syntheticPhase,
-          model: getWorkerModel(config.workerModel),
-          targetRepoPath: config.targetRepoPath,
-          runDir: config.runDir,
+          config,
           houseRulesContent: spec.houseRulesContent,
           instructions: '',
           rawPrompt: revPrompt,
-          maxTurns: config.maxTurns,
           logger,
           backend: deps.workerBackend,
-        })
+        }))
+        recordWorkerUsage(deps, revisionResult)
         assertWorkerSucceeded(revisionResult, 'Plan Revision Worker')
       }
 
@@ -305,6 +315,7 @@ export async function runDirectExecution(
       outputTokens: workerResult.usage.outputTokens,
       cacheReadInputTokens: workerResult.usage.cacheReadInputTokens,
       cacheCreationInputTokens: workerResult.usage.cacheCreationInputTokens,
+      billingMode: workerResult.billingMode,
     })
     logger.log('Session', formatTotals(deps.costTracker))
 
@@ -407,7 +418,9 @@ export async function runPhase(
   const { logger } = deps
   const completedPhases = plan.phases.filter(p => p.status === 'done')
   const env = detectEnvironment(config.targetRepoPath)
-  const systemPromptText = buildExecutionSystemPrompt(plan, completedPhases, env)
+  // Keep developer instructions stable for the lifetime of a resumable Director
+  // thread. Completed-phase context is already included in each execution prompt.
+  const systemPromptText = buildExecutionSystemPrompt(plan, [], env)
 
   deps.updatePhaseStatus(planFilePath, phase.number, 'in-progress')
 
@@ -432,6 +445,9 @@ export async function runPhase(
   })
   const completeResult = recordDirectorCall(deps, completeCallResult)
   sessionId = completeCallResult.sessionId || sessionId
+  if (completeResult.action !== 'done') {
+    throw new Error(`Complete step returned ${completeResult.action}: ${completeResult.message}`)
+  }
   deps.writePhaseCompletion(planFilePath, phase.number, completeResult.message)
 
   return sessionId!
@@ -474,6 +490,7 @@ async function executeTwoAgentPhase(
       outputTokens: workerResult.usage.outputTokens,
       cacheReadInputTokens: workerResult.usage.cacheReadInputTokens,
       cacheCreationInputTokens: workerResult.usage.cacheCreationInputTokens,
+      billingMode: workerResult.billingMode,
     })
     logger.log('Session', formatTotals(deps.costTracker))
 
@@ -483,6 +500,9 @@ async function executeTwoAgentPhase(
     logger.logVerbose('Director', `Worker report: ${JSON.stringify(workerResult.report)}`)
 
     if (!shouldReview) {
+      if (workerResult.status !== 'success') {
+        throw new Error(`Worker did not complete phase ${phase.number}: ${workerResult.message}`)
+      }
       deps.display(`\nTotal Worker cost: ${formatAccumulatedWorkerCost(deps, totalWorkerCost)}`)
       break
     }
@@ -555,9 +575,8 @@ async function executeTwoAgentPhase(
       continue
     }
 
-    // Any other action (done, analyze, approve, etc.) means phase is complete
     if (reviewResult.action !== 'done') {
-      logger.log('Director', `Review returned '${reviewResult.action}' — treating as done`)
+      throw new Error(`Review returned invalid action ${reviewResult.action}: ${reviewResult.message}`)
     }
     deps.display(`\nTotal Worker cost: ${formatAccumulatedWorkerCost(deps, totalWorkerCost)}`)
     logger.log('Director', `Phase ${phase.number} done (total cost: ${formatAccumulatedWorkerCost(deps, totalWorkerCost)}, sub-phases: ${completedSubPhases.length + 1})`)
@@ -601,6 +620,7 @@ function buildWorkerOptions(params: {
   config: Config
   houseRulesContent: string
   instructions: string
+  rawPrompt?: string
   completedSubPhases?: string[]
   writeArtifacts?: boolean
   logger: SessionLogger
@@ -614,12 +634,17 @@ function buildWorkerOptions(params: {
     runDir: params.config.runDir,
     houseRulesContent: params.houseRulesContent,
     instructions: params.instructions,
+    rawPrompt: params.rawPrompt,
     maxTurns: params.config.maxTurns,
     maxBudgetUsd: params.config.maxBudgetUsd,
     logger: params.logger,
     completedSubPhases: params.completedSubPhases,
     writeArtifacts: params.writeArtifacts,
     mcpConfig: params.config.mcpConfig,
+    accessMode: params.step === WorkflowStep.Analyze ? 'read-only' : 'unrestricted',
+    reasoningEffort: params.config.resolvedAgents?.worker.reasoningEffort,
+    timeoutMs: params.config.resolvedAgents?.worker.callTimeoutMs,
+    profileName: params.config.resolvedAgents?.worker.profileName,
     backend: params.backend,
   }
 }
@@ -652,7 +677,7 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
 
   const result = await backend.invoke({
     prompt,
-    systemPrompt: params.resume ? undefined : systemPromptText,
+    systemPrompt: backend.provider === 'codex' || !params.resume ? systemPromptText : undefined,
     model,
     tools,
     outputSchema: DIRECTOR_RESPONSE_SCHEMA,
@@ -664,10 +689,16 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
       role: 'director',
       workflowStep: step,
     },
+    accessMode: directorAccessMode(step, config),
+    reasoningEffort: config.resolvedAgents?.director.reasoningEffort,
+    timeoutMs: config.resolvedAgents?.director.callTimeoutMs,
+    profileName: config.resolvedAgents?.director.profileName,
     logger,
   })
 
-  const costLabel = result.costUsd === null ? 'n/a (subscription)' : `$${result.costUsd.toFixed(2)}`
+  const costLabel = result.costUsd !== null
+    ? `$${result.costUsd.toFixed(2)}`
+    : result.billingMode === 'subscription' ? 'n/a (subscription)' : `n/a (${result.billingMode} billing)`
   logger.log('Director', `Call completed (cost: ${costLabel}, turns: ${result.numTurns}, success: ${result.success})`)
   logger.log('Director', `Tokens: in:${result.usage.inputTokens} out:${result.usage.outputTokens} cache-r:${result.usage.cacheReadInputTokens} cache-w:${result.usage.cacheCreationInputTokens}`)
 
@@ -685,6 +716,10 @@ export async function executeDirector(params: ExecuteDirectorParams): Promise<Di
     numTurns: result.numTurns,
     durationMs: result.durationMs,
     usage: result.usage,
+    billingMode: result.billingMode,
+    usageStatus: result.usageStatus,
+    reasoningOutputTokens: result.reasoningOutputTokens,
+    errorCategory: result.errorCategory,
     sessionId: result.sessionId ?? '',
   }
 }
@@ -694,31 +729,34 @@ function extractDirectorResponse(result: BackendResult, logger: SessionLogger): 
   logger.logVerbose('Director', `extractDirectorResponse: success=${result.success}, has_output=${hasOutput}, has_rawText=${!!result.rawText}`)
 
   if (hasOutput && typeof result.output === 'object') {
-    const so = result.output as Record<string, unknown>
-    if (so.action && so.message) {
-      logger.logVerbose('Director', `Using output: action=${so.action}, message_length=${(so.message as string)?.length ?? 0}`)
-      return result.output as DirectorResponse
+    const normalized = normalizeDirectorWire(result.output)
+    if (isDirectorWire(normalized)) {
+      const wire = normalized as { action: DirectorResponse['action']; message: string; questions: string[] | null }
+      logger.logVerbose('Director', `Using output: action=${wire.action}, message_length=${wire.message.length}`)
+      return { action: wire.action, message: wire.message, ...(wire.questions ? { questions: wire.questions } : {}) }
     }
   }
 
   if (result.rawText) {
     try {
-      const parsed = JSON.parse(result.rawText) as DirectorResponse
-      if (parsed.action && parsed.message) {
+      const normalized = normalizeDirectorWire(JSON.parse(result.rawText))
+      if (isDirectorWire(normalized)) {
+        const parsed = normalized as { action: DirectorResponse['action']; message: string; questions: string[] | null }
         logger.logVerbose('Director', `Parsed rawText as JSON: action=${parsed.action}`)
-        return parsed
+        return { action: parsed.action, message: parsed.message, ...(parsed.questions ? { questions: parsed.questions } : {}) }
       }
     } catch {
       // Not JSON — fall through
     }
 
-    return { action: 'done', message: result.rawText }
+    throw new Error('Director returned invalid structured output')
   }
 
-  const reason = result.errorMessage ?? 'unknown'
-  logger.log('Director', `WARNING: No structured output produced (reason: ${reason}). Defaulting to 'done'.`)
-  return {
-    action: 'done',
-    message: `Director review completed without structured response (reason: ${reason}). Proceeding based on Worker self-report.`,
-  }
+  throw new Error(`Director returned no structured output: ${result.errorMessage ?? 'unknown reason'}`)
+}
+
+function directorAccessMode(step: WorkflowStep, config: Config): 'read-only' | 'unrestricted' {
+  if (step === WorkflowStep.Execute) return 'unrestricted'
+  if (step === WorkflowStep.Review && config.autoCommit !== false) return 'unrestricted'
+  return 'read-only'
 }

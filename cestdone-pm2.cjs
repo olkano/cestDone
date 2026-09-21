@@ -41,8 +41,8 @@ import('./dist/cli/index.js').then(async function(mod) {
   var configPath = path.resolve(process.cwd(), '.cestdonerc.json');
   var watcher = createConfigWatcher({
     configPath: configPath,
-    onReload: function(newDaemonConfig) {
-      daemon.reload(newDaemonConfig).catch(function(err) {
+    onReload: function(newConfig) {
+      daemon.reload(newConfig).catch(function(err) {
         logger.error('Config reload failed: ' + err.message);
       });
     },

@@ -2,19 +2,7 @@
 import { WorkflowStep } from '../shared/types.js'
 import type { Phase, FreeFormSpec, Plan } from '../shared/types.js'
 import type { EnvironmentInfo } from '../shared/environment.js'
-
-export const DIRECTOR_RESPONSE_SCHEMA = {
-  type: 'object' as const,
-  properties: {
-    action: {
-      type: 'string',
-      enum: ['analyze', 'ask_human', 'approve', 'fix', 'continue', 'done', 'escalate'],
-    },
-    message: { type: 'string' },
-    questions: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['action', 'message'],
-}
+export { DIRECTOR_RESPONSE_SCHEMA } from '../shared/output-schemas.js'
 
 export interface DirectorToolOptions {
   withBash?: boolean
@@ -155,11 +143,13 @@ export function buildReviewPrompt(phaseNumber: number, phaseName: string, phaseS
         '## Git Commits',
         'If the work is correct, commit before responding:',
         '```',
-        'git add -A',
+        'git status --short',
+        'git add -- <only verified task file paths>',
         'git commit -m "<type>: <short description>"',
         '```',
         'Follow conventionalcommits.org: use types like feat, fix, refactor, test, docs, chore.',
         'Keep messages short and simple. Do NOT add Co-Authored-By or any authoring trailers.',
+        'Leave pre-existing and unrelated changes unstaged and uncommitted.',
         'Do NOT commit if the Worker reported test failures or the implementation is incomplete.',
       ]
       : [

@@ -2,11 +2,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Config } from '../shared/types.js'
-import type { RunOptions } from '../cli/index.js'
+import { prepareRun, type PreparedRun, type RunOptions } from '../cli/index.js'
 import type { DaemonConfig } from './types.js'
 import type { DaemonLogger } from './daemon-logger.js'
 import type { TemplateContext } from './template.js'
-import { validateDaemonConfig } from './config-validator.js'
+import { validateConfig } from './config-validator.js'
 import { createJobQueue, type Job } from './job-queue.js'
 import { createScheduler, type Scheduler } from './scheduler.js'
 import { createWebhookServer, type WebhookServer } from './webhook-server.js'
@@ -17,7 +17,7 @@ import { cleanupOldRuns, cleanupCentralLogs } from './cleanup.js'
 import { notifyJobFailure } from './notifications.js'
 
 export interface DaemonDeps {
-  executeRun: (specPath: string, options: RunOptions) => Promise<void>
+  executeRun: (specPath: string, options: RunOptions, prepared?: PreparedRun) => Promise<void>
   logger: DaemonLogger
   config: Config
 }
@@ -25,7 +25,7 @@ export interface DaemonDeps {
 export interface DaemonProcess {
   start(): Promise<void>
   stop(): Promise<void>
-  reload(newDaemonConfig: DaemonConfig): Promise<void>
+  reload(newConfig: Config): Promise<void>
 }
 
 const DEFAULT_LOG_DIR = 'logs/daemon'
@@ -37,9 +37,10 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
   if (!deps.config.daemon) {
     throw new Error('No daemon configuration found in .cestdonerc.json')
   }
-  let daemonConfig: DaemonConfig = deps.config.daemon
+  let rootConfig: Config = structuredClone(deps.config)
+  let daemonConfig: DaemonConfig = rootConfig.daemon as DaemonConfig
 
-  const validation = validateDaemonConfig(daemonConfig)
+  const validation = validateConfig(rootConfig)
   if (!validation.valid) {
     throw new Error(`Invalid daemon config:\n${validation.errors.join('\n')}`)
   }
@@ -53,14 +54,22 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
   let poller: Poller | undefined
   let stopped = false
   let runLoopPromise: Promise<void> | undefined
+  let reloadPromise: Promise<void> = Promise.resolve()
+  const configDir = process.cwd()
+
+  function snapshot(specPath: string, options: RunOptions): PreparedRun {
+    return prepareRun(specPath, options, rootConfig, configDir)
+  }
 
   function enqueueFromSchedule(name: string, specPath: string, application?: string, options?: Partial<RunOptions>, retry?: { retries?: number; retryDelayMs?: number }): void {
+    const runOptions: RunOptions = { ...(options ?? {}), ...(application ? { application } : {}), nonInteractive: true }
     queue.enqueue({
       trigger: name,
       sourceType: 'schedule',
       application,
       specPath,
       options: options ?? {},
+      preparedRun: snapshot(specPath, runOptions),
       maxRetries: retry?.retries ?? 0,
       retryDelayMs: retry?.retryDelayMs ?? 60_000,
     })
@@ -80,12 +89,14 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       payload,
       timestamp: new Date().toISOString(),
     }
+    const runOptions: RunOptions = { ...(options ?? {}), ...(application ? { application } : {}), nonInteractive: true }
     queue.enqueue({
       trigger: name,
       sourceType: 'webhook',
       application,
       specPath,
       options: options ?? {},
+      preparedRun: snapshot(specPath, runOptions),
       templateContext: context,
       maxRetries: retry?.retries ?? 0,
       retryDelayMs: retry?.retryDelayMs ?? 60_000,
@@ -106,12 +117,14 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       payload: { output },
       timestamp: new Date().toISOString(),
     }
+    const runOptions: RunOptions = { ...(options ?? {}), ...(application ? { application } : {}), nonInteractive: true }
     queue.enqueue({
       trigger: name,
       sourceType: 'poller',
       application,
       specPath,
       options: options ?? {},
+      preparedRun: snapshot(specPath, runOptions),
       templateContext: context,
       maxRetries: retry?.retries ?? 0,
       retryDelayMs: retry?.retryDelayMs ?? 60_000,
@@ -156,7 +169,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
           nonInteractive: true,
         }
 
-        await deps.executeRun(effectiveSpecPath, runOptions)
+        await deps.executeRun(effectiveSpecPath, runOptions, job.preparedRun)
         queue.markCompleted(job.id)
         deps.logger.jobEnd(job)
         break // success
@@ -223,8 +236,8 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       scheduler = createScheduler(config.schedules, (schedule) => {
         enqueueFromSchedule(schedule.name, schedule.spec, schedule.application, {
           ...schedule.options,
-          target: schedule.target,
-          houseRules: schedule.houseRules,
+          ...(schedule.target !== undefined ? { target: schedule.target } : {}),
+          ...(schedule.houseRules !== undefined ? { houseRules: schedule.houseRules } : {}),
         }, { retries: schedule.retries, retryDelayMs: schedule.retryDelayMs })
       })
       scheduler.start()
@@ -235,20 +248,21 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       }
     }
 
-    // Create webhook servers (group by port)
+    // Create webhook servers grouped by bind endpoint.
     if (config.webhooks?.length) {
-      const byPort = new Map<number, typeof config.webhooks>()
+      const byEndpoint = new Map<string, typeof config.webhooks>()
       for (const wh of config.webhooks) {
-        const existing = byPort.get(wh.port) ?? []
+        const key = `${wh.host ?? '*'}:${wh.port}`
+        const existing = byEndpoint.get(key) ?? []
         existing.push(wh)
-        byPort.set(wh.port, existing)
+        byEndpoint.set(key, existing)
       }
 
-      for (const [, webhooks] of byPort) {
+      for (const [, webhooks] of byEndpoint) {
         const server = createWebhookServer(webhooks, (webhook, payload) => {
           enqueueFromWebhook(webhook.name, webhook.spec, webhook.application, payload, {
             ...webhook.options,
-            target: webhook.target,
+            ...(webhook.target !== undefined ? { target: webhook.target } : {}),
           }, { retries: webhook.retries, retryDelayMs: webhook.retryDelayMs })
         })
         await server.start()
@@ -262,7 +276,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       poller = createPoller(config.pollers, (pollerConfig, output) => {
         enqueueFromPoller(pollerConfig.name, pollerConfig.spec, pollerConfig.application, output, {
           ...pollerConfig.options,
-          target: pollerConfig.target,
+          ...(pollerConfig.target !== undefined ? { target: pollerConfig.target } : {}),
         }, { retries: pollerConfig.retries, retryDelayMs: pollerConfig.retryDelayMs })
       })
       poller.start()
@@ -316,15 +330,33 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       deps.logger.info('Daemon stopped')
     },
 
-    async reload(newDaemonConfig: DaemonConfig): Promise<void> {
-      deps.logger.info('Reloading daemon configuration...')
-
-      await stopTriggers()
-      daemonConfig = newDaemonConfig
-      deps.config.daemon = newDaemonConfig
-      await startTriggers(newDaemonConfig)
-
-      deps.logger.info('Daemon configuration reloaded')
+    reload(newConfig: Config): Promise<void> {
+      const operation = reloadPromise.then(async () => {
+        deps.logger.info('Reloading daemon configuration...')
+        const nextValidation = validateConfig(newConfig)
+        if (!newConfig.daemon || !nextValidation.valid) {
+          throw new Error(`Invalid daemon config:\n${nextValidation.errors.join('\n') || 'No daemon section found'}`)
+        }
+        const previousRoot = rootConfig
+        const previousDaemon = daemonConfig
+        await stopTriggers()
+        try {
+          await startTriggers(newConfig.daemon)
+          rootConfig = structuredClone(newConfig)
+          daemonConfig = rootConfig.daemon as DaemonConfig
+          for (const key of Object.keys(deps.config)) delete (deps.config as unknown as Record<string, unknown>)[key]
+          Object.assign(deps.config, structuredClone(newConfig))
+          deps.logger.info('Daemon configuration reloaded')
+        } catch (error) {
+          await stopTriggers()
+          await startTriggers(previousDaemon)
+          rootConfig = previousRoot
+          daemonConfig = previousDaemon
+          throw error
+        }
+      })
+      reloadPromise = operation.catch(() => undefined)
+      return operation
     },
   }
 }

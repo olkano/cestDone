@@ -19,19 +19,19 @@ vi.mock('node:fs', async () => {
 })
 
 vi.mock('../src/daemon/config-validator.js', () => ({
-  validateDaemonConfig: vi.fn().mockReturnValue({ valid: true, errors: [] }),
+  validateConfig: vi.fn().mockReturnValue({ valid: true, errors: [] }),
 }))
 
 import fs from 'node:fs'
 import { createConfigWatcher, type ConfigWatcher } from '../src/daemon/config-watcher.js'
-import { validateDaemonConfig } from '../src/daemon/config-validator.js'
+import { validateConfig } from '../src/daemon/config-validator.js'
 
 let watcher: ConfigWatcher | undefined
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
-  vi.mocked(validateDaemonConfig).mockReturnValue({ valid: true, errors: [] })
+  vi.mocked(validateConfig).mockReturnValue({ valid: true, errors: [] })
 })
 
 afterEach(() => {
@@ -88,7 +88,7 @@ describe('createConfigWatcher', () => {
     // After debounce
     vi.advanceTimersByTime(100)
 
-    expect(onReload).toHaveBeenCalledWith(validConfig.daemon)
+    expect(onReload).toHaveBeenCalledWith(validConfig)
   })
 
   it('debounces multiple rapid changes into one reload', () => {
@@ -139,7 +139,7 @@ describe('createConfigWatcher', () => {
 
   it('calls onError when config validation fails', () => {
     vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ daemon: { schedules: [{}] } }))
-    vi.mocked(validateDaemonConfig).mockReturnValue({ valid: false, errors: ['bad cron'] })
+    vi.mocked(validateConfig).mockReturnValue({ valid: false, errors: ['bad cron'] })
 
     const onReload = vi.fn()
     const onError = vi.fn()

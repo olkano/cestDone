@@ -1,5 +1,6 @@
 // tests/cli.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import path from 'node:path'
 import type { Phase, Plan, Config, FreeFormSpec } from '../src/shared/types.js'
 
 vi.mock('node:fs')
@@ -128,7 +129,7 @@ describe('handleRun', () => {
     expect(runPhase).toHaveBeenCalledWith(
       plan,
       PENDING_PHASE,
-      MOCK_CONFIG,
+      expect.objectContaining({ maxTurns: 100 }),
       '/tmp/spec.plan.md',
       expect.objectContaining({
         askApproval: expect.any(Function),
@@ -169,13 +170,13 @@ describe('handleRun', () => {
         text: 'Free form spec text',
         houseRulesContent: '',
       }),
-      MOCK_CONFIG,
+      expect.objectContaining({ maxTurns: 100 }),
       expect.anything()
     )
     expect(runPhase).toHaveBeenCalledWith(
       plan,
       PENDING_PHASE,
-      MOCK_CONFIG,
+      expect.objectContaining({ maxTurns: 100 }),
       '/tmp/spec.plan.md',
       expect.anything(),
       undefined, // no sessionId from planning — Worker-based planning has no Director session
@@ -204,7 +205,7 @@ describe('handleRun', () => {
       expect.objectContaining({
         houseRulesContent: 'Always use TDD.',
       }),
-      MOCK_CONFIG,
+      expect.objectContaining({ maxTurns: 100 }),
       expect.anything()
     )
   })
@@ -310,7 +311,7 @@ describe('handleResume', () => {
     expect(runPhase).toHaveBeenCalledWith(
       plan,
       IN_PROGRESS_PHASE,
-      MOCK_CONFIG,
+      expect.objectContaining({ maxTurns: 100 }),
       '/tmp/spec.plan.md',
       expect.objectContaining({
         askApproval: expect.any(Function),
@@ -354,7 +355,7 @@ describe('handleResume', () => {
     })
 
     const configPassed = vi.mocked(runPhase).mock.calls[0][2]
-    expect(configPassed.directorModel).toBe('opus')
+    expect(configPassed.directorModel).toBe('claude-opus-5')
     expect(configPassed.withWorker).toBe(true)
     expect(configPassed.withReviews).toBe(true)
   })
@@ -408,8 +409,8 @@ describe('CLI flag wiring', () => {
     await handleRun('spec.md', { directorModel: 'opus', workerModel: 'sonnet' })
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
-    expect(configPassed.directorModel).toBe('opus')
-    expect(configPassed.workerModel).toBe('sonnet')
+    expect(configPassed.directorModel).toBe('claude-opus-5')
+    expect(configPassed.workerModel).toBe('claude-sonnet-5')
   })
 
   // KF4: --with-bash-reviews implies --with-reviews
@@ -428,7 +429,7 @@ describe('CLI flag wiring', () => {
     await handleRun('spec.md', { mcpConfig: '/mcp/support.json' })
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
-    expect(configPassed.mcpConfig).toBe('/mcp/support.json')
+    expect(configPassed.mcpConfig).toBe(path.resolve('/mcp/support.json'))
   })
 
   it('withBashReviews implies withReviews', async () => {
