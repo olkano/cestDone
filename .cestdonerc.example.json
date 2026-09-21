@@ -277,9 +277,10 @@
         "application": "sales",
         "port": 7799,
         "path": "/sales-feedback",
-        "secret": "c63472feb88f816b19501a3afbcd610403d097cfa79c51ec",
+        "secret": "REPLACE_WITH_REPORT_HUB_WEBHOOK_SECRET",
         "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/hubspot-report/process-feedback.md",
         "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/hubspot-report",
+        "coalesceQueued": true,
         "options": {
           "skipPlanning": true,
           "workerModel": "opus",
@@ -291,7 +292,7 @@
         "application": "accounting",
         "port": 7799,
         "path": "/accounting-feedback",
-        "secret": "c63472feb88f816b19501a3afbcd610403d097cfa79c51ec",
+        "secret": "REPLACE_WITH_REPORT_HUB_WEBHOOK_SECRET",
         "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant/process-accounting-feedback.md",
         "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant",
         "options": {
