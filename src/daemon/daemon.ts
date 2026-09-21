@@ -10,7 +10,8 @@ import { validateConfig } from './config-validator.js'
 import { createJobQueue, type Job } from './job-queue.js'
 import { createScheduler, type Scheduler } from './scheduler.js'
 import { createWebhookServer, type WebhookServer } from './webhook-server.js'
-import { createPoller, type Poller } from './poller.js'
+import { createPoller, pollerSourceFingerprints, type Poller } from './poller.js'
+import { createPollerStateStore, type PollerStateStore } from './poller-state.js'
 import { writePidFile, removePidFile, isDaemonRunning } from './pid.js'
 import { renderTemplate } from './template.js'
 import { cleanupOldRuns, cleanupCentralLogs } from './cleanup.js'
@@ -20,6 +21,7 @@ export interface DaemonDeps {
   executeRun: (specPath: string, options: RunOptions, prepared?: PreparedRun) => Promise<void>
   logger: DaemonLogger
   config: Config
+  pollerStateStore?: PollerStateStore
 }
 
 export interface DaemonProcess {
@@ -52,10 +54,21 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
   let scheduler: Scheduler | undefined
   let webhookServers: WebhookServer[] = []
   let poller: Poller | undefined
+  let pollerStateStore: PollerStateStore | undefined
   let stopped = false
   let runLoopPromise: Promise<void> | undefined
   let reloadPromise: Promise<void> = Promise.resolve()
   const configDir = process.cwd()
+
+  function getPollerStateStore(): PollerStateStore {
+    if (!pollerStateStore) {
+      pollerStateStore = deps.pollerStateStore ?? createPollerStateStore(
+        path.join(logDir, 'poller-state.json'),
+        { warn: message => deps.logger.warn(message) },
+      )
+    }
+    return pollerStateStore
+  }
 
   function snapshot(specPath: string, options: RunOptions): PreparedRun {
     return prepareRun(specPath, options, rootConfig, configDir)
@@ -278,7 +291,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
           ...pollerConfig.options,
           ...(pollerConfig.target !== undefined ? { target: pollerConfig.target } : {}),
         }, { retries: pollerConfig.retries, retryDelayMs: pollerConfig.retryDelayMs })
-      })
+      }, getPollerStateStore())
       poller.start()
       deps.logger.info(`Poller started with ${config.pollers.length} poller(s)`)
     }
@@ -305,6 +318,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
       deps.logger.info('Daemon starting')
 
       await startTriggers(daemonConfig)
+      getPollerStateStore().retain(pollerSourceFingerprints(daemonConfig.pollers ?? []))
 
       deps.logger.info('Daemon started')
 
@@ -342,6 +356,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
         await stopTriggers()
         try {
           await startTriggers(newConfig.daemon)
+          getPollerStateStore().retain(pollerSourceFingerprints(newConfig.daemon.pollers ?? []))
           rootConfig = structuredClone(newConfig)
           daemonConfig = rootConfig.daemon as DaemonConfig
           for (const key of Object.keys(deps.config)) delete (deps.config as unknown as Record<string, unknown>)[key]
@@ -350,6 +365,7 @@ export function createDaemon(deps: DaemonDeps): DaemonProcess {
         } catch (error) {
           await stopTriggers()
           await startTriggers(previousDaemon)
+          getPollerStateStore().retain(pollerSourceFingerprints(previousDaemon.pollers ?? []))
           rootConfig = previousRoot
           daemonConfig = previousDaemon
           throw error

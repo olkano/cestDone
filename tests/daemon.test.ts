@@ -4,6 +4,7 @@ import type { Config } from '../src/shared/types.js'
 import type { DaemonConfig } from '../src/daemon/types.js'
 import type { DaemonDeps, DaemonProcess } from '../src/daemon/daemon.js'
 import type { DaemonLogger } from '../src/daemon/daemon-logger.js'
+import type { PollerStateStore } from '../src/daemon/poller-state.js'
 
 // Mock all daemon sub-modules
 vi.mock('../src/daemon/config-validator.js', () => ({
@@ -52,6 +53,9 @@ vi.mock('../src/daemon/poller.js', () => {
   }
   return {
     createPoller: vi.fn().mockReturnValue(mockPoller),
+    pollerSourceFingerprints: vi.fn().mockImplementation((pollers: Array<{ name: string; command?: string; url?: string }>) => (
+      new Map(pollers.map(poller => [poller.name, `fingerprint:${poller.command ?? poller.url ?? ''}`]))
+    )),
     _mockPoller: mockPoller,
   }
 })
@@ -100,6 +104,19 @@ function makeMockLogger(): DaemonLogger {
   }
 }
 
+function makePollerStateStore(): PollerStateStore {
+  const observations = new Map<string, import('../src/daemon/poller-state.js').PollerObservation>()
+  return {
+    get: vi.fn(name => observations.get(name)),
+    accept: vi.fn((name, observation) => { observations.set(name, observation) }),
+    retain: vi.fn((sources) => {
+      for (const [name, observation] of observations) {
+        if (sources.get(name) !== observation.sourceFingerprint) observations.delete(name)
+      }
+    }),
+  }
+}
+
 function makeDeps(daemonConfig?: DaemonConfig): DaemonDeps {
   const config: Config = {
     targetRepoPath: '.',
@@ -111,6 +128,7 @@ function makeDeps(daemonConfig?: DaemonConfig): DaemonDeps {
     executeRun: vi.fn().mockResolvedValue(undefined),
     logger: makeMockLogger(),
     config,
+    pollerStateStore: makePollerStateStore(),
   }
 }
 
@@ -193,6 +211,7 @@ describe('createDaemon', () => {
     expect(createPoller).toHaveBeenCalledWith(
       daemonConfig.pollers,
       expect.any(Function),
+      deps.pollerStateStore,
     )
   })
 
@@ -599,6 +618,90 @@ describe('createDaemon', () => {
 
     expect(deps.logger.info).toHaveBeenCalledWith('Reloading daemon configuration...')
     expect(deps.logger.info).toHaveBeenCalledWith('Daemon configuration reloaded')
+  })
+
+  it('reload() recreates an unchanged poller with the same daemon-owned observation state', async () => {
+    const daemonConfig = makeDaemonConfig({
+      pollers: [{ name: 'inbox', cron: '0 * * * *', command: 'check-inbox', spec: 'respond.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    daemon = createDaemon(deps)
+    await daemon.start()
+
+    await daemon.reload({ ...deps.config, daemon: structuredClone(daemonConfig) })
+
+    expect(createPoller).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(createPoller).mock.calls[0][2]).toBe(deps.pollerStateStore)
+    expect(vi.mocked(createPoller).mock.calls[1][2]).toBe(deps.pollerStateStore)
+  })
+
+  it('enqueues an unchanged poller output only once across a daemon reload', async () => {
+    const daemonConfig = makeDaemonConfig({
+      pollers: [{ name: 'inbox', cron: '0 * * * *', command: 'check-inbox', spec: 'respond.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    const fakePoller = (
+      configs: NonNullable<DaemonConfig['pollers']>,
+      onTrigger: (config: NonNullable<DaemonConfig['pollers']>[number], output: string) => void,
+      state: PollerStateStore,
+    ) => ({
+      start: () => {
+        const config = configs[0]
+        const sourceFingerprint = 'fingerprint:check-inbox'
+        const outputHash = 'a'.repeat(64)
+        const previous = state.get(config.name)
+        if (previous?.sourceFingerprint !== sourceFingerprint || previous.outputHash !== outputHash) {
+          onTrigger(config, 'output-a')
+          state.accept(config.name, { sourceFingerprint, outputHash, observedAt: '2026-09-21T10:00:00.000Z' })
+        }
+      },
+      stop: vi.fn(),
+    })
+    vi.mocked(createPoller)
+      .mockImplementationOnce(fakePoller)
+      .mockImplementationOnce(fakePoller)
+    daemon = createDaemon(deps)
+
+    await daemon.start()
+    await daemon.reload({ ...deps.config, daemon: structuredClone(daemonConfig) })
+    await new Promise(resolve => setTimeout(resolve, 600))
+
+    expect(deps.executeRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('prunes removed poller state only after a successful reload', async () => {
+    const daemonConfig = makeDaemonConfig({
+      pollers: [{ name: 'inbox', cron: '0 * * * *', command: 'check-inbox', spec: 'respond.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    daemon = createDaemon(deps)
+    await daemon.start()
+    vi.mocked(deps.pollerStateStore!.retain).mockClear()
+
+    await daemon.reload({ ...deps.config, daemon: makeDaemonConfig() })
+
+    expect(deps.pollerStateStore!.retain).toHaveBeenCalledOnce()
+    expect([...vi.mocked(deps.pollerStateStore!.retain).mock.calls[0][0]]).toEqual([])
+  })
+
+  it('failed reload rollback retains the previous poller observation set', async () => {
+    const daemonConfig = makeDaemonConfig({
+      pollers: [{ name: 'inbox', cron: '0 * * * *', command: 'check-inbox', spec: 'respond.md' }],
+    })
+    const deps = makeDeps(daemonConfig)
+    daemon = createDaemon(deps)
+    await daemon.start()
+    vi.mocked(deps.pollerStateStore!.retain).mockClear()
+    const mockServer = (await import('../src/daemon/webhook-server.js') as { _mockServer: { start: ReturnType<typeof vi.fn> } })._mockServer
+    mockServer.start.mockRejectedValueOnce(new Error('port unavailable'))
+
+    await expect(daemon.reload({
+      ...deps.config,
+      daemon: makeDaemonConfig({ webhooks: [{ name: 'new', port: 9876, spec: 'new.md' }] }),
+    })).rejects.toThrow('port unavailable')
+
+    expect(deps.pollerStateStore!.retain).toHaveBeenCalledOnce()
+    expect([...vi.mocked(deps.pollerStateStore!.retain).mock.calls[0][0]].map(([name]) => name)).toEqual(['inbox'])
   })
 
   it('reload() rejects an invalid full config before stopping active triggers', async () => {

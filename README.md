@@ -438,10 +438,11 @@ The daemon stays running until you stop it (`cestdone daemon stop` or Ctrl+C). I
 
 ### Hot Reload
 
-The daemon watches `.cestdonerc.json` for changes. When you save the file, it automatically validates the new config and reloads all triggers (schedules, webhooks, pollers) without restarting. No rebuild, no `pm2 restart` -- just edit and save.
+The daemon watches `.cestdonerc.json` for changes. When you save a structurally different, valid configuration, it reloads all triggers (schedules, webhooks, pollers) without restarting. No rebuild, no `pm2 restart` -- just edit and save.
 
 - **What reloads**: schedules, webhooks, pollers (all trigger sources are torn down and recreated)
-- **What persists**: the job queue and any currently running job continue uninterrupted
+- **What persists**: the job queue, any currently running job, and accepted poller observations continue uninterrupted
+- **Semantic no-ops**: identical and formatting-only JSON writes are logged and skipped, so they do not recreate triggers
 - **Invalid config**: if the new config has errors (bad JSON, invalid cron, missing fields), the reload is skipped and a warning is logged. The daemon continues with the previous config
 - **Debounce**: changes are debounced (500ms) to handle editors that write to temp files then rename
 
@@ -523,7 +524,9 @@ Multiple webhooks can share the same port if they have different paths.
 
 ### Pollers
 
-Like a schedule, but with a **"only if changed" gate**. Periodically runs a command or fetches a URL, and **only triggers a run when the output changes** compared to the previous poll (first poll always triggers). Use when you want to react to changes rather than run blindly — e.g., "check `npm audit` every 6 hours, but only trigger a fix if new vulnerabilities appeared." If you used a schedule for this, cestDone would re-run every 6 hours even when nothing changed, wasting tokens and creating duplicate work.
+Like a schedule, but with a **"only if changed" gate**. Periodically runs a command or fetches a URL, and **only triggers a run when the output changes** compared to the last successfully accepted poll. Use when you want to react to changes rather than run blindly, for example, "check `npm audit` every 6 hours, but only trigger a fix if new vulnerabilities appeared." If you used a schedule for this, cestDone would re-run every 6 hours even when nothing changed, wasting tokens and creating duplicate work.
+
+Accepted output hashes survive configuration reloads and daemon restarts in the ignored `logs/daemon/poller-state.json` file. The versioned state stores only each poller name, a hash of its command or URL identity, an output hash, and an observation timestamp; it never stores poll output. A missing or invalid state file keeps the safe cold-start behavior: the first successful observation triggers once and establishes the baseline. Changing a poller's command or URL also establishes a new baseline. State for removed pollers is pruned after a successful configuration reload.
 
 | Field | Required | Description |
 |---|---|---|

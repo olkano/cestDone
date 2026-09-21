@@ -649,14 +649,11 @@ if (isCliEntryPoint()) {
       const configPath = path.resolve(process.cwd(), '.cestdonerc.json')
       const watcher = createConfigWatcher({
         configPath,
-        onReload: (newConfig) => {
-          daemon.reload(newConfig).catch((err) => {
-            logger.error(`Config reload failed: ${(err as Error).message}`)
-          })
-        },
+        onReload: (newConfig) => daemon.reload(newConfig),
         onError: (err) => {
           logger.warn(`Config watch error (ignored): ${err.message}`)
         },
+        onInfo: message => logger.info(message),
       })
       watcher.start()
       logger.info(`Watching ${configPath} for changes`)
