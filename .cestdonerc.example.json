@@ -109,6 +109,21 @@
         }
       },
       {
+        "name": "helpscout-pending-reconciliation",
+        "application": "support",
+        "cron": "0 8 * * 6",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/zz_Specifications/recurring-tasks/pending-note-reconciliation.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support",
+        "options": {
+          "skipPlanning": true,
+          "withReviews": false,
+          "withBashReviews": false,
+          "workerModel": "sonnet",
+          "autoCommit": false
+        }
+      },
+      {
         "name": "weekly-usage-report",
         "application": "cestdone-observability",
         "cron": "0 20 * * 5",
