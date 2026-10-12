@@ -4,9 +4,9 @@
 
 import { DEFAULTS } from '../shared/config.js'
 
-export const SONNET = 'claude-sonnet-5'
-export const HAIKU = 'claude-haiku-4-5'
-export const OPUS = 'claude-opus-5'
+export const SONNET = 'claude-sonnet-5-5'
+export const HAIKU = 'claude-haiku-5-5'
+export const OPUS = 'claude-opus-5-5'
 
 const ALIASES: Record<string, string> = {
   haiku: HAIKU,

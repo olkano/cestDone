@@ -441,6 +441,10 @@ export class ClaudeCliBackend implements Backend {
       '--model', params.model,
     ]
 
+    if (params.reasoningEffort) {
+      args.push('--effort', params.reasoningEffort)
+    }
+
     if (!params.resumeSessionId && params.systemPrompt) {
       let sysPrompt = params.systemPrompt
       if (params.outputSchema) {

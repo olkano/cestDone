@@ -69,6 +69,16 @@ describe('AgentSdkBackend', () => {
   })
 
   describe('invoke()', () => {
+    it('passes effort only when reasoningEffort is set', async () => {
+      mockQuery.mockReturnValue(createMockQuery(makeSystemMessage(), makeResultMessage()))
+      await new AgentSdkBackend().invoke(makeInvocation({ reasoningEffort: 'medium' }))
+      expect(mockQuery.mock.calls[0][0].options.effort).toBe('medium')
+
+      mockQuery.mockReturnValue(createMockQuery(makeSystemMessage(), makeResultMessage()))
+      await new AgentSdkBackend().invoke(makeInvocation())
+      expect(mockQuery.mock.calls[1][0].options).not.toHaveProperty('effort')
+    })
+
     it('calls query() with correct options for non-resume call', async () => {
       mockQuery.mockReturnValue(createMockQuery(makeSystemMessage(), makeResultMessage()))
       const backend = new AgentSdkBackend()

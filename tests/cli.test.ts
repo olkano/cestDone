@@ -355,7 +355,7 @@ describe('handleResume', () => {
     })
 
     const configPassed = vi.mocked(runPhase).mock.calls[0][2]
-    expect(configPassed.directorModel).toBe('claude-opus-5')
+    expect(configPassed.directorModel).toBe('claude-opus-5-5')
     expect(configPassed.withWorker).toBe(true)
     expect(configPassed.withReviews).toBe(true)
   })
@@ -409,8 +409,8 @@ describe('CLI flag wiring', () => {
     await handleRun('spec.md', { directorModel: 'opus', workerModel: 'sonnet' })
 
     const configPassed = vi.mocked(runPlanningFlow).mock.calls[0][1]
-    expect(configPassed.directorModel).toBe('claude-opus-5')
-    expect(configPassed.workerModel).toBe('claude-sonnet-5')
+    expect(configPassed.directorModel).toBe('claude-opus-5-5')
+    expect(configPassed.workerModel).toBe('claude-sonnet-5-5')
   })
 
   // KF4: --with-bash-reviews implies --with-reviews

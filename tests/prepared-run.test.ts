@@ -20,7 +20,7 @@ describe('prepareRun', () => {
 
     expect(prepared.config.daemon).toBeUndefined()
     expect(prepared.config.targetRepoPath).toBe(path.resolve(configDir, 'target repo'))
-    expect(prepared.config.resolvedAgents?.worker).toMatchObject({ profileName: 'claude', model: 'claude-haiku-4-5' })
+    expect(prepared.config.resolvedAgents?.worker).toMatchObject({ profileName: 'claude', model: 'claude-haiku-5-5' })
     expect(Object.isFrozen(prepared)).toBe(true)
     expect(Object.isFrozen(prepared.config)).toBe(true)
     expect(Object.isFrozen(prepared.config.resolvedAgents?.worker)).toBe(true)

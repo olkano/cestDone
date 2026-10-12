@@ -31,6 +31,7 @@ export class AgentSdkBackend implements Backend {
       queryOptions.outputFormat = { type: 'json_schema', schema: params.outputSchema }
     }
     if (params.maxBudgetUsd !== undefined) queryOptions.maxBudgetUsd = params.maxBudgetUsd
+    if (params.reasoningEffort) queryOptions.effort = params.reasoningEffort
 
     if (params.resumeSessionId) {
       queryOptions.resume = params.resumeSessionId

@@ -253,7 +253,9 @@ Optional `.cestdonerc.json` in the target repo. CLI flags take precedence.
 }
 ```
 
-Model aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full ID directly (e.g., `claude-sonnet-5`).
+Model aliases `haiku`, `sonnet`, and `opus` resolve to full model IDs. You can also pass a full ID directly (e.g., `claude-fable-5-1`).
+
+Claude profiles accept `directorReasoningEffort` and `workerReasoningEffort` (`low` to `max`), passed to Claude Code as `--effort`. Without them, Claude runs use the effort from the invoking account's Claude Code `settings.json`, which for the daemon is Daniel's interactive configuration.
 
 `defaultAgent` selects the profile used when no selector is supplied. `--agent` overrides it for one invocation, while `--director-agent` and `--worker-agent` override individual roles. A daemon trigger uses the same fields under `options`, for example `"options": { "agent": "codex" }`. A queued daemon job keeps its resolved provider, model, timeout, permissions, paths, and profile even if configuration reloads before execution.
 

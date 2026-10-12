@@ -477,11 +477,31 @@ describe('ClaudeCliBackend', () => {
       mockSpawnSuccess(makeStreamOutput())
       const backend = new ClaudeCliBackend()
 
-      await backend.invoke(makeInvocation({ model: 'claude-opus-5' }))
+      await backend.invoke(makeInvocation({ model: 'claude-opus-5-5' }))
 
       const { args } = getSpawnArgs()
       expect(args).toContain('--model')
-      expect(args).toContain('claude-opus-5')
+      expect(args).toContain('claude-opus-5-5')
+    })
+
+    it('passes --effort when reasoningEffort is set', async () => {
+      mockSpawnSuccess(makeStreamOutput())
+      const backend = new ClaudeCliBackend()
+
+      await backend.invoke(makeInvocation({ reasoningEffort: 'high' }))
+
+      const { args } = getSpawnArgs()
+      expect(args[args.indexOf('--effort') + 1]).toBe('high')
+    })
+
+    it('omits --effort when reasoningEffort is not set', async () => {
+      mockSpawnSuccess(makeStreamOutput())
+      const backend = new ClaudeCliBackend()
+
+      await backend.invoke(makeInvocation())
+
+      const { args } = getSpawnArgs()
+      expect(args).not.toContain('--effort')
     })
 
     it('includes --append-system-prompt when systemPrompt provided', async () => {

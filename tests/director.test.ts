@@ -1148,7 +1148,7 @@ describe('executeDirector', () => {
     })
 
     const invocation = (mockBackend.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    expect(invocation.model).toBe('claude-opus-5')
+    expect(invocation.model).toBe('claude-opus-5-5')
   })
 
   // MO2: Falls back to env var when no directorModel override
@@ -1181,7 +1181,7 @@ describe('executeDirector', () => {
     await runPhase(TEST_PLAN, TEST_PHASE, config, 'plan.md', deps)
 
     const opts = (deps.workerExecute as ReturnType<typeof vi.fn>).mock.calls[0][0] as WorkerOptions
-    expect(opts.model).toBe('claude-sonnet-5')
+    expect(opts.model).toBe('claude-sonnet-5-5')
   })
 
   // Malformed Director output must never be promoted to completion.

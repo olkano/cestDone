@@ -92,4 +92,25 @@ describe('validateAgentProfiles', () => {
   it('accepts a structurally valid unselected Codex profile without preflight', () => {
     expect(validateAgentProfiles({ ...base, agentProfiles: profiles }).valid).toBe(true)
   })
+
+  it('accepts Claude effort levels and rejects Codex-only ones on a Claude profile', () => {
+    const claude = (effort: string) => ({ ...base, agentProfiles: { c: { ...profiles.claude, workerReasoningEffort: effort as 'high' } } })
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max']) expect(validateAgentProfiles(claude(effort)).valid).toBe(true)
+    for (const effort of ['minimal', 'ultra', 'persistent']) expect(validateAgentProfiles(claude(effort)).valid).toBe(false)
+  })
+
+  it('still rejects Codex-only transport fields on a Claude profile', () => {
+    expect(validateAgentProfiles({ ...base, agentProfiles: { c: { ...profiles.claude, callTimeoutMs: 1000 } } }).valid).toBe(false)
+  })
+})
+
+describe('Claude profile effort', () => {
+  it('resolves per-role effort and current alias IDs for a Claude profile', () => {
+    const result = resolveRunAgents({
+      ...base,
+      agentProfiles: { claude: { ...profiles.claude, directorReasoningEffort: 'medium', workerReasoningEffort: 'high' } },
+    }, { agent: 'claude' }, {})
+    expect(result.director).toMatchObject({ provider: 'claude', model: 'claude-sonnet-5-5', reasoningEffort: 'medium' })
+    expect(result.worker).toMatchObject({ provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'high' })
+  })
 })

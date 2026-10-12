@@ -10,13 +10,15 @@ import type {
 
 const PROFILE_NAME = /^[a-z][a-z0-9-]*$/
 const REASONING = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'persistent'])
+// Claude Code `--effort` levels; passed explicitly so runs don't inherit the interactive user's settings.json effort.
+const CLAUDE_EFFORT = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 const WEB_SEARCH = new Set(['disabled', 'cached', 'live'])
 const CLAUDE_BACKENDS = new Set<BackendType>(['claude-cli', 'agent-sdk'])
 const BACKENDS = new Set<BackendType>(['claude-cli', 'agent-sdk', 'codex-sdk'])
 const CLAUDE_ALIASES: Record<string, string> = {
-  haiku: 'claude-haiku-4-5',
-  sonnet: 'claude-sonnet-5',
-  opus: 'claude-opus-5',
+  haiku: 'claude-haiku-5-5',
+  sonnet: 'claude-sonnet-5-5',
+  opus: 'claude-opus-5-5',
 }
 
 export interface ValidationResult { valid: boolean; errors: string[] }
@@ -47,12 +49,13 @@ function validateProfile(name: string, profile: AgentProfile, errors: string[]):
     }
   }
   if (profile.provider === 'claude') {
-    if (profile.directorReasoningEffort || profile.workerReasoningEffort || profile.callTimeoutMs || profile.webSearchMode || profile.codexCliPath) {
+    if (profile.callTimeoutMs || profile.webSearchMode || profile.codexCliPath) {
       errors.push(`Claude agent profile "${name}" contains Codex-only fields`)
     }
   }
+  const efforts = profile.provider === 'claude' ? CLAUDE_EFFORT : REASONING
   for (const effort of [profile.directorReasoningEffort, profile.workerReasoningEffort]) {
-    if (effort !== undefined && !REASONING.has(effort)) errors.push(`Agent profile "${name}" has an invalid reasoning effort`)
+    if (effort !== undefined && !efforts.has(effort)) errors.push(`Agent profile "${name}" has an invalid reasoning effort`)
   }
   if (profile.callTimeoutMs !== undefined && (!Number.isInteger(profile.callTimeoutMs) || profile.callTimeoutMs < 1 || profile.callTimeoutMs > 86_400_000)) {
     errors.push(`Agent profile "${name}" callTimeoutMs must be an integer between 1 and 86400000`)
