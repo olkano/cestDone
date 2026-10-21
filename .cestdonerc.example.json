@@ -72,12 +72,13 @@
         "application": "invoicing",
         "cron": "0 13 20 * *",
         "timezone": "Europe/Madrid",
-        "spec": "C:/Users/dpire/Code/scripts/invoicing/generate-monthly-invoices.md",
-        "target": "C:/Users/dpire/Code/scripts",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant/zz_Specifications/recurring-tasks/monthly-invoices.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant",
         "options": {
           "skipPlanning": true,
           "directorModel": "sonnet",
-          "workerModel": "sonnet"
+          "workerModel": "sonnet",
+          "autoCommit": false
         }
       },
       {
