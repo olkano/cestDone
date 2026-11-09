@@ -379,6 +379,23 @@
           "maxTurns": "200",
           "mcpConfig": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/tools/browser/mcp-playwright-headless.json"
         }
+      },
+      {
+        "name": "helpscout-pmpilot-review",
+        "application": "support",
+        "cron": "5,35 * * * *",
+        "timezone": "Europe/Madrid",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/tools/poll-helpscout.ps1 -Kind pmpilot-report -WindowMinutes 120 -NotBefore 2026-11-09T12:31:00Z",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/zz_Specifications/recurring-tasks/pmpilot-report-review.md",
+        "target": "C:/Users/dpire/Code/ITMPlatform",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "opus",
+          "workerModel": "opus",
+          "autoCommit": false,
+          "maxTurns": "200",
+          "mcpConfig": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/tools/mcp-none.json"
+        }
       }
     ]
   }
