@@ -242,6 +242,21 @@
           "autoCommit": false,
           "maxTurns": "200"
         }
+      },
+      {
+        "name": "weekly-product-review",
+        "application": "product-review",
+        "cron": "30 6 * * 1",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/product-review/zz_Specifications/recurring-tasks/weekly-product-review.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
       }
     ],
     "_pausedSchedules_readme": "Entries below are NOT read by the daemon (only 'schedules' is). Kept here so the cron/config can be restored later by moving them back into 'schedules'.",
