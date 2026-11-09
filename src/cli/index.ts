@@ -479,14 +479,21 @@ export interface SendEmailOptions {
   /** Path of a file whose content becomes the body (alternative to body). */
   bodyFile?: string
   html?: string
+  /** Path of a file whose content becomes the HTML body (alternative to html; skips Markdown rendering). */
+  htmlFile?: string
   /** Default true: render the body from Markdown into an HTML alternative. */
   markdown?: boolean
   attach?: string[]
+  /** Image files embedded inline; the HTML references each as cid:<file name>. */
+  inline?: string[]
 }
 
 export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
   if ((opts.body == null) === (opts.bodyFile == null)) {
     throw new Error('Provide exactly one of either --body or --body-file')
+  }
+  if (opts.html != null && opts.htmlFile != null) {
+    throw new Error('Provide at most one of --html or --html-file')
   }
   let body: string
   if (opts.bodyFile != null) {
@@ -497,19 +504,28 @@ export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
   } else {
     body = opts.body as string
   }
-  const missing = (opts.attach ?? []).filter((p) => !fs.existsSync(p))
+  let explicitHtml = opts.html
+  if (opts.htmlFile != null) {
+    if (!fs.existsSync(opts.htmlFile)) {
+      throw new Error(`HTML file not found: ${opts.htmlFile}`)
+    }
+    explicitHtml = fs.readFileSync(opts.htmlFile, 'utf-8')
+  }
+  const missing = [...(opts.attach ?? []), ...(opts.inline ?? [])].filter((p) => !fs.existsSync(p))
   if (missing.length > 0) {
     throw new Error(`Attachment file(s) not found: ${missing.join(', ')}`)
   }
   const { sendEmail } = await import('../email/index.js')
   const { renderEmailHtml } = await import('../email/markdown.js')
-  const html = opts.html ?? (opts.markdown === false ? undefined : renderEmailHtml(body))
+  const html = explicitHtml ?? (opts.markdown === false ? undefined : renderEmailHtml(body))
+  const inlineImages = (opts.inline ?? []).map((p) => ({ path: p, cid: path.basename(p) }))
   const result = await sendEmail({
     to: opts.to,
     subject: opts.subject,
     body,
     html,
     ...(opts.attach && opts.attach.length > 0 ? { attachments: opts.attach } : {}),
+    ...(inlineImages.length > 0 ? { inlineImages } : {}),
   })
   if (!result.success) {
     throw new Error(result.error ?? 'Failed to send email')
@@ -714,9 +730,11 @@ if (isCliEntryPoint()) {
     .option('--body <body>', 'Email body (Markdown or plain text; rendered to HTML unless --no-markdown)')
     .option('--body-file <path>', 'Read the body from a file instead of --body (safer for long content)')
     .option('--html <html>', 'Explicit HTML body (skips Markdown rendering)')
+    .option('--html-file <path>', 'Read the HTML body from a file (for large pages; skips Markdown rendering)')
     .option('--no-markdown', 'Send plain text only, without the rendered HTML alternative')
     .option('--attach <path>', 'Attach a file (repeatable)', (v: string, prev: string[]) => prev.concat(v), [] as string[])
-    .action(async (opts: { to: string; subject: string; body?: string; bodyFile?: string; html?: string; markdown?: boolean; attach?: string[] }) => {
+    .option('--inline <path>', 'Embed an image inline; reference it in the HTML as cid:<file name> (repeatable)', (v: string, prev: string[]) => prev.concat(v), [] as string[])
+    .action(async (opts: { to: string; subject: string; body?: string; bodyFile?: string; html?: string; htmlFile?: string; markdown?: boolean; attach?: string[]; inline?: string[] }) => {
       await handleSendEmail(opts)
     })
 

@@ -36,6 +36,22 @@ describe('SmtpMailProvider', () => {
     expect(provider.name).toBe('smtp')
   })
 
+  it('send() embeds inline images with their cid after the regular attachments', async () => {
+    mockSendMail.mockResolvedValue({ messageId: '<abc@example.com>' })
+    const provider = new SmtpMailProvider(BASE_CONFIG)
+    await provider.send({
+      to: 'r@e.com', subject: 'S', body: 'B', html: '<img src="cid:chart-1.png">',
+      attachments: ['/tmp/report.pdf'],
+      inlineImages: [{ path: '/tmp/chart-1.png', cid: 'chart-1.png' }],
+    })
+    expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [
+        { path: '/tmp/report.pdf' },
+        { path: '/tmp/chart-1.png', cid: 'chart-1.png', filename: 'chart-1.png' },
+      ],
+    }))
+  })
+
   it('send() calls sendMail with correct params', async () => {
     mockSendMail.mockResolvedValue({ messageId: '<abc@example.com>' })
     const provider = new SmtpMailProvider(BASE_CONFIG)

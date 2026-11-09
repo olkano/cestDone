@@ -9,6 +9,8 @@ export interface MailMessage {
   html?: string
   /** Absolute or CWD-relative paths of files to attach */
   attachments?: string[]
+  /** Images embedded in the HTML body, referenced as cid:<cid>. Gmail strips inline SVG and data URIs, so charts travel this way. */
+  inlineImages?: Array<{ path: string; cid: string }>
 }
 
 export interface MailResult {

@@ -137,6 +137,24 @@ describe('SendGridMailProvider', () => {
     ])
   })
 
+  it('send() marks inline images as inline with their content_id', async () => {
+    fetchSpy.mockResolvedValue(new Response(null, { status: 202 }))
+
+    const provider = new SendGridMailProvider(BASE_CONFIG)
+    await provider.send({
+      to: 'r@e.com', subject: 'S', body: 'B', html: '<img src="cid:chart-1.png">',
+      inlineImages: [{ path: '/path/to/chart-1.png', cid: 'chart-1.png' }],
+    })
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as any).body)
+    expect(body.attachments).toEqual([{
+      content: Buffer.from('file-content').toString('base64'),
+      filename: 'chart-1.png',
+      disposition: 'inline',
+      content_id: 'chart-1.png',
+    }])
+  })
+
   it('send() includes base64-encoded attachments', async () => {
     fetchSpy.mockResolvedValue(new Response(null, { status: 202 }))
 

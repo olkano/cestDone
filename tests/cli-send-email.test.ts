@@ -48,6 +48,31 @@ describe('handleSendEmail', () => {
     )
   })
 
+  it('reads the HTML body from --html-file and embeds --inline images under their file name', async () => {
+    mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cestdone-mail-'))
+    const htmlFile = path.join(dir, 'report.html')
+    const png = path.join(dir, 'chart-1.png')
+    fs.writeFileSync(htmlFile, '<p>Hola <img src="cid:chart-1.png"></p>')
+    fs.writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    await handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: 'Resumen', htmlFile, inline: [png] })
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: 'Resumen',
+        html: '<p>Hola <img src="cid:chart-1.png"></p>',
+        inlineImages: [{ path: png, cid: 'chart-1.png' }],
+      }),
+    )
+  })
+
+  it('rejects --html together with --html-file, and a missing inline image', async () => {
+    await expect(handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: 'B', html: '<b></b>', htmlFile: 'x.html' }))
+      .rejects.toThrow('at most one of --html or --html-file')
+    await expect(handleSendEmail({ to: 'r@e.com', subject: 'Hi', body: 'B', inline: ['/nope/chart.png'] }))
+      .rejects.toThrow('Attachment file(s) not found')
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
   it('passes html option when provided', async () => {
     mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
 

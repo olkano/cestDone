@@ -1,5 +1,13 @@
 // src/email/smtp-provider.ts
+import { basename } from 'node:path'
 import type { MailProvider, MailMessage, MailResult, MailConfig } from './types.js'
+
+// Regular attachments first, then the images the HTML references by cid (nodemailer embeds those inline).
+function attachmentsOf(message: MailMessage): Array<{ path: string; cid?: string; filename?: string }> {
+  const files = (message.attachments ?? []).map((p) => ({ path: p }))
+  const inline = (message.inlineImages ?? []).map(({ path, cid }) => ({ path, cid, filename: basename(path) }))
+  return [...files, ...inline]
+}
 
 export class SmtpMailProvider implements MailProvider {
   readonly name = 'smtp' as const
@@ -11,6 +19,7 @@ export class SmtpMailProvider implements MailProvider {
     this.config = config
   }
 
+
   async send(message: MailMessage): Promise<MailResult> {
     const transporter = await this.getTransporter()
     try {
@@ -20,9 +29,7 @@ export class SmtpMailProvider implements MailProvider {
         subject: message.subject,
         text: message.body,
         ...(message.html ? { html: message.html } : {}),
-        ...(message.attachments && message.attachments.length > 0
-          ? { attachments: message.attachments.map((p) => ({ path: p })) }
-          : {}),
+        ...(attachmentsOf(message).length > 0 ? { attachments: attachmentsOf(message) } : {}),
       })
       return { success: true, messageId: info.messageId }
     } catch (err: unknown) {

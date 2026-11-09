@@ -10,6 +10,8 @@ interface SendGridAttachment {
   content: string
   filename: string
   disposition: string
+  /** Set for inline images; the HTML references them as cid:<content_id>. */
+  content_id?: string
 }
 
 interface SendGridPayload {
@@ -55,12 +57,19 @@ export class SendGridMailProvider implements MailProvider {
       payload.mail_settings = { sandbox_mode: { enable: true } }
     }
 
-    if (message.attachments && message.attachments.length > 0) {
-      payload.attachments = message.attachments.map((filePath) => ({
-        content: readFileSync(filePath).toString('base64'),
-        filename: basename(filePath),
-        disposition: 'attachment',
-      }))
+    const files: SendGridAttachment[] = (message.attachments ?? []).map((filePath) => ({
+      content: readFileSync(filePath).toString('base64'),
+      filename: basename(filePath),
+      disposition: 'attachment',
+    }))
+    const inline: SendGridAttachment[] = (message.inlineImages ?? []).map(({ path, cid }) => ({
+      content: readFileSync(path).toString('base64'),
+      filename: basename(path),
+      disposition: 'inline',
+      content_id: cid,
+    }))
+    if (files.length + inline.length > 0) {
+      payload.attachments = [...files, ...inline]
     }
 
     try {
