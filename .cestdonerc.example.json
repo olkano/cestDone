@@ -359,6 +359,20 @@
           "workerModel": "opus",
           "autoCommit": false
         }
+      },
+      {
+        "name": "product-review-feedback",
+        "application": "product-review",
+        "port": 7799,
+        "path": "/product-review-feedback",
+        "secret": "REPLACE_WITH_REPORT_HUB_WEBHOOK_SECRET",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/product-review/zz_Specifications/recurring-tasks/process-feedback.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/product-review",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
       }
     ],
     "pollers": [
