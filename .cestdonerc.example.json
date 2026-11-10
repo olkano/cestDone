@@ -140,6 +140,63 @@
         }
       },
       {
+        "name": "olkano-sense",
+        "application": "olkano-marketing",
+        "cron": "30 12 * * *",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing/sense.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "olkano-operate",
+        "application": "olkano-marketing",
+        "cron": "0 11 * * 1,3,5",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing/operate.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "opus",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
+      },
+      {
+        "name": "olkano-learn",
+        "application": "olkano-marketing",
+        "cron": "30 11 * * 1",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing/learn.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "olkano-steer",
+        "application": "olkano-marketing",
+        "cron": "0 11 1 * *",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing/steer.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false
+        }
+      },
+      {
         "name": "natasha-daily",
         "application": "natasha-jobs",
         "cron": "0 4 * * 1-6",
@@ -312,6 +369,33 @@
         "secret": "REPLACE_WITH_REPORT_HUB_WEBHOOK_SECRET",
         "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant/process-accounting-feedback.md",
         "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/Accounting-AI-Assistant",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "olkano-marketing-feedback",
+        "application": "olkano-marketing",
+        "port": 7799,
+        "path": "/olkano-marketing-feedback",
+        "secret": "REPLACE_WITH_REPORT_HUB_WEBHOOK_SECRET",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing/process-feedback.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/olkano-marketing",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
+      },
+      {
+        "name": "server-health-feedback",
+        "port": 7799,
+        "path": "/server-health-feedback",
+        "secret": "REPLACE_WITH_REPORT_HUB_WEBHOOK_SECRET",
+        "spec": "C:/Users/dpire/Code/ubuntu-linux-server/health-monitoring/process-feedback.md",
+        "target": "C:/Users/dpire/Code/ubuntu-linux-server",
         "options": {
           "skipPlanning": true,
           "workerModel": "opus",
