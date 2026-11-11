@@ -27,6 +27,23 @@ describe('handleSendEmail', () => {
     )
   })
 
+  it('sends one message to every address of a comma-separated --to', async () => {
+    mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
+
+    await handleSendEmail({ to: 'a@e.com, b@e.com,c@e.com', subject: 'Hi', body: 'Hello' })
+
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: ['a@e.com', 'b@e.com', 'c@e.com'] }),
+    )
+  })
+
+  it('rejects a --to with an empty or malformed address before sending', async () => {
+    await expect(handleSendEmail({ to: 'a@e.com,,b@e.com', subject: 'Hi', body: 'x' })).rejects.toThrow(/recipient/i)
+    await expect(handleSendEmail({ to: 'a@e.com, not-an-address', subject: 'Hi', body: 'x' })).rejects.toThrow(/not-an-address/)
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
   it('renders the markdown body to an HTML alternative by default', async () => {
     mockSendEmail.mockResolvedValue({ success: true, messageId: '<abc>' })
 

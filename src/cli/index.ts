@@ -489,6 +489,15 @@ export interface SendEmailOptions {
 }
 
 export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
+  // --to takes one address or a comma-separated list; a list goes out as one message to every address.
+  const recipients = opts.to.split(',').map((a) => a.trim())
+  if (recipients.some((a) => a === '')) {
+    throw new Error(`Empty recipient in --to: "${opts.to}"`)
+  }
+  const malformed = recipients.filter((a) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a))
+  if (malformed.length > 0) {
+    throw new Error(`Invalid recipient address(es) in --to: ${malformed.join(', ')}`)
+  }
   if ((opts.body == null) === (opts.bodyFile == null)) {
     throw new Error('Provide exactly one of either --body or --body-file')
   }
@@ -520,7 +529,7 @@ export async function handleSendEmail(opts: SendEmailOptions): Promise<void> {
   const html = explicitHtml ?? (opts.markdown === false ? undefined : renderEmailHtml(body))
   const inlineImages = (opts.inline ?? []).map((p) => ({ path: p, cid: path.basename(p) }))
   const result = await sendEmail({
-    to: opts.to,
+    to: recipients.length === 1 ? recipients[0] : recipients,
     subject: opts.subject,
     body,
     html,
@@ -725,7 +734,7 @@ if (isCliEntryPoint()) {
 
   program.command('send-email')
     .description('Send an email (used by Worker agent via Bash)')
-    .requiredOption('--to <address>', 'Recipient email address')
+    .requiredOption('--to <address>', 'Recipient email address, or a comma-separated list for one message to several')
     .requiredOption('--subject <subject>', 'Email subject line')
     .option('--body <body>', 'Email body (Markdown or plain text; rendered to HTML unless --no-markdown)')
     .option('--body-file <path>', 'Read the body from a file instead of --body (safer for long content)')
