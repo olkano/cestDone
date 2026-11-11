@@ -303,7 +303,7 @@
       {
         "name": "weekly-product-review",
         "application": "product-review",
-        "cron": "30 6 * * 1",
+        "cron": "30 6 * * 2",
         "timezone": "Europe/Madrid",
         "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/product-review/zz_Specifications/recurring-tasks/weekly-product-review.md",
         "target": "C:/Users/dpire/Code/Agent-Automation-Workflows",
