@@ -509,6 +509,23 @@
           "maxTurns": "200",
           "mcpConfig": "C:/Users/dpire/Code/Agent-Automation-Workflows/helpscout-support/tools/mcp-none.json"
         }
+      },
+      {
+        "name": "search-presence-mail",
+        "application": "search-presence-scout",
+        "cron": "*/30 * * * *",
+        "command": "node C:/Users/dpire/Code/Agent-Automation-Workflows/mail-watch/tools/mail-watch.mjs poll --job search-presence-mail --scheduled",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/process-mail.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
+        "retries": 2,
+        "retryDelayMs": 60000,
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
       }
     ]
   }
