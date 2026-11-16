@@ -55,6 +55,21 @@
         }
       },
       {
+        "name": "monthly-ppm-comparisons-check",
+        "application": "website",
+        "cron": "0 9 2 * *",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/itmplatform.com/zz_Specifications/recurring-cron-tasks/check-the-ppm-comparisons.md",
+        "target": "C:/Users/dpire/Code/itmplatform.com",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
+      },
+      {
         "name": "daily-server-health",
         "application": "server-operations",
         "cron": "0 23 * * *",
