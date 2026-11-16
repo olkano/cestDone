@@ -2,6 +2,7 @@
   "targetRepoPath": ".",
   "claudeCliPath": "C:/Users/dpire/AppData/Roaming/npm/claude.cmd",
   "usageDir": "C:/Users/dpire/.cestdone/usage",
+  "houseRules": "C:/Users/dpire/Code/cestdone/house-rules.md",
   "defaultAgent": "claude",
   "agentProfiles": {
     "claude": {
