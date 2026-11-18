@@ -287,51 +287,6 @@
         }
       },
       {
-        "name": "search-presence-daily",
-        "application": "search-presence-scout",
-        "cron": "30 6 * * 1-5",
-        "timezone": "Europe/Madrid",
-        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/operate.md",
-        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
-        "options": {
-          "skipPlanning": true,
-          "directorModel": "sonnet",
-          "workerModel": "claude-fable-5-1",
-          "autoCommit": false,
-          "maxTurns": "200"
-        }
-      },
-      {
-        "name": "search-presence-weekly",
-        "application": "search-presence-scout",
-        "cron": "0 8 * * 0",
-        "timezone": "Europe/Madrid",
-        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/weekly-review.md",
-        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
-        "options": {
-          "skipPlanning": true,
-          "directorModel": "sonnet",
-          "workerModel": "claude-fable-5-1",
-          "autoCommit": false,
-          "maxTurns": "200"
-        }
-      },
-      {
-        "name": "search-presence-monthly",
-        "application": "search-presence-scout",
-        "cron": "0 13 1 * *",
-        "timezone": "Europe/Madrid",
-        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/monthly-steer.md",
-        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
-        "options": {
-          "skipPlanning": true,
-          "directorModel": "sonnet",
-          "workerModel": "claude-fable-5-1",
-          "autoCommit": false,
-          "maxTurns": "200"
-        }
-      },
-      {
         "name": "weekly-product-review",
         "application": "product-review",
         "cron": "30 6 * * 2",
@@ -342,6 +297,21 @@
           "skipPlanning": true,
           "directorModel": "sonnet",
           "workerModel": "opus",
+          "autoCommit": false,
+          "maxTurns": "200"
+        }
+      },
+      {
+        "name": "comparison-outreach-daily",
+        "application": "comparison-outreach",
+        "cron": "30 9 * * 1-5",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/comparison-outreach/zz_Specifications/recurring-tasks/daily.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/comparison-outreach",
+        "options": {
+          "skipPlanning": true,
+          "directorModel": "sonnet",
+          "workerModel": "claude-fable-5-1",
           "autoCommit": false,
           "maxTurns": "200"
         }
@@ -462,20 +432,6 @@
         }
       },
       {
-        "name": "search-presence-feedback",
-        "application": "search-presence-scout",
-        "port": 7799,
-        "path": "/search-presence-feedback",
-        "secret": "<the shared webhook secret, same value as the other hooks in the live file>",
-        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/process-feedback.md",
-        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
-        "options": {
-          "skipPlanning": true,
-          "workerModel": "opus",
-          "autoCommit": false
-        }
-      },
-      {
         "name": "product-review-feedback",
         "application": "product-review",
         "port": 7799,
@@ -542,29 +498,12 @@
         }
       },
       {
-        "name": "search-presence-mail",
-        "application": "search-presence-scout",
+        "name": "comparison-kim-mail",
+        "application": "comparison-outreach",
         "cron": "*/30 * * * *",
-        "command": "node C:/Users/dpire/Code/Agent-Automation-Workflows/mail-watch/tools/mail-watch.mjs poll --job search-presence-mail --scheduled",
-        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/process-mail.md",
-        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
-        "retries": 2,
-        "retryDelayMs": 60000,
-        "options": {
-          "skipPlanning": true,
-          "directorModel": "sonnet",
-          "workerModel": "claude-fable-5-1",
-          "autoCommit": false,
-          "maxTurns": "200"
-        }
-      },
-      {
-        "name": "search-presence-kim-mail",
-        "application": "search-presence-scout",
-        "cron": "*/30 * * * *",
-        "command": "node C:/Users/dpire/Code/Agent-Automation-Workflows/mail-watch/tools/mail-watch.mjs poll --job search-presence-kim-mail --scheduled",
-        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout/zz_Specifications/recurring-tasks/process-mail.md",
-        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/search-presence-scout",
+        "command": "node C:/Users/dpire/Code/Agent-Automation-Workflows/mail-watch/tools/mail-watch.mjs poll --job comparison-kim-mail --scheduled",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/comparison-outreach/zz_Specifications/recurring-tasks/process-mail.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/comparison-outreach",
         "retries": 2,
         "retryDelayMs": 60000,
         "options": {
