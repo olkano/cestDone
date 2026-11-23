@@ -444,6 +444,20 @@
           "workerModel": "opus",
           "autoCommit": false
         }
+      },
+      {
+        "name": "comparison-outreach-feedback",
+        "application": "comparison-outreach",
+        "port": 7799,
+        "path": "/comparison-outreach-feedback",
+        "secret": "REPLACE_WITH_REPORT_HUB_WEBHOOK_SECRET",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/comparison-outreach/zz_Specifications/recurring-tasks/process-feedback.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/comparison-outreach",
+        "options": {
+          "skipPlanning": true,
+          "workerModel": "opus",
+          "autoCommit": false
+        }
       }
     ],
     "pollers": [
