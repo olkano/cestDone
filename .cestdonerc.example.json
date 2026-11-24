@@ -315,6 +315,23 @@
           "autoCommit": false,
           "maxTurns": "200"
         }
+      },
+      {
+        "name": "investment-research-watch",
+        "application": "investment-research",
+        "cron": "15 14 * * 1-5",
+        "timezone": "Europe/Madrid",
+        "spec": "C:/Users/dpire/Code/Agent-Automation-Workflows/trading-agent/research-watch.md",
+        "target": "C:/Users/dpire/Code/Agent-Automation-Workflows/trading-agent",
+        "options": {
+          "backend": "claude-cli",
+          "workerModel": "sonnet",
+          "skipPlanning": true,
+          "withReviews": false,
+          "withBashReviews": false,
+          "autoCommit": false,
+          "maxTurns": "24"
+        }
       }
     ],
     "_pausedSchedules_readme": "Entries below are NOT read by the daemon (only 'schedules' is). Kept here so the cron/config can be restored later by moving them back into 'schedules'.",
